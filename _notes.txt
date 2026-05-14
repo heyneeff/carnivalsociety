@@ -1,0 +1,5 @@
+carnival-society
+================
+
+Drag this entire folder into Cloudflare Pages > Upload assets.
+The file that becomes the homepage is index.html.
