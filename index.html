@@ -309,11 +309,19 @@ border-top: 1px solid rgba(200,160,90,0.2); text-align: center;
 @keyframes fade { from { opacity:0; } to { opacity:1; } }
 
 /* CARNIVAL ERUPTION */
-.hero-trumpets { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
-.edge-trumpet { position: absolute; width: clamp(180px,22vw,320px); will-change: transform; opacity: 0.95; }
-.edge-trumpet.left  { bottom: 14%; left: -22vw; }
-.edge-trumpet.right { top: 18%; right: -22vw; }
-.edge-trumpet img { width: 100%; height: auto; display: block; filter: drop-shadow(0 4px 12px rgba(90,30,36,0.18)); }
+/* Trumpeters: fixed to bottom edges, emerge after hero */
+.edge-trumpet {
+position: fixed;
+bottom: 0;
+width: clamp(180px, 22vw, 340px);
+will-change: transform;
+opacity: 0.95;
+z-index: 10;
+pointer-events: none;
+}
+.edge-trumpet.left  { left: 0; }
+.edge-trumpet.right { right: 0; }
+.edge-trumpet img { width: 100%; height: auto; display: block; filter: drop-shadow(0 4px 16px rgba(90,30,36,0.22)); }
 
 .fanfare-stage { position: fixed; inset: 0; pointer-events: none; z-index: 200; display: none; overflow: hidden; }
 .fanfare-stage.go { display: block; }
@@ -451,14 +459,6 @@ nav { padding: 0.75rem 1rem; }
 
 <main>
   <section class="hero" id="hero">
-    <div class="hero-trumpets" aria-hidden="true">
-      <div class="edge-trumpet left" id="trumpetLeft">
-        <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/IMG_0616-removebg-preview2.png" alt="">
-      </div>
-      <div class="edge-trumpet right" id="trumpetRight">
-        <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/IMG_0616-removebg-preview.png" alt="">
-      </div>
-    </div>
     <div class="spiral-stage" id="spiralStage">
       <div class="spiral-wrap" id="spiralWrap">
         <svg viewBox="-240 -240 480 480" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
@@ -566,6 +566,14 @@ nav { padding: 0.75rem 1rem; }
   <div class="margin-char from-right" id="jesterDrum" aria-hidden="true">
     <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/IMG_0659-removebg-preview.png" alt="">
   </div>
+  <!-- Trumpeters: fixed to bottom edges, emerge after hero -->
+  <div class="edge-trumpet left" id="trumpetLeft" aria-hidden="true">
+    <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/IMG_0616-removebg-preview.png" alt="">
+  </div>
+  <div class="edge-trumpet right" id="trumpetRight" aria-hidden="true">
+    <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/IMG_0616-removebg-preview2.png" alt="">
+  </div>
+
 </main>
 
 <footer>
@@ -633,42 +641,38 @@ nav { padding: 0.75rem 1rem; }
   const smileEl=document.getElementById('smileEl');
   const teeth=[...document.querySelectorAll('.tooth')];
 
-  window.addEventListener('scroll', function() {
+  // Mirror right trumpeter so both face inward
+  if(trumpetRight) trumpetRight.querySelector('img').style.transform='scaleX(-1)';
+
+  function updateScroll() {
     const heroH=document.getElementById('hero').offsetHeight;
-    const p=Math.min(1,Math.max(0,window.scrollY/(heroH*0.7)));
-    const eased=1-Math.pow(1-p,2);
-    // Spring overshoot: rises then settles as they enter
-    const spring = p < 1 ? Math.sin(eased * Math.PI * 2.2) * 18 * (1 - eased) : 0;
-    // Gentle continuous bob once in view
-    const bob = eased > 0.05 ? Math.sin(window.scrollY * 0.06) * 5 : 0;
-    trumpetLeft.style.transform=`translateX(${eased*18}vw) translateY(${(-spring + bob).toFixed(1)}px) rotate(-4deg)`;
-    trumpetRight.style.transform=`translateX(${-eased*18}vw) translateY(${(-spring + bob).toFixed(1)}px) rotate(4deg) scaleX(-1)`;
-    // Teeth: traveling sine wave — each tooth offset by its index so they ripple
-    const scrollPhase = window.scrollY * 0.04;
-    teeth.forEach(function(t, i) {
-      const angle = Math.sin(scrollPhase + i * 0.35) * 16;
-      t.style.transform = 'rotate(' + angle.toFixed(2) + 'deg)';
+
+    // Trumpets emerge AFTER hero midpoint, come in 28vw
+    const pastHero=Math.max(0,window.scrollY-heroH*0.6);
+    const tp=Math.min(1,pastHero/(heroH*0.5));
+    const eased=1-Math.pow(1-tp,2);
+    const spring=tp<1?Math.sin(eased*Math.PI*2.2)*16*(1-eased):0;
+    const bob=eased>0.05?Math.sin(window.scrollY*0.06)*5:0;
+    const inset=100-eased*28; // starts at 100% (offscreen), eases to 72% (peeking in 28vw)
+    if(trumpetLeft)  trumpetLeft.style.transform=`translateX(-${inset.toFixed(1)}%) translateY(${(-spring+bob).toFixed(1)}px) rotate(-4deg)`;
+    if(trumpetRight) trumpetRight.style.transform=`translateX(${inset.toFixed(1)}%) translateY(${(-spring+bob).toFixed(1)}px) rotate(4deg)`;
+
+    // Teeth wave
+    const scrollPhase=window.scrollY*0.04;
+    teeth.forEach(function(t,i){
+      t.style.transform='rotate('+(Math.sin(scrollPhase+i*0.35)*16).toFixed(2)+'deg)';
     });
+
+    // Smile sway
     if(smileEl){
       const drift=Math.sin(window.scrollY*0.01)*44;
       const tilt=Math.sin(window.scrollY*0.01)*7;
       smileEl.style.transform='translateX('+drift.toFixed(1)+'px) rotate('+tilt.toFixed(1)+'deg)';
     }
-  }, {passive:true});
+  }
 
-  // Run once on load to set initial positions
-  (function(){
-    const heroH = document.getElementById('hero').offsetHeight;
-    const p = Math.min(1, Math.max(0, window.scrollY / (heroH * 0.7)));
-    const eased = 1 - Math.pow(1-p, 2);
-    if (trumpetLeft)  trumpetLeft.style.transform  = `translateX(${eased*18}vw) rotate(-4deg)`;
-    if (trumpetRight) trumpetRight.style.transform = `translateX(${-eased*18}vw) rotate(4deg) scaleX(-1)`;
-    if (smileEl) {
-      const drift = Math.sin(window.scrollY * 0.01) * 44;
-      const tilt  = Math.sin(window.scrollY * 0.01) * 7;
-      smileEl.style.transform = `translateX(${drift.toFixed(1)}px) rotate(${tilt.toFixed(1)}deg)`;
-    }
-  })();
+  window.addEventListener('scroll',updateScroll,{passive:true});
+  updateScroll(); // run once on load
 
   // REVEAL ON SCROLL
   const io=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-in');io.unobserve(e.target);}});},{threshold:0.14});
