@@ -168,10 +168,72 @@ margin-bottom: 1.1rem; letter-spacing: -0.01em;
 }
 .section-title em { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 400; }
 .section-kicker {
-text-align: center; font-style: italic;
-font-size: 1.1rem; line-height: 1.5;
+text-align: center; font-style: italic; font-weight: 500;
+font-size: 1.1rem; line-height: 1.35;
 max-width: 44ch; margin: 0 auto 3.5rem;
 }
+
+/* CLASSES */
+.classes { background: var(--cream); color: var(--ink); padding: 7rem 2rem 5rem; position: relative; }
+.classes .section-label { color: var(--gold-deep); }
+.classes .section-title { color: var(--burgundy-red); }
+.classes .section-title em { color: var(--gold); font-style: italic; }
+.classes .section-kicker { color: var(--ink-soft); }
+.class-groups {
+  max-width: 1000px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5rem;
+}
+.class-group { text-align: center; }
+.group-title {
+  font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic;
+  font-size: 1.15rem; color: var(--burgundy); margin-bottom: 0.9rem;
+  padding-bottom: 0.6rem; border-bottom: 1px solid rgba(200,160,90,0.5);
+}
+.group-list { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+.group-list li { font-style: italic; font-weight: 500; font-size: 1.05rem; color: var(--ink-soft); }
+
+/* JOIN THE GUILD */
+.guild { background: var(--cream-soft); color: var(--ink); padding: 6rem 2rem; position: relative; }
+.guild .section-label { color: var(--gold-deep); }
+.guild .section-title { color: var(--burgundy-red); }
+.guild .section-title em { color: var(--gold); font-style: italic; }
+.guild .section-kicker { color: var(--ink-soft); }
+.tier-cards {
+  max-width: 1000px; margin: 0 auto 4rem; display: grid;
+  grid-template-columns: repeat(3, 1fr); gap: 2rem;
+}
+.tier-card {
+  background: #FBF3DC; padding: 2.5rem 1.75rem; text-align: center;
+  box-shadow: 0 20px 40px rgba(90,30,36,0.1), 0 0 0 1px rgba(200,160,90,0.4);
+}
+.tier-name { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.25rem; color: var(--burgundy-red); margin-bottom: 0.5rem; }
+.tier-price { font-style: italic; font-size: 0.85rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold-deep); margin-bottom: 1rem; }
+.tier-text { font-style: italic; font-weight: 500; font-size: 1rem; color: var(--ink-soft); line-height: 1.35; }
+.rank-ladder { max-width: 620px; margin: 0 auto; text-align: center; }
+.rank-title { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.3rem; color: var(--burgundy); margin-bottom: 1rem; }
+.rank-text { font-style: italic; font-weight: 500; font-size: 1.05rem; color: var(--ink-soft); line-height: 1.4; }
+.rank-text strong { font-style: normal; color: var(--burgundy-red); font-family: 'Playfair Display', serif; }
+
+/* UPCOMING EVENTS */
+.events { background: var(--cream); color: var(--ink); padding: 6rem 2rem; position: relative; }
+.events .section-label { color: var(--gold-deep); }
+.events .section-title { color: var(--burgundy-red); }
+.events .section-title em { color: var(--gold); font-style: italic; }
+.events .section-kicker { color: var(--ink-soft); margin-bottom: 2.5rem; }
+.events-empty {
+  max-width: 560px; margin: 0 auto; text-align: center;
+  padding: 2.5rem 2rem; border: 1px dashed rgba(139,110,52,0.4);
+}
+.events-empty p { font-style: italic; font-size: 1.05rem; font-weight: 500; color: var(--ink-soft); line-height: 1.4; }
+.events-empty a { color: var(--burgundy-red); text-decoration: underline; text-underline-offset: 3px; }
+.events-list { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
+.event-card {
+  background: #FBF3DC; text-align: left; padding: 1.5rem 1.75rem;
+  box-shadow: 0 12px 28px rgba(90,30,36,0.08), 0 0 0 1px rgba(200,160,90,0.4);
+}
+.event-card-title { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.2rem; color: var(--burgundy-red); margin-bottom: 0.35rem; }
+.event-card-meta { font-style: italic; font-weight: 500; font-size: 0.9rem; color: var(--gold-deep); margin-bottom: 0.5rem; }
+.event-card-desc { font-style: italic; font-weight: 500; font-size: 1rem; color: var(--ink-soft); line-height: 1.4; }
 
 /* FIND A CHAPTER */
 .join { background: var(--cream); color: var(--ink); padding: 6rem 2rem 9rem; position: relative; }
@@ -419,6 +481,45 @@ animation: pigBob 2.4s ease-in-out infinite;
 @keyframes pigBob { 0%,100%{transform:translateY(0) rotate(-1deg);}50%{transform:translateY(-4px) rotate(1deg);} }
 .drawer-warn { display: none; }
 
+.spill-bubble {
+  position: absolute; top: 50%; right: 100%;
+  transform: translateY(-50%) translateX(10px) scale(0.7);
+  background: var(--cream); color: var(--burgundy-deep);
+  padding: 0.55rem 1rem; margin-right: 0.75rem;
+  border: 2px solid var(--burgundy-red);
+  border-radius: 12px 12px 4px 12px;
+  font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem;
+  white-space: nowrap; opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.22,1,0.36,1);
+}
+.spill-bubble::after {
+  content: ''; position: absolute; top: 50%; right: -10px; transform: translateY(-50%);
+  border: 6px solid transparent; border-left-color: var(--burgundy-red);
+}
+.drawer.spill .spill-bubble { opacity: 1; transform: translateY(-50%) translateX(0) scale(1); }
+
+.confetti-piece {
+  position: fixed; top: 0; left: 0; z-index: 59; pointer-events: none;
+  animation: confettiFall ease-in forwards;
+}
+.confetti-piece.round { border-radius: 50%; }
+@keyframes confettiFall {
+  0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx),var(--dy)) rotate(var(--rot)); opacity: 0; }
+}
+
+.sparkle {
+  position: fixed; width: 10px; height: 10px; pointer-events: none; z-index: 300;
+  background: radial-gradient(circle, var(--gold-bright), transparent 70%);
+  border-radius: 50%;
+  animation: sparklePop 1.2s ease-out forwards;
+}
+@keyframes sparklePop {
+  0%   { transform: scale(0); opacity: 0; }
+  30%  { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(0.2) translateY(-30px); opacity: 0; }
+}
+
 .margin-char { position: fixed; bottom: 12vh; width: clamp(90px,12vw,170px); opacity: 0; pointer-events: none; z-index: 30; transition: opacity 0.5s ease, transform 0.6s cubic-bezier(0.22,1,0.36,1); }
 .margin-char.from-left  { left: 0;  transform: translateX(-100%); }
 .margin-char.from-right { right: 0; transform: translateX(100%); }
@@ -464,6 +565,12 @@ nav { padding: 0.75rem 1rem; }
 .spiral-stage { width: 170vmin; height: 170vmin; }
 .join { padding: 4rem 1.25rem 6rem; }
 .form-panel { padding: 2.75rem 1.75rem; }
+.classes { padding: 5rem 1.25rem 3.5rem; }
+.class-groups { grid-template-columns: repeat(2, 1fr); gap: 2rem; }
+.guild { padding: 4rem 1.25rem; }
+.tier-cards { grid-template-columns: 1fr; gap: 1.5rem; }
+.events { padding: 4rem 1.25rem; }
+.events-empty { padding: 2rem 1.25rem; }
 .fellowship { padding: 5rem 1.25rem; }
 .kindred { grid-template-columns: 1fr; gap: 3rem; }
 .kindred::before { display: none; }
@@ -480,7 +587,7 @@ nav { padding: 0.75rem 1rem; }
   </a>
   <div class="nav-right">
     <a href="#join" class="nav-chapter">Find a Chapter</a>
-    <a href="https://guerillaconcerto.com/signin" target="_blank" class="nav-signin">Sign In</a>
+    <a href="https://members.carnivalsociety.org" target="_blank" class="nav-signin">Sign In</a>
   </div>
 </nav>
 
@@ -502,6 +609,91 @@ nav { padding: 0.75rem 1rem; }
       <a href="#join" class="btn">Find a Chapter</a>
     </div>
     <div></div>
+  </section>
+
+  <section class="classes" id="classes">
+    <span class="section-label reveal">The Curriculum</span>
+    <h2 class="section-title reveal">Life's a <em>Circus</em></h2>
+    <p class="section-kicker reveal">
+      We're a classical guild for practical and whimsical trades alike &mdash;
+      canvas and paint, needle and flame. Everything it takes to run away
+      and build one yourself.
+    </p>
+    <div class="class-groups">
+      <div class="class-group reveal">
+        <h3 class="group-title">Structures</h3>
+        <ul class="group-list">
+          <li>Tent &amp; Canvas Craft</li>
+          <li>Basic Construction</li>
+        </ul>
+      </div>
+      <div class="class-group reveal">
+        <h3 class="group-title">Craft &amp; Ornament</h3>
+        <ul class="group-list">
+          <li>Sign Painting</li>
+          <li>Oil Painting</li>
+        </ul>
+      </div>
+      <div class="class-group reveal">
+        <h3 class="group-title">Wardrobe</h3>
+        <ul class="group-list">
+          <li>Sewing Fundamentals</li>
+          <li>Costuming</li>
+        </ul>
+      </div>
+      <div class="class-group reveal">
+        <h3 class="group-title">Performance</h3>
+        <ul class="group-list">
+          <li>Juggling</li>
+          <li>Fire Breathing</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="guild" id="guild">
+    <span class="section-label reveal">Membership</span>
+    <h2 class="section-title reveal">Join the <em>Guild</em></h2>
+    <p class="section-kicker reveal">
+      We're building a society of whimsy and real skill through teaching and learning.
+      Join a community of diviners, artists, performers, and ringleaders. Learn a
+      trade, and build together.
+    </p>
+    <div class="tier-cards">
+      <div class="tier-card reveal">
+        <h3 class="tier-name">Single Class</h3>
+        <p class="tier-price">Pay as you go</p>
+        <p class="tier-text">Dip a toe in. Take any one class, no strings attached.</p>
+      </div>
+      <div class="tier-card reveal">
+        <h3 class="tier-name">Unlimited Classes</h3>
+        <p class="tier-price">Guild Dues</p>
+        <p class="tier-text">All the trades, all the time &mdash; in Boulder, Denver, or wherever the guild finds itself next.</p>
+      </div>
+      <div class="tier-card reveal">
+        <h3 class="tier-name">Classes &amp; Builds</h3>
+        <p class="tier-price">Guild Dues+</p>
+        <p class="tier-text">Everything above, plus a hand on the actual build. This is where you stop learning and start making it happen.</p>
+      </div>
+    </div>
+    <div class="rank-ladder reveal">
+      <h3 class="rank-title">Progress as you learn and build community along the way.</h3>
+      <p class="rank-text">
+        <strong>Apprentice</strong> &mdash; learning the ropes (sometimes literally). <strong>Journeyman</strong> &mdash; has built something real.
+        <strong>Master</strong> &mdash; teaches. Rank is earned, never bought.
+      </p>
+    </div>
+  </section>
+
+  <section class="events" id="events">
+    <span class="section-label reveal">What's Coming</span>
+    <h2 class="section-title reveal">Upcoming <em>Events</em></h2>
+    <p class="section-kicker reveal">Chapter builds, gatherings, and shows &mdash; posted here as soon as they're real.</p>
+    <div class="events-list reveal" id="eventsList">
+      <div class="events-empty">
+        <p>Nothing on the books yet. <a href="#join">Find a chapter</a> and we'll tell you first.</p>
+      </div>
+    </div>
   </section>
 
   <section class="join" id="join">
@@ -546,6 +738,7 @@ nav { padding: 0.75rem 1rem; }
         <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/Rabbit.png" alt="">
       </div>
       <span class="drawer-warn">(you opened it)</span>
+      <div class="spill-bubble" id="spillBubble">Now look what you've done.</div>
     </div>
 
 
@@ -569,7 +762,7 @@ nav { padding: 0.75rem 1rem; }
         <div class="kin-name">The Diviners Guild</div>
         <p class="kin-text">Practitioners of the oracle arts.</p>
       </a>
-      <a href="https://guerillaconcerto.com" target="_blank" class="kin reveal">
+      <a href="https://guerrillaconcerto.com" target="_blank" class="kin reveal">
         <div class="kin-crest">
           <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="14"/><circle cx="20" cy="20" r="4" fill="currentColor" stroke="none"/><line x1="20" y1="6" x2="20" y2="10"/><line x1="34" y1="20" x2="30" y2="20"/><line x1="20" y1="34" x2="20" y2="30"/><line x1="6" y1="20" x2="10" y2="20"/></svg>
         </div>
@@ -603,7 +796,7 @@ nav { padding: 0.75rem 1rem; }
   <div class="foot-mark">♦ Carnival Society International ♦</div>
   <div class="foot-tagline">Pageantry &amp; Servitude</div>
   <div class="foot-line">
-    A <a href="https://guerillaconcerto.com" target="_blank">Guerrilla Concerto</a> Organization
+    A <a href="https://guerrillaconcerto.com" target="_blank">Guerrilla Concerto</a> Organization
   </div>
   <img class="foot-logomark"
        src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-07.png"
@@ -654,6 +847,7 @@ nav { padding: 0.75rem 1rem; }
   const trumpetLeft=document.getElementById('trumpetLeft');
   const trumpetRight=document.getElementById('trumpetRight');
   const smileEl=document.getElementById('smileEl');
+  const footerPeeper=document.getElementById('footerPeeper');
   const teeth=[...document.querySelectorAll('.tooth')];
   if(trumpetRight) trumpetRight.querySelector('img').style.transform='';
   function updateScroll() {
@@ -674,6 +868,7 @@ nav { padding: 0.75rem 1rem; }
     const scrollPhase=window.scrollY*0.04;
     teeth.forEach(function(t,i){ t.style.transform='rotate('+(Math.sin(scrollPhase+i*0.35)*16).toFixed(2)+'deg)'; });
     if(smileEl){ const drift=Math.sin(window.scrollY*0.01)*44; const tilt=Math.sin(window.scrollY*0.01)*7; smileEl.style.transform='translateX('+drift.toFixed(1)+'px) rotate('+tilt.toFixed(1)+'deg)'; }
+    if(footerPeeper){ const distFromBottom=docH-(window.scrollY+window.innerHeight); footerPeeper.classList.toggle('is-in', distFromBottom<250); }
   }
   window.addEventListener('scroll',updateScroll,{passive:true});
   updateScroll();
@@ -686,6 +881,68 @@ nav { padding: 0.75rem 1rem; }
   const fanfareAudio=document.getElementById('fanfareAudio');
   function playTrumpet() {
     try { fanfareAudio.currentTime=0; fanfareAudio.play().catch(()=>{}); } catch(_) {}
+  }
+  function playDisaster() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const bufferSize = ctx.sampleRate * 0.2;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) { data[i] = (Math.random()*2-1) * Math.pow(1 - i/bufferSize, 2); }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.35, ctx.currentTime);
+      noise.connect(noiseGain).connect(ctx.destination);
+      noise.start();
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 900;
+      filter.connect(ctx.destination);
+      const notes = [196.00, 185.00, 174.61, 164.81];
+      const noteLen = 0.32;
+      notes.forEach((freq, i) => {
+        const start = ctx.currentTime + 0.15 + i*noteLen;
+        const isLast = i === notes.length - 1;
+        const dur = isLast ? noteLen*1.9 : noteLen;
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, start);
+        if (isLast) osc.frequency.linearRampToValueAtTime(freq*0.97, start+dur);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.24, start+0.03);
+        gain.gain.setValueAtTime(0.24, start+dur*0.7);
+        gain.gain.linearRampToValueAtTime(0.0001, start+dur);
+        osc.connect(gain).connect(filter);
+        osc.start(start);
+        osc.stop(start+dur+0.05);
+      });
+    } catch(_) {}
+  }
+  function spillConfetti() {
+    const colors = ['var(--burgundy-red)','var(--gold)','var(--gold-bright)','var(--cream-soft)','var(--burgundy)'];
+    const rect = drawer.getBoundingClientRect();
+    for (let i = 0; i < 24; i++) {
+      const p = document.createElement('div');
+      p.className = 'confetti-piece' + (Math.random() < 0.5 ? ' round' : '');
+      const size = 6 + Math.random()*8;
+      p.style.width = size + 'px';
+      p.style.height = size + 'px';
+      p.style.background = colors[Math.floor(Math.random()*colors.length)];
+      p.style.top = (rect.top + rect.height/2 - size/2) + 'px';
+      p.style.left = (rect.left - size/2) + 'px';
+      const dx = (Math.random()*220 - 110) + 'px';
+      const dy = (300 + Math.random()*280) + 'px';
+      const rot = (Math.random()*720 - 360) + 'deg';
+      p.style.setProperty('--dx', dx);
+      p.style.setProperty('--dy', dy);
+      p.style.setProperty('--rot', rot);
+      p.style.animationDuration = (1.3 + Math.random()*0.7) + 's';
+      p.style.animationDelay = (Math.random()*0.2) + 's';
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 2400);
+    }
   }
   const csiForm=document.getElementById('petitionForm');
   const cleanForm=csiForm.cloneNode(true);
@@ -703,7 +960,15 @@ nav { padding: 0.75rem 1rem; }
     const isOpen=drawer.classList.toggle('open');
     drawerTab.setAttribute('aria-expanded',isOpen);
     drawerTab.childNodes[0].textContent=isOpen?'Close it back up':"Don't open";
-    if(isOpen) playTrumpet();
+    if(isOpen) {
+      drawer.classList.remove('spill');
+      void drawer.offsetWidth;
+      drawer.classList.add('spill');
+      playDisaster();
+      spillConfetti();
+    } else {
+      drawer.classList.remove('spill');
+    }
   });
   const owlPeek = document.getElementById('owlPeek');
   const owlObs = new IntersectionObserver(entries => {
@@ -714,15 +979,6 @@ nav { padding: 0.75rem 1rem; }
   }, { threshold: 0.3 });
   const joinSec = document.getElementById('join');
   if (joinSec && owlPeek) owlObs.observe(joinSec);
-  const footerPeeper = document.getElementById('footerPeeper');
-  const footerEl = document.querySelector('footer');
-  const footerObs = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) { footerPeeper.classList.add('is-in'); }
-      else { footerPeeper.classList.remove('is-in'); }
-    });
-  }, { threshold: 0, rootMargin: '0px 0px -150px 0px' });
-  if (footerEl && footerPeeper) footerObs.observe(footerEl);
 
   // Triple-click logo fires the disappointment
   const navLogo = document.querySelector('.nav-logomark');
@@ -755,6 +1011,64 @@ nav { padding: 0.75rem 1rem; }
   let footHoverTimer;
   footLogo.addEventListener('mouseenter', () => { footHoverTimer = setTimeout(() => playTrumpet(), 3000); });
   footLogo.addEventListener('mouseleave', () => clearTimeout(footHoverTimer));
+
+  // Type "hocuspocus" anywhere -> sparkles
+  const secretWord = 'hocuspocus';
+  let secretBuffer = '';
+  document.addEventListener('keydown', e => {
+    if (e.key.length === 1) {
+      secretBuffer = (secretBuffer + e.key.toLowerCase()).slice(-secretWord.length);
+      if (secretBuffer === secretWord) {
+        secretBuffer = '';
+        for (let i = 0; i < 28; i++) {
+          const s = document.createElement('div');
+          s.className = 'sparkle';
+          s.style.left = Math.random()*100 + 'vw';
+          s.style.top = Math.random()*100 + 'vh';
+          s.style.animationDelay = (Math.random()*0.4) + 's';
+          document.body.appendChild(s);
+          setTimeout(() => s.remove(), 1600);
+        }
+      }
+    }
+  });
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  (function() {
+    const SUPABASE_URL = 'https://fybutdykshkfpccihxqp.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5YnV0ZHlrc2hrZnBjY2loeHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3ODExMzUsImV4cCI6MjA5OTM1NzEzNX0.cHJ47xag73Om9mtPuj-YE9SOva5MPYWJD1aGKxTPvik';
+    const listEl = document.getElementById('eventsList');
+    if (!listEl || !window.supabase) return;
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str ?? '';
+      return div.innerHTML;
+    }
+    function formatEventDate(iso) {
+      return new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+
+    sb.from('events')
+      .select('*, chapter:chapters(name)')
+      .gte('starts_at', new Date().toISOString())
+      .order('starts_at', { ascending: true })
+      .limit(6)
+      .then(({ data }) => {
+        if (!data || !data.length) return;
+        listEl.innerHTML = data.map(e => `
+          <div class="event-card">
+            <div class="event-card-title">${escapeHtml(e.title)}</div>
+            <div class="event-card-meta">${formatEventDate(e.starts_at)} &middot; ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' &middot; ' + escapeHtml(e.location) : ''}</div>
+            ${e.description ? `<div class="event-card-desc">${escapeHtml(e.description)}</div>` : ''}
+          </div>
+        `).join('');
+      })
+      .catch(() => {});
+  })();
 </script>
 
 </body>
