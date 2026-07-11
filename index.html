@@ -526,7 +526,7 @@ nav { padding: 0.75rem 1rem; }
     </div>
     <div class="field">
       <label for="about">A Little About You</label>
-      <textarea id="about" name="about" placeholder="Whatever you'd like us to know." rows="4"></textarea>
+      <textarea id="about" name="about" placeholder="Tell us something dumb about yourself." rows="4"></textarea>
     </div>
     <button type="submit" class="btn-dark">Ready, set, go</button>
   </form>
@@ -721,7 +721,7 @@ nav { padding: 0.75rem 1rem; }
       if (entry.isIntersecting) { footerPeeper.classList.add('is-in'); }
       else { footerPeeper.classList.remove('is-in'); }
     });
-  }, { threshold: 0.15 });
+  }, { threshold: 0, rootMargin: '0px 0px -150px 0px' });
   if (footerEl && footerPeeper) footerObs.observe(footerEl);
 
   // Triple-click logo fires the disappointment
