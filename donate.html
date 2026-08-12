@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Donate a Vehicle &mdash; Carnival Society International</title>
+<meta name="description" content="Donate a car, truck, or van to Carnival Society International. Running or not — some vehicles fund the guild, others get a second life as rides and gear haulers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --burgundy-deep: #5A1E24;
+    --burgundy:      #7A2E34;
+    --burgundy-red:  #9B3036;
+    --gold:          #C8A05A;
+    --gold-bright:   #DFBE7D;
+    --gold-deep:     #8F6E34;
+    --cream:         #F4E8D0;
+    --cream-soft:    #EADFBC;
+    --ink:           #231712;
+    --ink-soft:      #5A4238;
+  }
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--cream);
+    color: var(--ink);
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 17px;
+    line-height: 1.55;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 20%, rgba(155,48,54,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 50% 95%, rgba(143,110,52,0.05) 0%, transparent 70%);
+    pointer-events: none; z-index: 1;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    opacity: 0.08; mix-blend-mode: multiply;
+    pointer-events: none; z-index: 2;
+  }
+  nav, main, footer { position: relative; z-index: 3; }
+
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+  @keyframes rise { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+  .reveal { opacity: 0; transform: translateY(26px); transition: opacity 1.1s cubic-bezier(0.22,1,0.36,1), transform 1.1s cubic-bezier(0.22,1,0.36,1); }
+  .reveal.is-in { opacity: 1; transform: translateY(0); }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 0.85rem 1.8rem;
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 100;
+    background: rgba(244,232,208,0.88);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(139,60,64,0.15);
+    animation: fade 1.2s ease 0.1s both;
+  }
+  .nav-logomark { display: flex; align-items: center; gap: 0.65rem; flex-shrink: 0; text-decoration: none; }
+  .nav-logomark img { height: 40px; width: auto; display: block; }
+  .nav-brand-text {
+    font-family: 'Playfair Display', serif;
+    font-weight: 600; font-style: italic;
+    font-size: 1rem; letter-spacing: 0.08em;
+    color: var(--burgundy-red);
+  }
+  .nav-brand-text em {
+    font-style: normal;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 0.68rem; letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-left: 0.3rem;
+  }
+  .nav-chapter {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic; font-size: 0.95rem; letter-spacing: 0.04em;
+    color: var(--burgundy-red); text-decoration: none;
+    border: 1px solid var(--burgundy-red);
+    padding: 0.35rem 0.9rem; border-radius: 3px;
+    transition: color 0.3s, background 0.3s;
+  }
+  .nav-chapter:hover { background: var(--burgundy-red); color: var(--cream); }
+
+  /* SHARED BUTTON */
+  .btn {
+    display: inline-block; padding: 0.85rem 2.4rem;
+    border: 1px solid var(--burgundy-red); color: var(--burgundy-red);
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic; font-weight: 500;
+    font-size: 1.05rem; letter-spacing: 0.14em;
+    text-decoration: none; text-transform: uppercase;
+    background: transparent;
+    cursor: pointer; position: relative;
+    box-shadow: 0 0 0 3px var(--burgundy-red);
+    transition: color 0.35s ease, background 0.35s ease, letter-spacing 0.4s ease, box-shadow 0.35s ease;
+  }
+  .btn:hover {
+    background: var(--burgundy-red); color: var(--cream);
+    letter-spacing: 0.18em;
+    box-shadow: 0 0 0 3px var(--burgundy-red), 0 0 0 5px var(--cream), 0 0 0 7px var(--burgundy-red);
+  }
+
+  /* SECTION HEADERS */
+  .section-label {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic; font-size: 0.78rem;
+    letter-spacing: 0.32em; text-transform: uppercase;
+    text-align: center; margin-bottom: 1rem;
+    display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+    color: var(--gold-deep);
+  }
+  .section-label::before, .section-label::after {
+    content: ''; width: 38px; height: 1px; background: currentColor; opacity: 0.5;
+  }
+  .section-title {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: clamp(2rem, 4.2vw, 3.2rem);
+    line-height: 1.1; text-align: center;
+    margin-bottom: 1.1rem; letter-spacing: -0.01em;
+    color: var(--burgundy-red);
+  }
+  .section-title em { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 400; color: var(--gold); }
+  .section-kicker {
+    text-align: center; font-style: italic; font-weight: 500;
+    font-size: 1.1rem; line-height: 1.35;
+    max-width: 52ch; margin: 0 auto 3rem; color: var(--ink-soft);
+  }
+  .section-kicker em { color: var(--burgundy); font-style: normal; }
+
+  main { padding-top: 5.5rem; }
+
+  /* HERO */
+  .donate-hero {
+    max-width: 760px; margin: 0 auto; padding: 3rem 2rem 1rem; text-align: center;
+    animation: rise 1.2s cubic-bezier(0.22,1,0.36,1) 0.2s both;
+  }
+  .donate-hero .section-kicker { margin-bottom: 2.25rem; }
+  .hex-glyph {
+    width: 52px; height: 52px; margin: 0 auto 1.5rem;
+    background: var(--burgundy-deep); border: 1px solid var(--gold); border-radius: 50%;
+    padding: 10px; color: var(--gold);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hex-glyph svg { width: 100%; height: 100%; }
+
+  /* STEPS */
+  .steps { background: var(--cream); padding: 4rem 2rem; }
+  .step-cards {
+    max-width: 1000px; margin: 0 auto; display: grid;
+    grid-template-columns: repeat(3, 1fr); gap: 2rem;
+  }
+  .step-card {
+    background: #FBF3DC; padding: 2.25rem 1.75rem; text-align: center;
+    box-shadow: 0 20px 40px rgba(90,30,36,0.1), 0 0 0 1px rgba(200,160,90,0.4);
+  }
+  .step-num {
+    font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600;
+    font-size: 0.85rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--gold-deep); margin-bottom: 0.6rem;
+  }
+  .step-title { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.2rem; color: var(--burgundy-red); margin-bottom: 0.6rem; }
+  .step-text { font-style: italic; font-weight: 500; font-size: 1rem; color: var(--ink-soft); line-height: 1.4; }
+
+  /* THANK-YOU PERK */
+  .perk { background: var(--cream-soft); padding: 4rem 2rem 1rem; }
+  .perk-panel {
+    max-width: 560px; margin: 0 auto; text-align: center;
+    background: #FBF3DC; padding: 2.25rem 2.25rem;
+    box-shadow: 0 20px 40px rgba(90,30,36,0.1), 0 0 0 1px rgba(200,160,90,0.4);
+  }
+  .perk-text { font-style: italic; font-weight: 500; font-size: 1.08rem; color: var(--ink-soft); line-height: 1.5; }
+  .perk-text strong { font-style: normal; color: var(--burgundy); font-family: 'Playfair Display', serif; }
+
+  /* TWO PATHS */
+  .paths { background: var(--cream-soft); padding: 5rem 2rem; }
+  .path-cards {
+    max-width: 1000px; margin: 0 auto 1.5rem; display: grid;
+    grid-template-columns: repeat(2, 1fr); gap: 2rem;
+  }
+  .path-card {
+    background: #FBF3DC; padding: 2.5rem 2rem;
+    box-shadow: 0 20px 40px rgba(90,30,36,0.1), 0 0 0 1px rgba(200,160,90,0.4);
+  }
+  .path-name { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.35rem; color: var(--burgundy-red); margin-bottom: 0.75rem; }
+  .path-text { font-style: italic; font-weight: 500; font-size: 1.02rem; color: var(--ink-soft); line-height: 1.5; }
+  .paths-note { max-width: 620px; margin: 0 auto; text-align: center; font-style: italic; font-size: 0.95rem; color: var(--ink-soft); }
+  .paths-note strong { font-style: normal; color: var(--burgundy); font-family: 'Playfair Display', serif; }
+
+  /* WHAT WE ACCEPT */
+  .accepts { background: var(--cream); padding: 5rem 2rem; }
+  .accepts-list {
+    max-width: 620px; margin: 0 auto; list-style: none;
+    display: flex; flex-direction: column; gap: 1rem;
+  }
+  .accepts-list li {
+    font-style: italic; font-weight: 500; font-size: 1.05rem; color: var(--ink-soft);
+    padding-left: 1.6rem; position: relative; line-height: 1.4;
+  }
+  .accepts-list li::before {
+    content: ''; position: absolute; left: 0; top: 0.5rem;
+    width: 8px; height: 8px; background: var(--gold-deep);
+    transform: rotate(45deg);
+  }
+  .accepts-list li strong { font-style: normal; color: var(--burgundy); font-family: 'Playfair Display', serif; }
+
+  /* FAQ */
+  .faq { background: var(--cream-soft); padding: 5rem 2rem; }
+  .faq-list { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
+  .faq-item {
+    background: #FBF3DC; box-shadow: 0 12px 28px rgba(90,30,36,0.08), 0 0 0 1px rgba(200,160,90,0.4);
+    padding: 0.25rem 1.75rem;
+  }
+  .faq-item summary {
+    font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic;
+    font-size: 1.08rem; color: var(--burgundy-red);
+    padding: 1.25rem 0; cursor: pointer; list-style: none;
+    display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after {
+    content: '+'; font-family: 'Playfair Display', serif; font-style: normal;
+    font-size: 1.3rem; color: var(--gold-deep); flex-shrink: 0;
+    transition: transform 0.3s ease;
+  }
+  .faq-item[open] summary::after { transform: rotate(45deg); }
+  .faq-item p { font-style: italic; font-weight: 500; font-size: 1rem; color: var(--ink-soft); line-height: 1.5; padding-bottom: 1.5rem; }
+
+  /* FORM (donate) */
+  .donate-form { background: var(--cream); padding: 5rem 2rem 7rem; }
+  .disclosure { max-width: 620px; margin: 0 auto 2.5rem; text-align: center; font-style: italic; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.5; }
+  .disclosure strong { font-style: normal; color: var(--burgundy); font-family: 'Playfair Display', serif; }
+  .form-panel {
+    max-width: 620px; margin: 0 auto;
+    background: #FBF3DC; color: var(--ink);
+    padding: 4rem 3.5rem; position: relative;
+    box-shadow: 0 30px 60px rgba(90,30,36,0.15), 0 0 0 1px rgba(200,160,90,0.45);
+  }
+  .form-panel::before, .form-panel::after {
+    content: ''; position: absolute; width: 32px; height: 32px;
+    border: 1px solid var(--gold-deep);
+  }
+  .form-panel::before { top: 14px; left: 14px; border-right: 0; border-bottom: 0; }
+  .form-panel::after  { bottom: 14px; right: 14px; border-left: 0; border-top: 0; }
+  form { display: flex; flex-direction: column; gap: 1.75rem; }
+  .field { display: flex; flex-direction: column; gap: 0.5rem; }
+  .field label {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic; font-size: 0.78rem;
+    letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold-deep);
+  }
+  .field input, .field textarea, .field select {
+    font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; color: var(--ink);
+    background: transparent; border: 0;
+    border-bottom: 1px solid rgba(139,110,52,0.5);
+    padding: 0.5rem 0; outline: none;
+    transition: border-color 0.3s ease; resize: vertical;
+  }
+  .field input::placeholder, .field textarea::placeholder { color: rgba(74,56,24,0.45); font-style: italic; }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--burgundy); }
+  .field textarea { min-height: 90px; line-height: 1.5; }
+  .field select { cursor: pointer; }
+  .field-row { display: flex; gap: 1.25rem; }
+  .field-row .field { flex: 1; }
+  .btn-dark {
+    align-self: center; margin-top: 0.5rem;
+    padding: 1rem 2.75rem; border: 1px solid var(--burgundy);
+    color: var(--burgundy-deep); background: transparent;
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic; font-weight: 500;
+    font-size: 1.1rem; letter-spacing: 0.14em; text-transform: uppercase;
+    cursor: pointer; position: relative;
+    transition: color 0.4s ease, letter-spacing 0.5s ease; overflow: hidden;
+  }
+  .btn-dark::before {
+    content: ''; position: absolute; inset: 0; background: var(--burgundy);
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.55s cubic-bezier(0.22,1,0.36,1); z-index: -1;
+  }
+  .btn-dark:hover { color: var(--cream); letter-spacing: 0.2em; }
+  .btn-dark:hover::before { transform: scaleX(1); }
+  .confirmation {
+    display: none; text-align: center; padding: 1.5rem 0;
+    font-style: italic; font-size: 1.1rem; color: var(--ink); line-height: 1.6;
+  }
+  .confirmation strong {
+    font-family: 'Playfair Display', serif; font-style: italic; font-weight: 400;
+    color: var(--burgundy); display: block; margin-bottom: 0.75rem; letter-spacing: 0.04em;
+  }
+  form.sent { display: none; }
+  form.sent + .confirmation { display: block; }
+
+  /* FOOTER */
+  footer { padding: 3rem 2rem; text-align: center; }
+  footer a { color: var(--burgundy-red); text-decoration: none; font-style: italic; }
+  footer a:hover { text-decoration: underline; }
+  footer p { font-style: italic; font-size: 0.85rem; color: var(--ink-soft); margin-top: 0.5rem; }
+
+  @media (max-width: 720px) {
+    .step-cards, .path-cards { grid-template-columns: 1fr; gap: 1.5rem; }
+    .field-row { flex-direction: column; gap: 1.75rem; }
+    .form-panel { padding: 2.75rem 1.75rem; }
+    main { padding-top: 4.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <a href="/" class="nav-logomark">
+    <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-07.png" alt="CSI">
+    <span class="nav-brand-text">Carnival Society<em>Intl.</em></span>
+  </a>
+  <a href="/" class="nav-chapter">&larr; Carnival Society</a>
+</nav>
+
+<main>
+
+  <section class="donate-hero">
+    <div class="hex-glyph reveal" aria-hidden="true" title="Gathering">
+      <svg viewBox="0 0 40 40">
+        <circle cx="20" cy="20" r="19" fill="none" stroke="currentColor" stroke-width="1"/>
+        <rect x="10" y="6.5"  width="8" height="2" rx="0.6" fill="currentColor"/><rect x="22" y="6.5"  width="8" height="2" rx="0.6" fill="currentColor"/>
+        <rect x="10" y="11.5" width="20" height="2" rx="0.6" fill="currentColor"/>
+        <rect x="10" y="16.5" width="20" height="2" rx="0.6" fill="currentColor"/>
+        <rect x="10" y="21.5" width="8" height="2" rx="0.6" fill="currentColor"/><rect x="22" y="21.5" width="8" height="2" rx="0.6" fill="currentColor"/>
+        <rect x="10" y="26.5" width="8" height="2" rx="0.6" fill="currentColor"/><rect x="22" y="26.5" width="8" height="2" rx="0.6" fill="currentColor"/>
+        <rect x="10" y="31.5" width="8" height="2" rx="0.6" fill="currentColor"/><rect x="22" y="31.5" width="8" height="2" rx="0.6" fill="currentColor"/>
+      </svg>
+    </div>
+    <span class="section-label reveal">The Gathering</span>
+    <h1 class="section-title reveal">Donate a Vehicle. <em>Set the Beauty in Motion.</em></h1>
+    <p class="section-kicker reveal">
+      What was rust becomes thread, flame, and canvas &mdash; a hand learning to sew,
+      a sign getting painted, a build rising for the next gathering. One vehicle,
+      one small catalyst, in something larger than itself.
+    </p>
+    <a href="#donate-form" class="btn reveal">Donate a Vehicle</a>
+  </section>
+
+  <section class="steps">
+    <div class="step-cards">
+      <div class="step-card reveal">
+        <div class="step-num">Step One</div>
+        <h3 class="step-title">Tell Us About It</h3>
+        <p class="step-text">Fill out the form below with your vehicle's basics. Takes a couple minutes.</p>
+      </div>
+      <div class="step-card reveal">
+        <div class="step-num">Step Two</div>
+        <h3 class="step-title">We Take a Look</h3>
+        <p class="step-text">We follow up to arrange pickup &mdash; or tell you we're keeping it.</p>
+      </div>
+      <div class="step-card reveal">
+        <div class="step-num">Step Three</div>
+        <h3 class="step-title">Get Your Paperwork</h3>
+        <p class="step-text">A tax receipt. Every time.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TODO: lock exact perk terms (duration shown below is a placeholder) -->
+  <section class="perk">
+    <span class="section-label reveal">A Thank You</span>
+    <h2 class="section-title reveal">Membership, <em>On Us</em></h2>
+    <div class="perk-panel reveal">
+      <p class="perk-text">
+        Donate a vehicle, get <strong>three months of unlimited classes</strong> &mdash;
+        sewing, sign painting, structures, fire, all of it. Fund a gathering. Join one too.
+      </p>
+    </div>
+  </section>
+
+  <section class="paths">
+    <span class="section-label reveal">Fund the Vision</span>
+    <h2 class="section-title reveal">Two <em>Paths</em></h2>
+    <p class="section-kicker reveal">Every vehicle goes one of two ways. We'll tell you which.</p>
+    <div class="path-cards">
+      <div class="path-card reveal">
+        <h3 class="path-name">Sold to Fund the Vision</h3>
+        <p class="path-text">
+          Most vehicles are sold through our donation processor. The cash funds classes,
+          tools, art builds, and events. You get a receipt for the sale price.
+        </p>
+      </div>
+      <div class="path-card reveal">
+        <h3 class="path-name">Kept &amp; Put to Work</h3>
+        <p class="path-text">
+          Some vehicles we keep &mdash; to move people, gear, and rides at our events.
+          You get a receipt for fair market value instead. Often a better deduction.
+        </p>
+      </div>
+    </div>
+    <p class="paths-note reveal"><strong>You'll know which applies</strong> before anything's final.</p>
+  </section>
+
+  <section class="accepts">
+    <span class="section-label reveal">What We Take</span>
+    <h2 class="section-title reveal">What We <em>Accept</em></h2>
+    <ul class="accepts-list reveal">
+      <li>Cars, trucks, vans, and RVs &mdash; running or not</li>
+      <li><strong>Especially hoping for:</strong> box trucks, go-karts, cargo vans, and trailers &mdash; right now, they become art and build material</li>
+      <li>Clear title preferred, but talk to us if it's not</li>
+      <li>Based in Colorado. Farther out? We'll still take it &mdash; just through our processor.</li>
+    </ul>
+  </section>
+
+  <section class="faq">
+    <span class="section-label reveal">Questions</span>
+    <h2 class="section-title reveal">A Few <em>Answers</em></h2>
+    <div class="faq-list">
+      <details class="faq-item reveal">
+        <summary>Do I need the title?</summary>
+        <p>Helps, but not required. Tell us what you have.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary>What if my car doesn't run?</summary>
+        <p>Still worth offering. We take non-running vehicles too.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary>How long does pickup take?</summary>
+        <p>We follow up after your form to set a time.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Is my donation tax-deductible?</summary>
+        <p>Yes. We're fiscally sponsored &mdash; the paperwork matches whether your vehicle is sold or kept.</p>
+      </details>
+      <details class="faq-item reveal">
+        <summary>Will you tell me if you're going to sell my car or keep it?</summary>
+        <p>Yes, before it's final.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="donate-form" id="donate-form">
+    <span class="section-label reveal">Offer a Vehicle</span>
+    <h2 class="section-title reveal">Start the <em>Donation</em></h2>
+    <!-- TODO: replace with fiscal sponsor's legal name before this goes live -->
+    <p class="disclosure reveal">
+      Carnival Society International is fiscally sponsored. Your donation is tax-deductible.
+    </p>
+    <div class="form-panel reveal">
+      <form action="https://formspree.io/f/xkoewnnw" method="POST" id="donateForm">
+        <input type="hidden" name="form_type" value="Vehicle Donation">
+        <div class="field">
+          <label for="donorName">Name</label>
+          <input type="text" id="donorName" name="name" required>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="donorEmail">Email</label>
+            <input type="email" id="donorEmail" name="email" required>
+          </div>
+          <div class="field">
+            <label for="donorPhone">Phone</label>
+            <input type="tel" id="donorPhone" name="phone" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="vehicleLocation">Vehicle Location (City &amp; State)</label>
+          <input type="text" id="vehicleLocation" name="vehicle_location" required>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="vehicleYMM">Year, Make &amp; Model</label>
+            <input type="text" id="vehicleYMM" name="vehicle_year_make_model" placeholder="e.g. 2004 Ford E-350" required>
+          </div>
+          <div class="field">
+            <label for="vehicleMileage">Mileage</label>
+            <input type="text" id="vehicleMileage" name="vehicle_mileage">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="vehicleTitle">Title Status</label>
+            <select id="vehicleTitle" name="title_status" required>
+              <option value="">Select one</option>
+              <option value="Clear title in hand">Clear title in hand</option>
+              <option value="Title in progress">Title in progress</option>
+              <option value="No title">No title</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="vehicleCondition">Condition</label>
+            <select id="vehicleCondition" name="vehicle_condition" required>
+              <option value="">Select one</option>
+              <option value="Runs great">Runs great</option>
+              <option value="Runs, needs work">Runs, needs work</option>
+              <option value="Doesn't run">Doesn't run</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="vehicleNotes">Anything Else We Should Know</label>
+          <textarea id="vehicleNotes" name="notes" placeholder="Modifications, damage, why you think it'd make a good ride..." rows="4"></textarea>
+        </div>
+        <button type="submit" class="btn-dark">Offer This Vehicle</button>
+      </form>
+      <div class="confirmation">
+        <strong>Got it.</strong>
+        We'll follow up to arrange pickup and sort out the paperwork.
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <a href="/">Carnival Society International</a>
+  <p>Guild network. Real trades, real carnivals.</p>
+</footer>
+
+<script>
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('is-in'); });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('.reveal').forEach((el,i)=>{el.style.transitionDelay=`${Math.min(i,6)*0.07}s`;io.observe(el);});
+
+  const donateForm = document.getElementById('donateForm');
+  donateForm.addEventListener('submit', e => {
+    e.preventDefault();
+    fetch(donateForm.action, { method: 'POST', body: new FormData(donateForm), headers: { 'Accept': 'application/json' } })
+      .then(() => donateForm.classList.add('sent'))
+      .catch(() => donateForm.classList.add('sent'));
+  });
+</script>
+
+</body>
+</html>
