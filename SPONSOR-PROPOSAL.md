@@ -26,7 +26,10 @@ deliberate — it's what keeps the insurance question simple.
 
 - [ ] Confirm the title-holding structure above (sponsor holds title, CSI uses)
 - [x] ~~Confirm insurance covers non-operating donated vehicles~~ — resolved: added to the
-      policy as vehicles are acquired, not a standing concern
+      policy as vehicles are acquired, not a standing concern. Colorado's DR2303 (Non-Use
+      of Vehicle) form is the relevant DMV mechanism for a titled, non-operating vehicle —
+      worth the sponsor confirming with their broker whether general liability already
+      covers a static retained vehicle or a rider is needed.
 - [ ] Sign off on the written fair-market-value acknowledgment donors receive for retained
       vehicles
 
@@ -46,6 +49,13 @@ A boundary the sponsor approves once — not a request to approve every vehicle 
 - **Pickup/transport**: CSI arranges this directly through community volunteers, with AAA
   as a fallback if needed — not routed through CARS, since CARS's free pickup is bundled
   with them taking the vehicle for sale.
+- **Insurance cost**: if a retained vehicle requires added coverage beyond what's already
+  in place (see above — may be $0), that cost is deducted from *that vehicle's* eventual
+  resale proceeds before the sale-after-use split below — not a standing budget line CSI
+  has to manage, and not something either side invoices the other for in the meantime.
+  Check first whether this is already covered by the fiscal sponsorship agreement's
+  existing admin fee, if one exists — no need to build a new mechanism for something
+  already priced in.
 - **Sale after use**: if a retained vehicle is later sold, net proceeds split between CSI
   and the sponsor. **Split ratio: TBD — decide with the sponsor.**
 
@@ -77,3 +87,6 @@ FMV acknowledgment is issued only once real use is underway.
 - [ ] Fiscal sponsor's legal name (needed in `donate.html`'s tax-deductibility disclosure)
 - [ ] Sale-after-use split ratio
 - [ ] Who reviews new donation submissions and makes the keep/sell call day to day
+- [ ] Does the existing fiscal sponsorship agreement already include an admin fee that
+      would cover incidental costs like insurance riders? Check before assuming a new
+      cost-allocation clause is needed.
