@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Vehicle Log — Carnival Society International</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F4E8D0; --paper-card: #FBF3DC;
+    --ink: #231712; --ink-soft: #5A4238;
+    --burgundy: #7A2E34; --burgundy-deep: #5A1E24; --burgundy-red: #9B3036;
+    --gold: #C8A05A; --gold-deep: #8F6E34;
+    --rule: rgba(139,110,52,0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 17px; line-height: 1.6; padding: 3rem 1.5rem 5rem;
+  }
+  .sheet { max-width: 720px; margin: 0 auto; }
+  h1 {
+    font-family: Georgia, serif; font-weight: 700; font-size: 1.9rem;
+    color: var(--burgundy-deep); margin: 0 0 0.4rem; text-wrap: balance;
+  }
+  h1 em { font-style: italic; color: var(--burgundy); }
+  .sub { font-style: italic; color: var(--ink-soft); margin: 0 0 2.25rem; }
+  .card {
+    background: var(--paper-card); padding: 1.75rem;
+    box-shadow: 0 12px 28px rgba(90,30,36,0.08), 0 0 0 1px var(--rule);
+    margin-bottom: 1.5rem;
+  }
+  .field { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.1rem; }
+  .field label {
+    font-style: italic; font-size: 0.76rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--gold-deep);
+  }
+  .field input, .field select, .field textarea {
+    font-family: inherit; font-size: 1.02rem; color: var(--ink);
+    background: transparent; border: 0; border-bottom: 1px solid var(--rule);
+    padding: 0.4rem 0; outline: none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--burgundy); }
+  .row { display: flex; gap: 1.25rem; }
+  .row .field { flex: 1; }
+  button {
+    font-family: inherit; font-style: italic; font-size: 0.98rem; letter-spacing: 0.05em;
+    background: var(--burgundy); color: var(--paper); border: 0;
+    padding: 0.65rem 1.5rem; cursor: pointer;
+  }
+  button:hover { background: var(--burgundy-deep); }
+  button.ghost { background: transparent; color: var(--burgundy); border: 1px solid var(--burgundy); }
+  .msg { font-style: italic; font-size: 0.92rem; margin-top: 0.75rem; }
+  .msg.error { color: var(--burgundy-red); }
+  .msg.ok { color: var(--gold-deep); }
+  .entry {
+    padding: 1.1rem 0; border-bottom: 1px solid var(--rule);
+    display: grid; grid-template-columns: 1fr auto; gap: 0.4rem 1rem;
+  }
+  .entry:last-child { border-bottom: 0; }
+  .entry-vehicle { font-family: Georgia, serif; font-weight: 700; font-style: italic; color: var(--burgundy); }
+  .entry-meta { font-size: 0.88rem; color: var(--ink-soft); grid-column: 1 / -1; }
+  .status-pill {
+    align-self: start; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.2rem 0.6rem; border-radius: 999px; height: fit-content;
+  }
+  .status-pill.retained { background: var(--gold); color: var(--burgundy-deep); }
+  .status-pill.sold { background: var(--ink-soft); color: var(--paper); }
+  .empty { font-style: italic; color: var(--ink-soft); text-align: center; padding: 2rem 0; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  .topbar span { font-style: italic; font-size: 0.9rem; color: var(--ink-soft); }
+  details summary { cursor: pointer; font-style: italic; color: var(--burgundy); margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<div class="sheet" id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://fybutdykshkfpccihxqp.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5YnV0ZHlrc2hrZnBjY2loeHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3ODExMzUsImV4cCI6MjA5OTM1NzEzNX0.cHJ47xag73Om9mtPuj-YE9SOva5MPYWJD1aGKxTPvik';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const app = document.getElementById('app');
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function renderAuth(mode) {
+  app.innerHTML = `
+    <h1>Vehicle <em>Log</em></h1>
+    <p class="sub">Sign in to view which donated vehicles Carnival Society International has retained.</p>
+    <div class="card">
+      <div class="field"><label>Email</label><input type="email" id="email"></div>
+      <div class="field"><label>Password</label><input type="password" id="password"></div>
+      <button id="submitBtn">${mode === 'signup' ? 'Create Account' : 'Sign In'}</button>
+      <button class="ghost" id="toggleBtn" type="button" style="margin-left:0.6rem;">
+        ${mode === 'signup' ? 'Have an account? Sign in' : 'No account? Sign up'}
+      </button>
+      <div class="msg" id="authMsg"></div>
+    </div>
+  `;
+  document.getElementById('toggleBtn').onclick = () => renderAuth(mode === 'signup' ? 'signin' : 'signup');
+  document.getElementById('submitBtn').onclick = async () => {
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const msg = document.getElementById('authMsg');
+    msg.textContent = ''; msg.className = 'msg';
+    const { error } = mode === 'signup'
+      ? await sb.auth.signUp({ email, password })
+      : await sb.auth.signInWithPassword({ email, password });
+    if (error) { msg.textContent = error.message; msg.className = 'msg error'; return; }
+    if (mode === 'signup') { msg.textContent = 'Check your email to confirm your account, then sign in.'; msg.className = 'msg ok'; }
+  };
+}
+
+async function renderLog(session) {
+  const { data: vehicles, error } = await sb.from('retained_vehicles')
+    .select('*').order('retained_at', { ascending: false });
+
+  const listHtml = (!vehicles || vehicles.length === 0)
+    ? `<div class="empty">Nothing logged yet.</div>`
+    : vehicles.map(v => `
+        <div class="entry">
+          <div class="entry-vehicle">${escapeHtml(v.vehicle)}</div>
+          <div class="status-pill ${v.status}">${escapeHtml(v.status)}</div>
+          <div class="entry-meta">
+            Donor: ${escapeHtml(v.donor_name)} &middot; Retained ${escapeHtml(v.retained_at)}
+            ${v.vin ? ' &middot; VIN ' + escapeHtml(v.vin) : ''}<br>
+            ${escapeHtml(v.intended_use)}${v.notes ? ' — ' + escapeHtml(v.notes) : ''}
+          </div>
+        </div>
+      `).join('');
+
+  app.innerHTML = `
+    <div class="topbar">
+      <span>Signed in as ${escapeHtml(session.user.email)}</span>
+      <button class="ghost" id="signoutBtn">Sign Out</button>
+    </div>
+    <h1>Vehicle <em>Log</em></h1>
+    <p class="sub">Every vehicle Carnival Society International has retained for art and build use &mdash; visible anytime, no approval needed.</p>
+    <div class="card">${listHtml}</div>
+    <details>
+      <summary>Log a retained vehicle</summary>
+      <div class="card">
+        <div class="field"><label>Vehicle (Year, Make &amp; Model)</label><input id="v_vehicle"></div>
+        <div class="row">
+          <div class="field"><label>Donor Name</label><input id="v_donor"></div>
+          <div class="field"><label>VIN (optional)</label><input id="v_vin"></div>
+        </div>
+        <div class="field"><label>Intended Use</label><input id="v_use" placeholder="e.g. structural material for the Boulder build"></div>
+        <div class="field"><label>Notes (optional)</label><textarea id="v_notes" rows="2"></textarea></div>
+        <button id="addBtn">Add to Log</button>
+        <div class="msg" id="addMsg"></div>
+      </div>
+    </details>
+  `;
+  document.getElementById('signoutBtn').onclick = async () => { await sb.auth.signOut(); };
+  document.getElementById('addBtn').onclick = async () => {
+    const msg = document.getElementById('addMsg');
+    msg.textContent = ''; msg.className = 'msg';
+    const payload = {
+      vehicle: document.getElementById('v_vehicle').value.trim(),
+      donor_name: document.getElementById('v_donor').value.trim(),
+      vin: document.getElementById('v_vin').value.trim() || null,
+      intended_use: document.getElementById('v_use').value.trim(),
+      notes: document.getElementById('v_notes').value.trim() || null,
+    };
+    if (!payload.vehicle || !payload.donor_name || !payload.intended_use) {
+      msg.textContent = 'Vehicle, donor name, and intended use are required.';
+      msg.className = 'msg error';
+      return;
+    }
+    const { error } = await sb.from('retained_vehicles').insert(payload);
+    if (error) {
+      msg.textContent = error.code === '42501'
+        ? "You don't have permission to add entries — only the guild owner can log vehicles."
+        : error.message;
+      msg.className = 'msg error';
+      return;
+    }
+    renderLog(session);
+  };
+}
+
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) renderLog(session); else renderAuth('signin');
+  sb.auth.onAuthStateChange((_event, newSession) => {
+    if (newSession) renderLog(newSession); else renderAuth('signin');
+  });
+})();
+</script>
+</body>
+</html>
