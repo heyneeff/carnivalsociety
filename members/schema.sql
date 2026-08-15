@@ -227,3 +227,31 @@ create policy "events publicly readable" on public.events
   for select using (true);
 create policy "events managed by moderators" on public.events
   for all using (public.is_moderator(auth.uid())) with check (public.is_moderator(auth.uid()));
+
+-- ============================================================
+-- MATERIALS NEEDED — Guild Hall right-column list. Readable by every
+-- signed-in member; editable only by the guild owner specifically (not
+-- any Ringleader — see is_materials_owner below).
+-- ============================================================
+create table public.materials_needed (
+  id uuid primary key default gen_random_uuid(),
+  item text not null,
+  position integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table public.materials_needed enable row level security;
+
+-- security definer runs with this function's owner's privileges (whoever
+-- runs this migration in the SQL editor), which is how it's allowed to
+-- read auth.users — the authenticated/anon roles can't query that table
+-- directly. The email is baked in at migration time, not read per-request.
+create or replace function public.is_materials_owner()
+returns boolean as $$
+  select auth.uid() = (select id from auth.users where email = 'heyneeff@gmail.com' limit 1);
+$$ language sql stable security definer;
+
+create policy "materials needed readable by members" on public.materials_needed
+  for select using (auth.role() = 'authenticated');
+create policy "materials needed managed by owner" on public.materials_needed
+  for all using (public.is_materials_owner()) with check (public.is_materials_owner());

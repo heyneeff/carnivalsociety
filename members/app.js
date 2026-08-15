@@ -12,6 +12,7 @@ let session = null;
 let profile = null;
 let chapters = [];
 let boards = [];
+let isMaterialsOwner = false;
 
 // Escape user-supplied text before it goes into innerHTML — display names,
 // post titles/bodies, and replies are all attacker-controllable strings.
@@ -41,20 +42,22 @@ async function boot() {
   sb.auth.onAuthStateChange(async (_event, newSession) => {
     session = newSession;
     if (session) await loadAppData();
-    else { profile = null; chapters = []; boards = []; }
+    else { profile = null; chapters = []; boards = []; isMaterialsOwner = false; }
     render();
   });
 }
 
 async function loadAppData() {
-  const [{ data: profileData }, { data: chapterData }, { data: boardData }] = await Promise.all([
+  const [{ data: profileData }, { data: chapterData }, { data: boardData }, { data: ownerData }] = await Promise.all([
     sb.from('profiles').select('*').eq('id', session.user.id).single(),
     sb.from('chapters').select('*').order('name'),
     sb.from('boards').select('*'),
+    sb.rpc('is_materials_owner'),
   ]);
   profile = profileData;
   chapters = chapterData || [];
   boards = boardData || [];
+  isMaterialsOwner = !!ownerData;
 }
 
 window.addEventListener('hashchange', render);
@@ -235,15 +238,24 @@ async function renderBoardView(mainView, slug) {
     mainView.innerHTML = `<h2>Not found</h2><div class="placeholder-note">That board doesn't exist.</div>`;
     return;
   }
+  const isGuildHall = slug === 'guild-hall';
   mainView.innerHTML = `<h2>${escapeHtml(board.name)}</h2><div class="placeholder-note">Loading…</div>`;
 
-  const { data: posts } = await sb
+  const postsQuery = sb
     .from('posts')
     .select('*, author:profiles(display_name, rank, is_ringleader)')
     .eq('board_id', board.id)
     .is('parent_id', null)
     .order('pinned', { ascending: false })
     .order('created_at', { ascending: false });
+
+  const [{ data: posts }, materialsResult] = await Promise.all([
+    postsQuery,
+    isGuildHall
+      ? sb.from('materials_needed').select('*').order('position', { ascending: true }).order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] }),
+  ]);
+  const materials = materialsResult.data || [];
 
   const postListHtml = (posts || []).map(p => `
     <div class="post-card ${p.pinned ? 'pinned' : ''}" data-post-id="${p.id}">
@@ -256,7 +268,7 @@ async function renderBoardView(mainView, slug) {
     </div>
   `).join('') || '<div class="placeholder-note">No posts yet. Be the first to say something.</div>';
 
-  mainView.innerHTML = `
+  const boardMainHtml = `
     <h2>${escapeHtml(board.name)}</h2>
     <form class="composer" id="postComposer">
       <input type="text" id="postTitle" placeholder="Title" required>
@@ -265,6 +277,29 @@ async function renderBoardView(mainView, slug) {
     </form>
     <div class="post-list">${postListHtml}</div>
   `;
+
+  if (isGuildHall) {
+    mainView.innerHTML = `
+      <div class="board-layout">
+        <div class="board-main">${boardMainHtml}</div>
+        <aside class="materials-panel">
+          <h3 class="materials-heading">Materials Needed</h3>
+          ${isMaterialsOwner ? `
+          <form class="materials-add" id="materialAddForm">
+            <input type="text" id="materialItemInput" placeholder="Add an item…" required>
+            <button type="submit" class="composer-submit">Add</button>
+          </form>` : ''}
+          <ul class="materials-list" id="materialsList">
+            ${materials.length
+              ? materials.map((m, i) => materialItemHtml(m, i, materials.length)).join('')
+              : '<li class="placeholder-note materials-empty">Nothing needed right now.</li>'}
+          </ul>
+        </aside>
+      </div>
+    `;
+  } else {
+    mainView.innerHTML = boardMainHtml;
+  }
 
   document.getElementById('postComposer').addEventListener('submit', async e => {
     e.preventDefault();
@@ -278,6 +313,100 @@ async function renderBoardView(mainView, slug) {
   mainView.querySelectorAll('.post-card').forEach(card => {
     card.addEventListener('click', () => { window.location.hash = `#/post/${card.dataset.postId}`; });
   });
+
+  if (isGuildHall) wireMaterialsPanel(mainView, slug, materials);
+}
+
+// ── Materials Needed panel (Guild Hall right column) ─────────────────
+function materialItemHtml(m, index, total) {
+  if (!isMaterialsOwner) {
+    return `<li class="material-item"><span class="material-text">${escapeHtml(m.item)}</span></li>`;
+  }
+  return `
+    <li class="material-item" data-id="${m.id}">
+      <span class="material-text">${escapeHtml(m.item)}</span>
+      <div class="material-controls">
+        <button class="material-btn" data-move-up="${m.id}" ${index === 0 ? 'disabled' : ''} title="Move up">&uarr;</button>
+        <button class="material-btn" data-move-down="${m.id}" ${index === total - 1 ? 'disabled' : ''} title="Move down">&darr;</button>
+        <button class="material-btn" data-edit-btn="${m.id}" title="Edit">&#9998;</button>
+        <button class="material-btn danger" data-delete="${m.id}" title="Remove">&times;</button>
+      </div>
+    </li>`;
+}
+
+function wireMaterialsPanel(mainView, slug, materials) {
+  const addForm = document.getElementById('materialAddForm');
+  if (addForm) {
+    addForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const input = document.getElementById('materialItemInput');
+      const item = input.value.trim();
+      if (!item) return;
+      const maxPosition = materials.reduce((max, m) => Math.max(max, m.position), -1);
+      await sb.from('materials_needed').insert({ item, position: maxPosition + 1 });
+      renderBoardView(mainView, slug);
+    });
+  }
+
+  if (!isMaterialsOwner) return;
+
+  mainView.querySelectorAll('[data-delete]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await sb.from('materials_needed').delete().eq('id', btn.dataset.delete);
+      renderBoardView(mainView, slug);
+    });
+  });
+
+  mainView.querySelectorAll('[data-edit-btn]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.editBtn;
+      const li = mainView.querySelector(`.material-item[data-id="${id}"]`);
+      const textEl = li.querySelector('.material-text');
+      const current = textEl.textContent;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'material-edit-input';
+      input.value = current;
+      textEl.replaceWith(input);
+      input.focus();
+      input.select();
+      let committed = false;
+      const commit = async () => {
+        if (committed) return;
+        committed = true;
+        const newVal = input.value.trim();
+        if (newVal && newVal !== current) {
+          await sb.from('materials_needed').update({ item: newVal }).eq('id', id);
+        }
+        renderBoardView(mainView, slug);
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { committed = true; renderBoardView(mainView, slug); }
+      });
+    });
+  });
+
+  mainView.querySelectorAll('[data-move-up]').forEach(btn => {
+    btn.addEventListener('click', () => swapMaterialPosition(mainView, slug, materials, btn.dataset.moveUp, -1));
+  });
+  mainView.querySelectorAll('[data-move-down]').forEach(btn => {
+    btn.addEventListener('click', () => swapMaterialPosition(mainView, slug, materials, btn.dataset.moveDown, 1));
+  });
+}
+
+async function swapMaterialPosition(mainView, slug, materials, id, direction) {
+  const index = materials.findIndex(m => m.id === id);
+  const targetIndex = index + direction;
+  if (targetIndex < 0 || targetIndex >= materials.length) return;
+  const a = materials[index];
+  const b = materials[targetIndex];
+  await Promise.all([
+    sb.from('materials_needed').update({ position: b.position }).eq('id', a.id),
+    sb.from('materials_needed').update({ position: a.position }).eq('id', b.id),
+  ]);
+  renderBoardView(mainView, slug);
 }
 
 // ── Thread view: single post + replies ─────────────────────────────────
