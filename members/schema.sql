@@ -1,3 +1,7 @@
+-- SUPERSEDED — this Supabase draft was never what's actually deployed. The
+-- live members app runs on a Cloudflare Worker + D1, not Supabase. See
+-- worker/migrations/ for the real schema. Kept for history only.
+
 -- Carnival Society International — members app schema
 -- Run this once in the Supabase SQL editor (Project → SQL Editor → New query) for the
 -- carnivalsociety-members project. Safe to re-run top to bottom on a fresh project.

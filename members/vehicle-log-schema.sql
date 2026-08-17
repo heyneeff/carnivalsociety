@@ -1,3 +1,7 @@
+-- SUPERSEDED — this Supabase draft was never what's actually deployed. The
+-- live members app runs on a Cloudflare Worker + D1, not Supabase. Kept for
+-- history only.
+
 -- Carnival Society International — vehicle donation retention log
 -- Run this once in the Supabase SQL editor (Project → SQL Editor → New query) for the
 -- carnivalsociety-members project. Standalone addition — does not modify schema.sql,
