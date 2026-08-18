@@ -561,6 +561,13 @@ async function api(request, env, url) {
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(activityId);
     await env.DB.prepare(`UPDATE event_activities SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    if (status !== void 0) {
+      // Materials tied to this game/event follow its status: locked in ->
+      // need, still proposed -> want. Keeps the shared Materials tab in
+      // sync automatically instead of requiring a second manual edit.
+      await env.DB.prepare("UPDATE event_materials SET category = ? WHERE activity_id = ?")
+        .bind(status === "locked_in" ? "need" : "want", activityId).run();
+    }
     return json({ ok: true });
   }
   if (activityMatch && method === "DELETE") {
@@ -588,8 +595,21 @@ async function api(request, env, url) {
     const { item, category, activity_id, position } = await body(request);
     if (!item) return err(400, "item required.");
     if (category !== void 0 && !["need", "want"].includes(category)) return err(400, "category must be need/want.");
+    // No explicit category: derive it from the linked game/event's status
+    // (locked in -> need, still proposed -> want) so items added under an
+    // activity don't need a second manual choice. Materials added directly
+    // in the Materials tab (no activity_id) default to need, as before.
+    let finalCategory = category;
+    if (finalCategory === void 0) {
+      if (activity_id) {
+        const act = await env.DB.prepare("SELECT status FROM event_activities WHERE id = ?").bind(activity_id).first();
+        finalCategory = act && act.status === "locked_in" ? "need" : "want";
+      } else {
+        finalCategory = "need";
+      }
+    }
     const id = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO event_materials (id, event_id, item, category, activity_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, eventId, item, category || "need", activity_id || null, position || 0, user.id).run();
+    await env.DB.prepare("INSERT INTO event_materials (id, event_id, item, category, activity_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, eventId, item, finalCategory, activity_id || null, position || 0, user.id).run();
     return json({ id });
   }
   const materialMatch = pathname.match(/^\/api\/events\/([^/]+)\/materials\/([^/]+)$/);

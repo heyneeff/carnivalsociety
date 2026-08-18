@@ -2507,11 +2507,10 @@ async function renderCrewActivitiesView(mainView) {
         <span class="activity-material-count">${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
       </summary>
       <div class="activity-body">
-        ${a.kind === 'game' ? `
         <select class="activity-status-select" data-activity="${a.id}">
           <option value="proposed" ${a.status === 'proposed' ? 'selected' : ''}>Proposed</option>
           <option value="locked_in" ${a.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
-        </select>` : ''}
+        </select>
         ${a.starts_at || a.location ? `<div class="post-meta">${a.starts_at ? formatEventDate(a.starts_at) : 'No time set'}${a.ends_at ? ` – ${formatEventDate(a.ends_at)}` : ''}${a.location ? ` · ${escapeHtml(a.location)}` : ''}</div>` : ''}
         ${a.description ? `<div class="post-snippet">${escapeHtml(a.description)}</div>` : ''}
         <ul class="materials-list">
@@ -2525,10 +2524,7 @@ async function renderCrewActivitiesView(mainView) {
         </ul>
         <form class="activity-material-add" data-activity="${a.id}">
           <input type="text" placeholder="Add a material…" required>
-          <select>
-            <option value="need">Need</option>
-            <option value="want">Want</option>
-          </select>
+          <span class="activity-material-add-hint">Adds as ${a.status === 'locked_in' ? 'Need' : 'Want'}</span>
           <button type="submit" class="gm-btn">Add</button>
         </form>
         <div class="post-actions"><button class="action-btn danger" data-delete-activity="${a.id}">Delete</button></div>
@@ -2604,12 +2600,11 @@ async function renderCrewActivitiesView(mainView) {
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const input = form.querySelector('input');
-      const select = form.querySelector('select');
       const item = input.value.trim();
       if (!item) return;
       await apiFetch(`/api/events/${evt.id}/materials`, {
         method: 'POST',
-        body: { item, category: select.value, activity_id: form.dataset.activity },
+        body: { item, activity_id: form.dataset.activity },
       });
       renderCrewActivitiesView(mainView);
     });
@@ -2618,14 +2613,17 @@ async function renderCrewActivitiesView(mainView) {
 
 // ── Crew: Materials (Needs / Wants, two columns) ────────────────────────
 function materialsColumnHtml(items, activityNames) {
-  return items.length ? `<ul class="materials-list">${items.map(m => `
+  return items.length ? `<ul class="materials-list">${items.map(m => {
+    const source = m.activity_id && activityNames[m.activity_id];
+    return `
     <li class="materials-item" data-material="${m.id}">
       <input type="text" class="materials-item-input" value="${escapeHtml(m.item)}">
-      ${m.activity_id && activityNames[m.activity_id] ? `<span class="materials-source-tag">${escapeHtml(activityNames[m.activity_id])}</span>` : ''}
+      ${source ? `<button class="materials-source-toggle" data-source-toggle="${m.id}" title="What's this for?">ⓘ</button>` : ''}
       <button class="crew-chip-remove" data-move-material="${m.id}" data-to="${m.category === 'need' ? 'want' : 'need'}" title="Move to ${m.category === 'need' ? 'Wants' : 'Needs'}">⇄</button>
       <button class="crew-chip-remove" data-delete-material="${m.id}" title="Remove">&times;</button>
+      ${source ? `<div class="materials-source-detail" id="materialsSource-${m.id}" hidden>For: ${escapeHtml(source)}</div>` : ''}
     </li>
-  `).join('')}</ul>` : '<div class="placeholder-note">Nothing listed yet.</div>';
+  `; }).join('')}</ul>` : '<div class="placeholder-note">Nothing listed yet.</div>';
 }
 
 async function renderCrewMaterialsView(mainView) {
@@ -2690,6 +2688,13 @@ async function renderCrewMaterialsView(mainView) {
     btn.addEventListener('click', async () => {
       await apiFetch(`/api/events/${evt.id}/materials/${btn.dataset.deleteMaterial}`, { method: 'DELETE' });
       renderCrewMaterialsView(mainView);
+    });
+  });
+
+  mainView.querySelectorAll('[data-source-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const detail = document.getElementById(`materialsSource-${btn.dataset.sourceToggle}`);
+      detail.hidden = !detail.hidden;
     });
   });
 }

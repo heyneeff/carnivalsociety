@@ -612,6 +612,13 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .materials-source-tag {
   font-size: 0.75rem; font-style: italic; color: var(--gold-deep); white-space: nowrap;
 }
+.materials-source-toggle {
+  background: none; border: none; color: var(--gold-deep); cursor: pointer; font-size: 0.95rem; padding: 0 0.1rem;
+}
+.materials-source-detail {
+  flex-basis: 100%; font-size: 0.82rem; font-style: italic; color: var(--gold-deep); margin-top: 0.2rem;
+}
+.activity-material-add-hint { font-size: 0.8rem; font-style: italic; color: var(--cream-soft); align-self: center; }
 
 .crew-tabs { display: flex; gap: 0.4rem; border-bottom: 1px solid var(--border); margin-bottom: 1.2rem; flex-wrap: wrap; }
 .crew-tab {
@@ -677,7 +684,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .cp-children { margin-top: 0.4rem; }
 
 .materials-list { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; max-width: 480px; }
-.materials-item { display: flex; align-items: center; gap: 0.5rem; }
+.materials-item { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .materials-item-input {
   flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
   padding: 0.5rem 0.7rem; color: var(--cream); outline: none; font-family: inherit;
