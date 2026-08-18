@@ -649,6 +649,26 @@ async function api(request, env, url) {
     ).all();
     return json({ members: results.map(shapeMember) });
   }
+  if (pathname === "/api/members" && method === "POST") {
+    // Ringleader-created member: no email/password from the admin, no
+    // session swap (unlike /api/auth/signup, which would otherwise log the
+    // Ringleader out and into the new account). Meant for people who'll
+    // never sign in with a password at all -- they get in via quick-pick.
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { display_name, home_chapter_id } = await body(request);
+    if (!display_name) return err(400, "display_name required.");
+    const slug = display_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "member";
+    const email = `${slug}-${bytesToHex(crypto.getRandomValues(new Uint8Array(3)))}@crew.local`;
+    const { hash, salt } = await hashPassword(crypto.randomUUID());
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, onboarded) VALUES (?, ?, ?, ?, ?, ?, 1)`
+    ).bind(id, email, hash, salt, display_name, home_chapter_id || null).run();
+    const created = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
+    return json({ user: publicUser(created) });
+  }
   const memberMatch = pathname.match(/^\/api\/members\/([^/]+)$/);
   if (memberMatch && method === "PATCH") {
     const authErr = requireAuth();

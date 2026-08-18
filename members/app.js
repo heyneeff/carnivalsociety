@@ -273,9 +273,7 @@ function renderShell() {
   const rankLabel = profile && !profile.is_ringleader ? profile.rank.charAt(0).toUpperCase() + profile.rank.slice(1) : '';
   const ringleaderTag = profile?.is_ringleader ? 'Ringleader' : '';
 
-  const chapterLinks = chapters.map(c => `
-    <li><a class="nav-link ${route === c.slug ? 'active' : ''}" href="#/${c.slug}">${c.name}</a></li>
-  `).join('');
+  const onGuildHallBoard = route === 'guild-hall' || chapters.some(c => c.slug === route);
 
   app.innerHTML = `
     <div class="shell">
@@ -292,8 +290,7 @@ function renderShell() {
         <div>
           <div class="nav-group-label">Boards</div>
           <ul class="nav-list">
-            <li><a class="nav-link ${route === 'guild-hall' ? 'active' : ''}" href="#/guild-hall">Guild Hall</a></li>
-            ${chapterLinks}
+            <li><a class="nav-link ${onGuildHallBoard ? 'active' : ''}" href="#/guild-hall">Guild Hall</a></li>
           </ul>
         </div>
         <div>
@@ -355,7 +352,34 @@ function renderMainView(route) {
   if (route === 'projects') { renderProjectsView(mainView); return; }
   if (route === 'network') { renderNetworkView(mainView); return; }
   if (route.startsWith('post/')) { renderThreadView(mainView, route.slice(5)); return; }
-  renderBoardView(mainView, route);
+  renderGuildHallTabs(mainView, route === 'guild-hall' ? 'guild-hall' : route);
+}
+
+// Chapters not open yet — locked in the tab bar instead of removed, so the
+// nav still shows the guild's full shape.
+const LOCKED_BOARD_SLUGS = ['denver', 'los-angeles'];
+
+function renderGuildHallTabs(mainView, activeSlug) {
+  const boardTabs = [{ slug: 'guild-hall', name: 'Guild Hall' }, ...chapters.map(c => ({ slug: c.slug, name: c.name }))];
+  const active = boardTabs.some(t => t.slug === activeSlug) ? activeSlug : 'guild-hall';
+
+  mainView.innerHTML = `
+    <h2>Guild Hall</h2>
+    <div class="crew-tabs">
+      ${boardTabs.map(t => LOCKED_BOARD_SLUGS.includes(t.slug)
+        ? `<span class="crew-tab locked" title="Not open yet">${escapeHtml(t.name)} 🔒</span>`
+        : `<a class="crew-tab ${active === t.slug ? 'active' : ''}" href="#/${t.slug}">${escapeHtml(t.name)}</a>`
+      ).join('')}
+    </div>
+    <div id="guildHallTabBody"><div class="placeholder-note">Loading…</div></div>
+  `;
+
+  const body = document.getElementById('guildHallTabBody');
+  if (LOCKED_BOARD_SLUGS.includes(active)) {
+    body.innerHTML = `<div class="placeholder-note">This chapter board isn't open yet.</div>`;
+    return;
+  }
+  renderBoardView(body, active);
 }
 
 function authorBadge(authorProfile) {
@@ -374,10 +398,10 @@ function isModerator() {
 async function renderBoardView(mainView, slug) {
   const board = boards.find(b => b.slug === slug);
   if (!board) {
-    mainView.innerHTML = `<h2>Not found</h2><div class="placeholder-note">That board doesn't exist.</div>`;
+    mainView.innerHTML = `<div class="placeholder-note">That board doesn't exist.</div>`;
     return;
   }
-  mainView.innerHTML = `<h2>${escapeHtml(board.name)}</h2><div class="placeholder-note">Loading…</div>`;
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
   const { posts } = await apiFetch(`/api/posts?board_id=${board.id}`);
 
@@ -393,7 +417,6 @@ async function renderBoardView(mainView, slug) {
   `).join('') || '<div class="placeholder-note">No posts yet. Be the first to say something.</div>';
 
   mainView.innerHTML = `
-    <h2>${escapeHtml(board.name)}</h2>
     <form class="composer" id="postComposer">
       <input type="text" id="postTitle" placeholder="Title" required>
       <textarea id="postBody" placeholder="What's on your mind?" required></textarea>
@@ -835,8 +858,35 @@ async function renderAdminView(mainView) {
   mainView.innerHTML = `
     <h2>Members Hub</h2>
     <p class="admin-note">Every member of the guild. Changes save immediately.</p>
+    <div class="admin-toolbar"><button class="gm-btn" id="newMemberToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add Member</button></div>
+    <div class="card new-project-form" id="newMemberForm">
+      <div class="field-row"><label>Name</label><input type="text" id="nmName" placeholder="e.g. Amelia"></div>
+      <div class="field-row"><label>Home Chapter</label>
+        <select id="nmChapter">
+          <option value="">No chapter</option>
+          ${chapters.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+        </select>
+      </div>
+      <p class="quickpick-fallback">No email or password needed — they sign in with the one-click name picker.</p>
+      <div class="form-actions">
+        <button class="composer-submit" id="nmCreateBtn">Add</button>
+        <button class="gm-btn" id="nmCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>
     <div class="admin-list">${rowsHtml}</div>
   `;
+
+  document.getElementById('newMemberToggleBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.toggle('open'));
+  document.getElementById('nmCancelBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.remove('open'));
+  document.getElementById('nmCreateBtn').addEventListener('click', async () => {
+    const display_name = document.getElementById('nmName').value.trim();
+    if (!display_name) return;
+    await apiFetch('/api/members', {
+      method: 'POST',
+      body: { display_name, home_chapter_id: document.getElementById('nmChapter').value || null },
+    });
+    renderAdminView(mainView);
+  });
 
   mainView.querySelectorAll('.admin-row').forEach(row => {
     const userId = row.dataset.userId;
@@ -2462,9 +2512,10 @@ async function renderCrewActivitiesView(mainView) {
       <div class="activities-toolbar"><button class="gm-btn" id="new${label}ToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add ${label}</button></div>
       <div class="card new-project-form" id="new${label}Form">
         <div class="field-row"><label>Name</label><input type="text" id="${kind}Name"></div>
+        ${kind === 'event' ? `
         <div class="field-row"><label>Starts</label><input type="datetime-local" id="${kind}Starts"></div>
         <div class="field-row"><label>Ends</label><input type="datetime-local" id="${kind}Ends"></div>
-        <div class="field-row"><label>Location</label><input type="text" id="${kind}Location"></div>
+        <div class="field-row"><label>Location</label><input type="text" id="${kind}Location"></div>` : ''}
         <div class="field-row"><label>Details</label><input type="text" id="${kind}Description"></div>
         <div class="form-actions">
           <button class="composer-submit" id="${kind}CreateBtn">Add</button>
@@ -2481,8 +2532,8 @@ async function renderCrewActivitiesView(mainView) {
     document.getElementById(`${kind}CreateBtn`).addEventListener('click', async () => {
       const name = document.getElementById(`${kind}Name`).value.trim();
       if (!name) return;
-      const starts = document.getElementById(`${kind}Starts`).value;
-      const ends = document.getElementById(`${kind}Ends`).value;
+      const starts = kind === 'event' ? document.getElementById(`${kind}Starts`).value : '';
+      const ends = kind === 'event' ? document.getElementById(`${kind}Ends`).value : '';
       await apiFetch(`/api/events/${evt.id}/activities`, {
         method: 'POST',
         body: {
@@ -2491,7 +2542,7 @@ async function renderCrewActivitiesView(mainView) {
           description: document.getElementById(`${kind}Description`).value.trim() || null,
           starts_at: starts ? new Date(starts).toISOString() : null,
           ends_at: ends ? new Date(ends).toISOString() : null,
-          location: document.getElementById(`${kind}Location`).value.trim() || null,
+          location: kind === 'event' ? (document.getElementById(`${kind}Location`).value.trim() || null) : null,
         },
       });
       renderCrewActivitiesView(mainView);
@@ -2511,7 +2562,7 @@ async function renderCrewActivitiesView(mainView) {
           <option value="proposed" ${a.status === 'proposed' ? 'selected' : ''}>Proposed</option>
           <option value="locked_in" ${a.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
         </select>
-        ${a.starts_at || a.location ? `<div class="post-meta">${a.starts_at ? formatEventDate(a.starts_at) : 'No time set'}${a.ends_at ? ` – ${formatEventDate(a.ends_at)}` : ''}${a.location ? ` · ${escapeHtml(a.location)}` : ''}</div>` : ''}
+        ${a.kind === 'event' && (a.starts_at || a.location) ? `<div class="post-meta">${a.starts_at ? formatEventDate(a.starts_at) : 'No time set'}${a.ends_at ? ` – ${formatEventDate(a.ends_at)}` : ''}${a.location ? ` · ${escapeHtml(a.location)}` : ''}</div>` : ''}
         ${a.description ? `<div class="post-snippet">${escapeHtml(a.description)}</div>` : ''}
         <ul class="materials-list">
           ${mats.length ? mats.map(m => `

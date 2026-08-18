@@ -249,6 +249,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 
 /* RINGLEADER HUB */
 .admin-note { font-style: italic; color: var(--cream-soft); margin-bottom: 1.5rem; }
+.admin-toolbar { display: flex; justify-content: flex-end; margin-bottom: 1rem; max-width: 480px; }
 .admin-list { display: flex; flex-direction: column; gap: 0.6rem; max-width: 920px; }
 .admin-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; background: var(--surface);
@@ -627,6 +628,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 }
 .crew-tab:hover { color: var(--cream); }
 .crew-tab.active { color: var(--gold-bright); border-bottom-color: var(--gold-bright); }
+.crew-tab.locked { color: var(--cream-soft); opacity: 0.45; cursor: not-allowed; }
 
 .materials-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; max-width: 900px; }
 .materials-column .materials-list { max-width: none; }
