@@ -68,6 +68,7 @@ CREATE TABLE event_materials (
   id TEXT PRIMARY KEY,
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   item TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'need' CHECK (category IN ('need', 'want')),
   position INTEGER NOT NULL DEFAULT 0,
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

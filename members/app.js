@@ -19,6 +19,7 @@ let profile = null;
 let chapters = [];
 let boards = [];
 let crewEvents = []; // upcoming events the signed-in user is crew on (or, for moderators, all upcoming events)
+let activeCrewEventId = null; // which of crewEvents the Schedule/Meetups/Projects/Materials nav is currently pointed at
 
 // Escape user-supplied text before it goes into innerHTML — display names,
 // post titles/bodies, and replies are all attacker-controllable strings.
@@ -57,13 +58,16 @@ async function loadAppData() {
   chapters = chapterData || [];
   boards = boardData || [];
   crewEvents = crewData || [];
+  activeCrewEventId = crewEvents[0]?.id || null;
 }
 
 // The event whose crew hub (schedule/meetups/projects/materials) the signed-in
-// user should see — the nearest upcoming event they're rostered on. v1 assumes
-// one active crew assignment at a time.
+// user is currently working in — defaults to the nearest upcoming one they're
+// rostered on, switchable via the sidebar's event picker when they're on more
+// than one crew (kept out of the nav itself so multiple events don't turn into
+// multiple copies of the Schedule/Meetups/Projects/Materials links).
 function myCrewEvent() {
-  return crewEvents[0] || null;
+  return crewEvents.find(e => e.id === activeCrewEventId) || crewEvents[0] || null;
 }
 
 async function refreshProfile() {
@@ -75,9 +79,52 @@ window.addEventListener('hashchange', render);
 
 // ── Render root ───────────────────────────────────────────────────────
 function render() {
-  if (!session) { renderAuthScreen(); return; }
+  if (!session) { renderPreAuth(); return; }
   if (!profile.onboarded) { renderOnboarding(); return; }
   renderShell();
+}
+
+// ── Pre-auth: one-click "pick your name" for a known event crew, falling
+// back to the real sign-in form if there's no crew to pick from (or for
+// Ringleaders/anyone with an existing account). ─────────────────────────
+async function renderPreAuth() {
+  app.innerHTML = `<div class="loading-screen"><span class="loading-mark">♦</span></div>`;
+  try {
+    const { events } = await apiFetch('/api/events');
+    const nextEvent = (events || [])[0];
+    if (nextEvent) {
+      const { crew } = await apiFetch(`/api/events/${nextEvent.id}/quick-crew`);
+      if ((crew || []).length) { renderQuickPickScreen(nextEvent, crew); return; }
+    }
+  } catch (e) { /* fall through to the normal sign-in form */ }
+  renderAuthScreen();
+}
+
+function renderQuickPickScreen(event, crew) {
+  app.innerHTML = `
+    <div class="auth-screen">
+      <div class="auth-panel quickpick-panel">
+        <h1>${escapeHtml(event.title)} Crew</h1>
+        <p class="auth-sub">Tap your name to jump in — no password needed.</p>
+        <div class="quickpick-grid">
+          ${crew.map(m => `<button class="quickpick-btn" data-user="${m.id}">${escapeHtml(m.display_name)}</button>`).join('')}
+        </div>
+        <p class="quickpick-fallback">Ringleader or existing account? <a href="#" id="quickpickFallbackLink">Sign in here</a></p>
+      </div>
+    </div>
+  `;
+
+  document.querySelectorAll('.quickpick-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { user } = await apiFetch(`/api/events/${event.id}/quick-signin`, { method: 'POST', body: { user_id: btn.dataset.user } });
+      session = true;
+      profile = user;
+      await loadAppData();
+      render();
+    });
+  });
+
+  document.getElementById('quickpickFallbackLink').addEventListener('click', e => { e.preventDefault(); renderAuthScreen(); });
 }
 
 // ── Auth screen ──────────────────────────────────────────────────────
@@ -120,12 +167,14 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
           <p class="auth-error">${escapeHtml(errorMsg)}</p>
           <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join' : 'Enter'}</button>
         </form>
+        <p class="quickpick-fallback"><a href="#" id="preAuthBackLink">← Back</a></p>
       </div>
     </div>
   `;
 
   document.getElementById('tabSignin').onclick = () => renderAuthScreen('signin');
   document.getElementById('tabSignup').onclick = async () => { await ensureChaptersLoaded(); renderAuthScreen('signup'); };
+  document.getElementById('preAuthBackLink').addEventListener('click', e => { e.preventDefault(); renderPreAuth(); });
 
   document.getElementById('authForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -237,7 +286,7 @@ function renderShell() {
         </div>
         <div>
           <ul class="nav-list nav-list-hub">
-            <li><a class="nav-link ${route === 'hub' ? 'active' : ''}" href="#/hub">Hub</a></li>
+            <li><a class="nav-link ${route === 'hub' || route.startsWith('crew/') ? 'active' : ''}" href="#/hub">Hub</a></li>
           </ul>
         </div>
         <div>
@@ -259,16 +308,6 @@ function renderShell() {
             <li><a class="nav-link ${route === 'dm' || route.startsWith('dm/') ? 'active' : ''}" href="#/dm">Messages</a></li>
           </ul>
         </div>
-        ${crewEvents.length ? `
-        <div>
-          <div class="nav-group-label">${escapeHtml(crewEvents[0].title)} Crew</div>
-          <ul class="nav-list">
-            <li><a class="nav-link ${route === 'crew/schedule' ? 'active' : ''}" href="#/crew/schedule">Schedule</a></li>
-            <li><a class="nav-link ${route === 'crew/meetups' ? 'active' : ''}" href="#/crew/meetups">Meetups</a></li>
-            <li><a class="nav-link ${route === 'crew/projects' ? 'active' : ''}" href="#/crew/projects">Projects</a></li>
-            <li><a class="nav-link ${route === 'crew/materials' ? 'active' : ''}" href="#/crew/materials">Materials</a></li>
-          </ul>
-        </div>` : ''}
         ${profile?.is_ringleader ? `
         <div>
           <div class="nav-group-label">Ringleader</div>
@@ -296,7 +335,7 @@ function renderShell() {
 
   document.getElementById('signoutBtn').onclick = async () => {
     await apiFetch('/api/auth/signout', { method: 'POST' });
-    session = false; profile = null; chapters = []; boards = []; crewEvents = [];
+    session = false; profile = null; chapters = []; boards = []; crewEvents = []; activeCrewEventId = null;
     render();
   };
 
@@ -306,11 +345,8 @@ function renderShell() {
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
   stopDMPolling();
-  if (route === 'hub') { renderHubView(mainView); return; }
-  if (route === 'crew/schedule') { renderCrewScheduleView(mainView); return; }
-  if (route === 'crew/meetups') { renderCrewMeetupsView(mainView); return; }
-  if (route === 'crew/projects') { renderCrewProjectsView(mainView); return; }
-  if (route === 'crew/materials') { renderCrewMaterialsView(mainView); return; }
+  if (route === 'hub') { renderCrewTabs(mainView, 'overview'); return; }
+  if (route.startsWith('crew/')) { renderCrewTabs(mainView, route.slice(5)); return; }
   if (route === 'dm') { renderDMListView(mainView); return; }
   if (route.startsWith('dm/')) { renderDMThreadView(mainView, route.slice(3)); return; }
   if (route === 'events') { renderEventsView(mainView); return; }
@@ -647,7 +683,11 @@ async function renderEventsView(mainView) {
     </div>
   `).join('') : '<div class="placeholder-note">Nothing scheduled yet.</div>';
 
-  mainView.innerHTML = `<h2>Events</h2>${composerHtml}<div class="post-list">${listHtml}</div>`;
+  mainView.innerHTML = `
+    <h2>Events</h2>${composerHtml}<div class="post-list">${listHtml}</div>
+    <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show Past Events</button></div>
+    <div id="archivedEvents"></div>
+  `;
 
   if (canManage) {
     document.getElementById('eventComposer').addEventListener('submit', async e => {
@@ -676,6 +716,31 @@ async function renderEventsView(mainView) {
 
   mainView.querySelectorAll('[data-manage-crew]').forEach(btn => {
     btn.addEventListener('click', () => toggleCrewEditor(btn.dataset.manageCrew));
+  });
+
+  document.getElementById('toggleArchivedBtn').addEventListener('click', async btnEvent => {
+    const btn = btnEvent.currentTarget;
+    const el = document.getElementById('archivedEvents');
+    if (el.classList.contains('open')) { el.classList.remove('open'); el.innerHTML = ''; btn.textContent = 'Show Past Events'; return; }
+    el.classList.add('open');
+    btn.textContent = 'Hide Past Events';
+    el.innerHTML = '<div class="placeholder-note">Loading…</div>';
+    const { events: archived } = await apiFetch('/api/events?scope=archived');
+    el.innerHTML = (archived || []).length ? `<div class="post-list">${archived.map(e => `
+      <div class="post-card archived-event" style="cursor:default;">
+        <div class="post-title">${escapeHtml(e.title)}</div>
+        <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+        ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
+        ${canManage ? `<div class="post-actions"><button class="action-btn danger" data-delete-archived="${e.id}">Delete</button></div>` : ''}
+      </div>
+    `).join('')}</div>` : '<div class="placeholder-note">No past events yet.</div>';
+    el.querySelectorAll('[data-delete-archived]').forEach(delBtn => {
+      delBtn.addEventListener('click', async () => {
+        if (!confirm('Delete this event?')) return;
+        await apiFetch(`/api/events/${delBtn.dataset.deleteArchived}`, { method: 'DELETE' });
+        delBtn.closest('.archived-event').remove();
+      });
+    });
   });
 }
 
@@ -1980,119 +2045,164 @@ async function renderNetworkView(mainView) {
   }
 }
 
-// ── Hub ──────────────────────────────────────────────────────────────
-let hubCountdownTimer = null;
+// ── Hub == Crew Hub ──────────────────────────────────────────────────────
+// The Hub *is* the crew hub — one page, event picker and countdown always
+// visible at the top, tabs underneath for Schedule/Meetups/Games/Events/
+// Projects/Materials. No separate overview page: a general "what's
+// upcoming guild-wide" view already exists at the Events nav link, so this
+// page stays focused on whichever event you're currently working.
+const RSVP_RESPONSES = [['yes', 'Yes'], ['maybe', 'Maybe'], ['no', "Can't make it"]];
 
-async function renderHubView(mainView) {
-  if (hubCountdownTimer) { clearInterval(hubCountdownTimer); hubCountdownTimer = null; }
-  mainView.innerHTML = `<h2>Hub</h2><div class="placeholder-note">Loading…</div>`;
+const CREW_TABS = [
+  ['overview', 'Overview'],
+  ['meetups', 'Meetups'],
+  ['activities', 'Games & Events'],
+  ['projects', 'Projects'],
+  ['materials', 'Materials'],
+];
 
-  const [{ events }, evt] = await Promise.all([
-    apiFetch('/api/events'),
-    Promise.resolve(myCrewEvent()),
-  ]);
-  const upcoming = events || [];
+let crewHubCountdownTimer = null;
 
-  let crewPanelHtml = '';
-  let openProjects = [];
-  if (evt) {
-    const { projects } = await apiFetch(`/api/events/${evt.id}/projects`);
-    openProjects = (projects || []).filter(p => p.status !== 'done');
-    crewPanelHtml = `
-      <div class="card hub-countdown">
-        <div class="hub-countdown-label">Countdown to</div>
-        <div class="hub-countdown-title">${escapeHtml(evt.title)}</div>
-        <div class="hub-countdown-value" id="hubCountdownValue">—</div>
-      </div>
-      <div class="card">
-        <h3 class="section-heading">Things We're Doing</h3>
-        ${openProjects.length ? `<ul class="hub-todo-list">${openProjects.map(p => `
-          <li><a href="#/crew/projects">${escapeHtml(p.name)}</a>${p.deadline ? ` <span class="hub-todo-deadline">— due ${escapeHtml(p.deadline)}</span>` : ''}</li>
-        `).join('')}</ul>` : `<div class="placeholder-note">No open projects yet. <a href="#/crew/projects">Add one</a>.</div>`}
-      </div>
-    `;
+async function renderCrewTabs(mainView, activeTab) {
+  if (crewHubCountdownTimer) { clearInterval(crewHubCountdownTimer); crewHubCountdownTimer = null; }
+
+  if (!crewEvents.length) {
+    mainView.innerHTML = `<h2>Hub</h2><div class="placeholder-note">You're not on a crew for an upcoming event. Check <a href="#/events">Events</a> for what's coming up guild-wide.</div>`;
+    return;
   }
+  const evt = myCrewEvent();
 
   mainView.innerHTML = `
-    <h2>Hub</h2>
-    ${crewPanelHtml}
-    <div class="card">
-      <h3 class="section-heading">Upcoming Events</h3>
-      ${upcoming.length ? `<ul class="hub-event-list">${upcoming.map(e => `
-        <li><span class="hub-event-title">${escapeHtml(e.title)}</span> — ${formatEventDate(e.starts_at)}${e.location ? ` · ${escapeHtml(e.location)}` : ''}</li>
-      `).join('')}</ul>` : `<div class="placeholder-note">No upcoming events.</div>`}
+    <div class="crew-hub-header">
+      ${crewEvents.length > 1 ? `
+      <select class="crew-event-switch" id="crewEventSwitch">
+        ${crewEvents.map(e => `<option value="${e.id}" ${e.id === evt.id ? 'selected' : ''}>${escapeHtml(e.title)}</option>`).join('')}
+      </select>` : `<h2>${escapeHtml(evt.title)}</h2>`}
+      <div class="hub-countdown-big" id="crewHubCountdownValue">—</div>
     </div>
+    <div class="crew-tabs">
+      ${CREW_TABS.map(([key, label]) => `<a class="crew-tab ${activeTab === key ? 'active' : ''}" href="#/crew/${key}">${label}</a>`).join('')}
+    </div>
+    <div id="crewTabBody"><div class="placeholder-note">Loading…</div></div>
   `;
 
-  if (evt) {
-    const target = new Date(evt.starts_at).getTime();
-    const el = document.getElementById('hubCountdownValue');
-    const tick = () => {
-      const diff = target - Date.now();
-      if (diff <= 0) { el.textContent = "It's here!"; return; }
-      const days = Math.floor(diff / 86400000);
-      const hours = Math.floor((diff % 86400000) / 3600000);
-      const mins = Math.floor((diff % 3600000) / 60000);
-      el.textContent = `${days}d ${hours}h ${mins}m`;
-    };
-    tick();
-    hubCountdownTimer = setInterval(tick, 60000);
+  const crewSwitch = document.getElementById('crewEventSwitch');
+  if (crewSwitch) {
+    crewSwitch.addEventListener('change', () => {
+      activeCrewEventId = crewSwitch.value;
+      renderMainView(currentRoute());
+    });
   }
+
+  const target = new Date(evt.starts_at).getTime();
+  const countdownEl = document.getElementById('crewHubCountdownValue');
+  const tick = () => {
+    const diff = target - Date.now();
+    if (diff <= 0) { countdownEl.textContent = "It's here!"; return; }
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    countdownEl.innerHTML = `<span class="cd-num">${days}</span>d <span class="cd-num">${hours}</span>h <span class="cd-num">${mins}</span>m`;
+  };
+  tick();
+  crewHubCountdownTimer = setInterval(tick, 60000);
+
+  const body = document.getElementById('crewTabBody');
+  if (activeTab === 'overview') return renderCrewOverviewView(body);
+  if (activeTab === 'meetups') return renderCrewMeetupsView(body);
+  if (activeTab === 'activities') return renderCrewActivitiesView(body);
+  if (activeTab === 'projects') return renderCrewProjectsView(body);
+  if (activeTab === 'materials') return renderCrewMaterialsView(body);
 }
 
-// ── Crew: Schedule (day-of itinerary) ───────────────────────────────────
-async function renderCrewScheduleView(mainView) {
+// ── Crew: Overview (summary of every other tab, with links out) ─────────
+async function renderCrewOverviewView(mainView) {
   const evt = myCrewEvent();
-  if (!evt) { mainView.innerHTML = `<h2>Schedule</h2><div class="placeholder-note">You're not on a crew for an upcoming event.</div>`; return; }
-  mainView.innerHTML = `<h2>${escapeHtml(evt.title)} — Schedule</h2><div class="placeholder-note">Loading…</div>`;
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
-  const { items } = await apiFetch(`/api/events/${evt.id}/schedule`);
+  const [{ meetups }, { activities }, { projects }, { materials }] = await Promise.all([
+    apiFetch(`/api/events/${evt.id}/meetups`),
+    apiFetch(`/api/events/${evt.id}/activities`),
+    apiFetch(`/api/events/${evt.id}/projects`),
+    apiFetch(`/api/events/${evt.id}/materials`),
+  ]);
 
-  const composerHtml = `
-    <form class="composer" id="scheduleComposer">
-      <input type="text" id="schTitle" placeholder="What's happening" required>
-      <input type="datetime-local" id="schStarts" placeholder="Starts">
-      <input type="datetime-local" id="schEnds" placeholder="Ends">
-      <input type="text" id="schLocation" placeholder="Location">
-      <textarea id="schNotes" placeholder="Notes"></textarea>
-      <button type="submit" class="composer-submit">Add to Schedule</button>
-    </form>
+  const games = (activities || []).filter(a => a.kind === 'game');
+  const events = (activities || []).filter(a => a.kind === 'event');
+  const nextUp = (activities || [])
+    .filter(a => a.starts_at && new Date(a.starts_at).getTime() >= Date.now())
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0];
+
+  const openProjects = (projects || []).filter(p => p.status !== 'done');
+  const needs = (materials || []).filter(m => m.category !== 'want');
+  const wants = (materials || []).filter(m => m.category === 'want');
+  const activityNames = {};
+  (activities || []).forEach(a => { activityNames[a.id] = a.name; });
+
+  const overviewMaterialsList = items => items.length
+    ? `<ul class="overview-materials-list">${items.map(m => `
+        <li>${escapeHtml(m.item)}${m.activity_id && activityNames[m.activity_id] ? ` <span class="materials-source-tag">${escapeHtml(activityNames[m.activity_id])}</span>` : ''}</li>
+      `).join('')}</ul>`
+    : '<div class="placeholder-note">Nothing listed yet.</div>';
+
+  const meetupsHtml = (meetups || []).length ? meetups.map(m => {
+    const mine = (m.rsvps || []).find(r => r.user_id === profile.id);
+    return `
+      <div class="overview-meetup">
+        <div class="post-title">${formatEventDate(m.proposed_at)} <span class="meetup-category-tag ${m.category}">${m.category === 'field_trip' ? 'Field Trip' : 'Meeting'}</span></div>
+        <div class="post-meta">${m.location ? escapeHtml(m.location) : 'No place set yet'}</div>
+        ${mine ? `<div class="post-meta">Your RSVP: <strong>${escapeHtml(mine.response)}</strong></div>` : `
+        <div class="rsvp-row">
+          ${RSVP_RESPONSES.map(([val, label]) => `<button class="rsvp-btn" data-rsvp="${m.id}" data-response="${val}">${label}</button>`).join('')}
+        </div>`}
+      </div>
+    `;
+  }).join('') : '<div class="placeholder-note">No meetups proposed yet.</div>';
+
+  mainView.innerHTML = `
+    <div class="overview-layout">
+      <div class="overview-main">
+        <div class="card overview-card activity-color-0">
+          <h3 class="section-heading">Next Up</h3>
+          ${nextUp ? `
+            <div class="post-title">${escapeHtml(nextUp.name)}</div>
+            <div class="post-meta">${formatEventDate(nextUp.starts_at)}${nextUp.location ? ' · ' + escapeHtml(nextUp.location) : ''}</div>
+          ` : '<div class="placeholder-note">Nothing time-slotted yet.</div>'}
+          <div class="post-actions"><a class="action-btn" href="#/crew/activities">View all</a></div>
+        </div>
+        <div class="card overview-card activity-color-3">
+          <h3 class="section-heading">Meetups</h3>
+          ${meetupsHtml}
+          <div class="post-actions"><a class="action-btn" href="#/crew/meetups">View all</a></div>
+        </div>
+        <div class="card overview-card activity-color-2">
+          <h3 class="section-heading">Things We're Doing</h3>
+          ${openProjects.length ? `<ul class="hub-todo-list">${openProjects.slice(0, 6).map(p => `
+            <li>${escapeHtml(p.name)}${p.deadline ? ` <span class="hub-todo-deadline">— due ${escapeHtml(p.deadline)}</span>` : ''}</li>
+          `).join('')}</ul>` : '<div class="placeholder-note">No open projects.</div>'}
+          <div class="post-actions"><a class="action-btn" href="#/crew/projects">View all</a></div>
+        </div>
+        <div class="card overview-card activity-color-5">
+          <h3 class="section-heading">Games &amp; Events</h3>
+          <div class="post-meta">${games.length} game${games.length === 1 ? '' : 's'} · ${events.length} event${events.length === 1 ? '' : 's'} planned</div>
+          <div class="post-actions"><a class="action-btn" href="#/crew/activities">View all</a></div>
+        </div>
+      </div>
+      <div class="card overview-materials-col activity-color-4">
+        <h3 class="section-heading">Materials</h3>
+        <h4 class="overview-materials-heading">Needs</h4>
+        ${overviewMaterialsList(needs)}
+        <h4 class="overview-materials-heading">Wants</h4>
+        ${overviewMaterialsList(wants)}
+        <div class="post-actions"><a class="action-btn" href="#/crew/materials">View all</a></div>
+      </div>
+    </div>
   `;
 
-  const listHtml = (items || []).length ? `<div class="post-list">${items.map(it => `
-    <div class="post-card" style="cursor:default;">
-      <div class="post-title">${escapeHtml(it.title)}</div>
-      <div class="post-meta">${it.starts_at ? formatEventDate(it.starts_at) : 'No time set'}${it.ends_at ? ` – ${formatEventDate(it.ends_at)}` : ''}${it.location ? ` · ${escapeHtml(it.location)}` : ''}</div>
-      ${it.notes ? `<div class="post-snippet">${escapeHtml(it.notes)}</div>` : ''}
-      <div class="post-actions"><button class="action-btn danger" data-delete-schedule="${it.id}">Remove</button></div>
-    </div>
-  `).join('')}</div>` : '<div class="placeholder-note">Nothing on the schedule yet.</div>';
-
-  mainView.innerHTML = `<h2>${escapeHtml(evt.title)} — Schedule</h2>${composerHtml}${listHtml}`;
-
-  document.getElementById('scheduleComposer').addEventListener('submit', async e => {
-    e.preventDefault();
-    const title = document.getElementById('schTitle').value.trim();
-    if (!title) return;
-    const starts = document.getElementById('schStarts').value;
-    const ends = document.getElementById('schEnds').value;
-    await apiFetch(`/api/events/${evt.id}/schedule`, {
-      method: 'POST',
-      body: {
-        title,
-        starts_at: starts ? new Date(starts).toISOString() : null,
-        ends_at: ends ? new Date(ends).toISOString() : null,
-        location: document.getElementById('schLocation').value.trim() || null,
-        notes: document.getElementById('schNotes').value.trim() || null,
-      },
-    });
-    renderCrewScheduleView(mainView);
-  });
-
-  mainView.querySelectorAll('[data-delete-schedule]').forEach(btn => {
+  mainView.querySelectorAll('[data-rsvp]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await apiFetch(`/api/events/${evt.id}/schedule/${btn.dataset.deleteSchedule}`, { method: 'DELETE' });
-      renderCrewScheduleView(mainView);
+      await apiFetch(`/api/meetups/${btn.dataset.rsvp}/rsvp`, { method: 'PUT', body: { response: btn.dataset.response } });
+      renderCrewOverviewView(mainView);
     });
   });
 }
@@ -2100,31 +2210,19 @@ async function renderCrewScheduleView(mainView) {
 // ── Crew: Meetups (planning sessions, RSVP + place) ─────────────────────
 async function renderCrewMeetupsView(mainView) {
   const evt = myCrewEvent();
-  if (!evt) { mainView.innerHTML = `<h2>Meetups</h2><div class="placeholder-note">You're not on a crew for an upcoming event.</div>`; return; }
-  mainView.innerHTML = `<h2>${escapeHtml(evt.title)} — Meetups</h2><div class="placeholder-note">Loading…</div>`;
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
   const { meetups } = await apiFetch(`/api/events/${evt.id}/meetups`);
-
-  const composerHtml = `
-    <form class="composer" id="meetupComposer">
-      <input type="datetime-local" id="mtProposed" required>
-      <input type="text" id="mtLocation" placeholder="Place">
-      <textarea id="mtNotes" placeholder="Notes"></textarea>
-      <button type="submit" class="composer-submit">Propose Meetup</button>
-    </form>
-  `;
-
-  const RESPONSES = [['yes', 'Yes'], ['maybe', 'Maybe'], ['no', "Can't make it"]];
 
   const listHtml = (meetups || []).length ? `<div class="post-list">${meetups.map(m => {
     const mine = (m.rsvps || []).find(r => r.user_id === profile.id);
     return `
-    <div class="post-card meetup-card" style="cursor:default;">
-      <div class="post-title">${formatEventDate(m.proposed_at)}</div>
+    <div class="post-card meetup-card meetup-category-${m.category}" style="cursor:default;">
+      <div class="post-title">${formatEventDate(m.proposed_at)} <span class="meetup-category-tag ${m.category}">${m.category === 'field_trip' ? 'Field Trip' : 'Meeting'}</span></div>
       <div class="post-meta">${m.location ? escapeHtml(m.location) : 'No place set yet'}</div>
       ${m.notes ? `<div class="post-snippet">${escapeHtml(m.notes)}</div>` : ''}
       <div class="rsvp-row">
-        ${RESPONSES.map(([val, label]) => `<button class="rsvp-btn ${mine?.response === val ? 'active' : ''}" data-rsvp="${m.id}" data-response="${val}">${label}</button>`).join('')}
+        ${RSVP_RESPONSES.map(([val, label]) => `<button class="rsvp-btn ${mine?.response === val ? 'active' : ''}" data-rsvp="${m.id}" data-response="${val}">${label}</button>`).join('')}
       </div>
       <div class="crew-roster">
         ${(m.rsvps || []).map(r => `<span class="crew-chip rsvp-chip rsvp-${r.response}">${escapeHtml(r.display_name)}</span>`).join('') || '<span class="placeholder-note" style="border:none;padding:0;">No responses yet.</span>'}
@@ -2133,7 +2231,29 @@ async function renderCrewMeetupsView(mainView) {
     </div>
   `; }).join('')}</div>` : '<div class="placeholder-note">No meetups proposed yet.</div>';
 
-  mainView.innerHTML = `<h2>${escapeHtml(evt.title)} — Meetups</h2>${composerHtml}${listHtml}`;
+  mainView.innerHTML = `
+    <div class="meetups-columns">
+      <div class="meetups-column">
+        <h3 class="section-heading">Proposed</h3>
+        ${listHtml}
+      </div>
+      <div class="meetups-column">
+        <h3 class="section-heading">Propose a Meetup</h3>
+        <div class="card">
+          <form class="composer" id="meetupComposer">
+            <input type="datetime-local" id="mtProposed" required>
+            <select id="mtCategory">
+              <option value="meeting">Meeting</option>
+              <option value="field_trip">Field Trip</option>
+            </select>
+            <input type="text" id="mtLocation" placeholder="Place">
+            <textarea id="mtNotes" placeholder="Notes"></textarea>
+            <button type="submit" class="composer-submit">Propose Meetup</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
 
   document.getElementById('meetupComposer').addEventListener('submit', async e => {
     e.preventDefault();
@@ -2143,6 +2263,7 @@ async function renderCrewMeetupsView(mainView) {
       method: 'POST',
       body: {
         proposed_at: new Date(proposed).toISOString(),
+        category: document.getElementById('mtCategory').value,
         location: document.getElementById('mtLocation').value.trim() || null,
         notes: document.getElementById('mtNotes').value.trim() || null,
       },
@@ -2174,15 +2295,13 @@ let cpProjects = [];
 
 async function renderCrewProjectsView(mainView) {
   const evt = myCrewEvent();
-  if (!evt) { mainView.innerHTML = `<h2>Projects</h2><div class="placeholder-note">You're not on a crew for an upcoming event.</div>`; return; }
   cpEventId = evt.id;
-  mainView.innerHTML = `<h2>${escapeHtml(evt.title)} — Projects</h2><div class="placeholder-note">Loading…</div>`;
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
   const { projects } = await apiFetch(`/api/events/${evt.id}/projects`);
   cpProjects = projects || [];
 
   mainView.innerHTML = `
-    <h2>${escapeHtml(evt.title)} — Projects</h2>
     <div class="projects-toolbar"><button class="gm-btn" id="newCpToggleBtn" style="background:var(--surface);color:var(--cream);">+ New Project</button></div>
     <div class="card new-project-form" id="newCpForm">
       <div class="field-row"><label>Name</label><input type="text" id="cpName" placeholder="e.g. Sound Setup"></div>
@@ -2316,28 +2435,231 @@ function buildCpBlock(proj, depth) {
   return block;
 }
 
-// ── Crew: Materials Needed ──────────────────────────────────────────────
+// ── Crew: Games & Events (carnival-day attractions, one page) ───────────
+// A game or event is "a thing happening," optionally at a specific
+// time/place — this replaced the separate Schedule tab. Each one can carry
+// its own materials list; items added here are just event_materials rows
+// tagged with activity_id, so they show up in the shared Materials tab
+// automatically — no separate sync step.
+async function renderCrewActivitiesView(mainView) {
+  const evt = myCrewEvent();
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
+
+  const [{ activities }, { materials }] = await Promise.all([
+    apiFetch(`/api/events/${evt.id}/activities`),
+    apiFetch(`/api/events/${evt.id}/materials`),
+  ]);
+  const list = activities || [];
+  const materialsByActivity = {};
+  (materials || []).forEach(m => {
+    if (!m.activity_id) return;
+    (materialsByActivity[m.activity_id] || (materialsByActivity[m.activity_id] = [])).push(m);
+  });
+
+  const addFormHtml = kind => {
+    const label = kind === 'game' ? 'Game' : 'Event';
+    return `
+      <div class="activities-toolbar"><button class="gm-btn" id="new${label}ToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add ${label}</button></div>
+      <div class="card new-project-form" id="new${label}Form">
+        <div class="field-row"><label>Name</label><input type="text" id="${kind}Name"></div>
+        <div class="field-row"><label>Starts</label><input type="datetime-local" id="${kind}Starts"></div>
+        <div class="field-row"><label>Ends</label><input type="datetime-local" id="${kind}Ends"></div>
+        <div class="field-row"><label>Location</label><input type="text" id="${kind}Location"></div>
+        <div class="field-row"><label>Details</label><input type="text" id="${kind}Description"></div>
+        <div class="form-actions">
+          <button class="composer-submit" id="${kind}CreateBtn">Add</button>
+          <button class="gm-btn" id="${kind}CancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+        </div>
+      </div>
+    `;
+  };
+
+  const wireAddForm = kind => {
+    const label = kind === 'game' ? 'Game' : 'Event';
+    document.getElementById(`new${label}ToggleBtn`).addEventListener('click', () => document.getElementById(`new${label}Form`).classList.toggle('open'));
+    document.getElementById(`${kind}CancelBtn`).addEventListener('click', () => document.getElementById(`new${label}Form`).classList.remove('open'));
+    document.getElementById(`${kind}CreateBtn`).addEventListener('click', async () => {
+      const name = document.getElementById(`${kind}Name`).value.trim();
+      if (!name) return;
+      const starts = document.getElementById(`${kind}Starts`).value;
+      const ends = document.getElementById(`${kind}Ends`).value;
+      await apiFetch(`/api/events/${evt.id}/activities`, {
+        method: 'POST',
+        body: {
+          kind,
+          name,
+          description: document.getElementById(`${kind}Description`).value.trim() || null,
+          starts_at: starts ? new Date(starts).toISOString() : null,
+          ends_at: ends ? new Date(ends).toISOString() : null,
+          location: document.getElementById(`${kind}Location`).value.trim() || null,
+        },
+      });
+      renderCrewActivitiesView(mainView);
+    });
+  };
+
+  const activityCardHtml = a => {
+    const mats = materialsByActivity[a.id] || [];
+    return `
+    <details class="activity-card ${a._colorClass || ''}" data-activity="${a.id}">
+      <summary>
+        ${escapeHtml(a.name)}
+        <span class="activity-material-count">${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
+      </summary>
+      <div class="activity-body">
+        ${a.kind === 'game' ? `
+        <select class="activity-status-select" data-activity="${a.id}">
+          <option value="proposed" ${a.status === 'proposed' ? 'selected' : ''}>Proposed</option>
+          <option value="locked_in" ${a.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
+        </select>` : ''}
+        ${a.starts_at || a.location ? `<div class="post-meta">${a.starts_at ? formatEventDate(a.starts_at) : 'No time set'}${a.ends_at ? ` – ${formatEventDate(a.ends_at)}` : ''}${a.location ? ` · ${escapeHtml(a.location)}` : ''}</div>` : ''}
+        ${a.description ? `<div class="post-snippet">${escapeHtml(a.description)}</div>` : ''}
+        <ul class="materials-list">
+          ${mats.length ? mats.map(m => `
+            <li class="materials-item" data-material="${m.id}">
+              <span class="activity-material-tag ${m.category}">${m.category === 'want' ? 'Want' : 'Need'}</span>
+              <input type="text" class="materials-item-input" value="${escapeHtml(m.item)}">
+              <button class="crew-chip-remove" data-delete-material="${m.id}" title="Remove">&times;</button>
+            </li>
+          `).join('') : '<li class="placeholder-note" style="border:none;padding:0;">Nothing listed yet.</li>'}
+        </ul>
+        <form class="activity-material-add" data-activity="${a.id}">
+          <input type="text" placeholder="Add a material…" required>
+          <select>
+            <option value="need">Need</option>
+            <option value="want">Want</option>
+          </select>
+          <button type="submit" class="gm-btn">Add</button>
+        </form>
+        <div class="post-actions"><button class="action-btn danger" data-delete-activity="${a.id}">Delete</button></div>
+      </div>
+    </details>
+  `;
+  };
+
+  const games = list.filter(a => a.kind === 'game');
+  games.forEach(a => { a._colorClass = `activity-status-${a.status}`; });
+
+  const events = list.filter(a => a.kind === 'event')
+    .sort((a, b) => (a.starts_at ? new Date(a.starts_at) : Infinity) - (b.starts_at ? new Date(b.starts_at) : Infinity));
+  // Color-coded by calendar day — same day, same color, in first-seen (chronological) order.
+  const dayColors = new Map();
+  events.forEach(a => {
+    if (!a.starts_at) return;
+    const day = a.starts_at.slice(0, 10);
+    if (!dayColors.has(day)) dayColors.set(day, dayColors.size % 6);
+    a._colorClass = `activity-color-${dayColors.get(day)}`;
+  });
+
+  const listHtml = `
+    <div class="activities-columns">
+      <div class="activities-column">
+        <h3 class="section-heading">Games</h3>
+        ${games.length ? `<div class="activity-list">${games.map(activityCardHtml).join('')}</div>` : '<div class="placeholder-note">No games yet.</div>'}
+        ${addFormHtml('game')}
+      </div>
+      <div class="activities-column">
+        <h3 class="section-heading">Events</h3>
+        ${events.length ? `<div class="activity-list">${events.map(activityCardHtml).join('')}</div>` : '<div class="placeholder-note">No events yet.</div>'}
+        ${addFormHtml('event')}
+      </div>
+    </div>
+  `;
+
+  mainView.innerHTML = listHtml;
+
+  wireAddForm('game');
+  wireAddForm('event');
+
+  mainView.querySelectorAll('[data-delete-activity]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this? Its materials list is removed too.')) return;
+      await apiFetch(`/api/events/${evt.id}/activities/${btn.dataset.deleteActivity}`, { method: 'DELETE' });
+      renderCrewActivitiesView(mainView);
+    });
+  });
+
+  mainView.querySelectorAll('.activity-status-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      await apiFetch(`/api/events/${evt.id}/activities/${select.dataset.activity}`, { method: 'PATCH', body: { status: select.value } });
+      renderCrewActivitiesView(mainView);
+    });
+  });
+
+  mainView.querySelectorAll('.materials-item-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.closest('[data-material]').dataset.material;
+      await apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { item: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('[data-delete-material]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/api/events/${evt.id}/materials/${btn.dataset.deleteMaterial}`, { method: 'DELETE' });
+      renderCrewActivitiesView(mainView);
+    });
+  });
+
+  mainView.querySelectorAll('.activity-material-add').forEach(form => {
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const input = form.querySelector('input');
+      const select = form.querySelector('select');
+      const item = input.value.trim();
+      if (!item) return;
+      await apiFetch(`/api/events/${evt.id}/materials`, {
+        method: 'POST',
+        body: { item, category: select.value, activity_id: form.dataset.activity },
+      });
+      renderCrewActivitiesView(mainView);
+    });
+  });
+}
+
+// ── Crew: Materials (Needs / Wants, two columns) ────────────────────────
+function materialsColumnHtml(items, activityNames) {
+  return items.length ? `<ul class="materials-list">${items.map(m => `
+    <li class="materials-item" data-material="${m.id}">
+      <input type="text" class="materials-item-input" value="${escapeHtml(m.item)}">
+      ${m.activity_id && activityNames[m.activity_id] ? `<span class="materials-source-tag">${escapeHtml(activityNames[m.activity_id])}</span>` : ''}
+      <button class="crew-chip-remove" data-move-material="${m.id}" data-to="${m.category === 'need' ? 'want' : 'need'}" title="Move to ${m.category === 'need' ? 'Wants' : 'Needs'}">⇄</button>
+      <button class="crew-chip-remove" data-delete-material="${m.id}" title="Remove">&times;</button>
+    </li>
+  `).join('')}</ul>` : '<div class="placeholder-note">Nothing listed yet.</div>';
+}
+
 async function renderCrewMaterialsView(mainView) {
   const evt = myCrewEvent();
-  if (!evt) { mainView.innerHTML = `<h2>Materials</h2><div class="placeholder-note">You're not on a crew for an upcoming event.</div>`; return; }
-  mainView.innerHTML = `<h2>${escapeHtml(evt.title)} — Materials Needed</h2><div class="placeholder-note">Loading…</div>`;
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
-  const { materials } = await apiFetch(`/api/events/${evt.id}/materials`);
+  const [{ materials }, { activities }] = await Promise.all([
+    apiFetch(`/api/events/${evt.id}/materials`),
+    apiFetch(`/api/events/${evt.id}/activities`),
+  ]);
+  const activityNames = {};
+  (activities || []).forEach(a => { activityNames[a.id] = a.name; });
+  const needs = (materials || []).filter(m => m.category !== 'want');
+  const wants = (materials || []).filter(m => m.category === 'want');
 
   mainView.innerHTML = `
-    <h2>${escapeHtml(evt.title)} — Materials Needed</h2>
     <form class="composer" id="materialComposer">
-      <input type="text" id="materialItem" placeholder="What do we need?" required>
+      <input type="text" id="materialItem" placeholder="What do we need or want?" required>
+      <select id="materialCategory">
+        <option value="need">Need</option>
+        <option value="want">Want</option>
+      </select>
       <button type="submit" class="composer-submit">Add</button>
     </form>
-    <ul class="materials-list" id="materialsList">
-      ${(materials || []).length ? materials.map(m => `
-        <li class="materials-item" data-material="${m.id}">
-          <input type="text" class="materials-item-input" value="${escapeHtml(m.item)}">
-          <button class="crew-chip-remove" data-delete-material="${m.id}" title="Remove">&times;</button>
-        </li>
-      `).join('') : '<li class="placeholder-note">Nothing listed yet.</li>'}
-    </ul>
+    <div class="materials-columns">
+      <div class="materials-column">
+        <h3 class="section-heading">Needs</h3>
+        ${materialsColumnHtml(needs, activityNames)}
+      </div>
+      <div class="materials-column">
+        <h3 class="section-heading">Wants</h3>
+        ${materialsColumnHtml(wants, activityNames)}
+      </div>
+    </div>
   `;
 
   document.getElementById('materialComposer').addEventListener('submit', async e => {
@@ -2345,7 +2667,8 @@ async function renderCrewMaterialsView(mainView) {
     const input = document.getElementById('materialItem');
     const item = input.value.trim();
     if (!item) return;
-    await apiFetch(`/api/events/${evt.id}/materials`, { method: 'POST', body: { item } });
+    const category = document.getElementById('materialCategory').value;
+    await apiFetch(`/api/events/${evt.id}/materials`, { method: 'POST', body: { item, category } });
     renderCrewMaterialsView(mainView);
   });
 
@@ -2353,6 +2676,13 @@ async function renderCrewMaterialsView(mainView) {
     input.addEventListener('change', async () => {
       const id = input.closest('[data-material]').dataset.material;
       await apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { item: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('[data-move-material]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/api/events/${evt.id}/materials/${btn.dataset.moveMaterial}`, { method: 'PATCH', body: { category: btn.dataset.to } });
+      renderCrewMaterialsView(mainView);
     });
   });
 

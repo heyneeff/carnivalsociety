@@ -248,12 +248,46 @@ async function api(request, env, url) {
     return json({ ok: true });
   }
   if (pathname === "/api/events" && method === "GET") {
+    const archived = url.searchParams.get("scope") === "archived";
     const { results } = await env.DB.prepare(
-      `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
-       LEFT JOIN chapters ON chapters.id = events.chapter_id
-       WHERE events.starts_at >= datetime('now') ORDER BY events.starts_at ASC`
+      archived
+        ? `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
+           LEFT JOIN chapters ON chapters.id = events.chapter_id
+           WHERE events.starts_at < datetime('now') ORDER BY events.starts_at DESC`
+        : `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
+           LEFT JOIN chapters ON chapters.id = events.chapter_id
+           WHERE events.starts_at >= datetime('now') ORDER BY events.starts_at ASC`
     ).all();
     return json({ events: results.map(shapeEvent) }, { headers: { "Access-Control-Allow-Origin": "*" } });
+  }
+  // Public, unauthenticated one-click entry for a crew: lists the
+  // non-Ringleader crew of an event so a pre-auth "pick your name" screen
+  // can render buttons, and a matching sign-in with no password. Deliberately
+  // narrow: only works for users already on that event's crew roster, and
+  // never for a Ringleader (they still need a real password) — this trades
+  // per-click friction for the ability to impersonate one of a handful of
+  // known volunteers on one event, not guild-wide access.
+  const quickCrewMatch = pathname.match(/^\/api\/events\/([^/]+)\/quick-crew$/);
+  if (quickCrewMatch && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT users.id, users.display_name FROM event_crew
+       JOIN users ON users.id = event_crew.user_id
+       WHERE event_crew.event_id = ? AND users.is_ringleader = 0
+       ORDER BY users.display_name`
+    ).bind(quickCrewMatch[1]).all();
+    return json({ crew: results });
+  }
+  const quickSigninMatch = pathname.match(/^\/api\/events\/([^/]+)\/quick-signin$/);
+  if (quickSigninMatch && method === "POST") {
+    const { user_id } = await body(request);
+    if (!user_id) return err(400, "user_id required.");
+    const candidate = await env.DB.prepare(
+      `SELECT users.* FROM event_crew JOIN users ON users.id = event_crew.user_id
+       WHERE event_crew.event_id = ? AND event_crew.user_id = ? AND users.is_ringleader = 0`
+    ).bind(quickSigninMatch[1], user_id).first();
+    if (!candidate) return err(403, "Not on this event's crew.");
+    const token = await createSession(env, candidate.id);
+    return json({ user: publicUser(candidate) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } });
   }
   if (pathname === "/api/events" && method === "POST") {
     const authErr = requireAuth();
@@ -327,55 +361,6 @@ async function api(request, env, url) {
     await env.DB.prepare("DELETE FROM event_crew WHERE event_id = ? AND user_id = ?").bind(crewMemberMatch[1], crewMemberMatch[2]).run();
     return json({ ok: true });
   }
-  const scheduleMatch = pathname.match(/^\/api\/events\/([^/]+)\/schedule$/);
-  if (scheduleMatch && method === "GET") {
-    const authErr = requireAuth();
-    if (authErr) return authErr;
-    if (!await isCrew(env, user, scheduleMatch[1])) return err(403, "Crew only.");
-    const { results } = await env.DB.prepare("SELECT * FROM event_schedule_items WHERE event_id = ? ORDER BY position ASC, starts_at ASC").bind(scheduleMatch[1]).all();
-    return json({ items: results });
-  }
-  if (scheduleMatch && method === "POST") {
-    const authErr = requireAuth();
-    if (authErr) return authErr;
-    const eventId = scheduleMatch[1];
-    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { title, starts_at, ends_at, location, notes, position } = await body(request);
-    if (!title) return err(400, "title required.");
-    const id = crypto.randomUUID();
-    await env.DB.prepare(
-      "INSERT INTO event_schedule_items (id, event_id, title, starts_at, ends_at, location, notes, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, eventId, title, starts_at || null, ends_at || null, location || null, notes || null, position || 0, user.id).run();
-    return json({ id });
-  }
-  const scheduleItemMatch = pathname.match(/^\/api\/events\/([^/]+)\/schedule\/([^/]+)$/);
-  if (scheduleItemMatch && method === "PATCH") {
-    const authErr = requireAuth();
-    if (authErr) return authErr;
-    const [, eventId, itemId] = scheduleItemMatch;
-    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { title, starts_at, ends_at, location, notes, position } = await body(request);
-    const updates = [];
-    const binds = [];
-    if (title !== void 0) { updates.push("title = ?"); binds.push(title); }
-    if (starts_at !== void 0) { updates.push("starts_at = ?"); binds.push(starts_at); }
-    if (ends_at !== void 0) { updates.push("ends_at = ?"); binds.push(ends_at); }
-    if (location !== void 0) { updates.push("location = ?"); binds.push(location); }
-    if (notes !== void 0) { updates.push("notes = ?"); binds.push(notes); }
-    if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
-    if (!updates.length) return err(400, "Nothing to update.");
-    binds.push(itemId);
-    await env.DB.prepare(`UPDATE event_schedule_items SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
-    return json({ ok: true });
-  }
-  if (scheduleItemMatch && method === "DELETE") {
-    const authErr = requireAuth();
-    if (authErr) return authErr;
-    const [, eventId, itemId] = scheduleItemMatch;
-    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    await env.DB.prepare("DELETE FROM event_schedule_items WHERE id = ?").bind(itemId).run();
-    return json({ ok: true });
-  }
   const meetupsMatch = pathname.match(/^\/api\/events\/([^/]+)\/meetups$/);
   if (meetupsMatch && method === "GET") {
     const authErr = requireAuth();
@@ -398,10 +383,11 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = meetupsMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { proposed_at, location, notes } = await body(request);
+    const { proposed_at, location, notes, category } = await body(request);
     if (!proposed_at) return err(400, "proposed_at required.");
+    if (category !== void 0 && !["meeting", "field_trip"].includes(category)) return err(400, "category must be meeting/field_trip.");
     const id = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO event_meetups (id, event_id, proposed_at, location, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)").bind(id, eventId, proposed_at, location || null, notes || null, user.id).run();
+    await env.DB.prepare("INSERT INTO event_meetups (id, event_id, proposed_at, location, notes, category, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, eventId, proposed_at, location || null, notes || null, category || "meeting", user.id).run();
     return json({ id });
   }
   const meetupMatch = pathname.match(/^\/api\/events\/([^/]+)\/meetups\/([^/]+)$/);
@@ -530,6 +516,61 @@ async function api(request, env, url) {
     await env.DB.prepare("DELETE FROM event_project_items WHERE id = ?").bind(itemId).run();
     return json({ ok: true });
   }
+  const activitiesMatch = pathname.match(/^\/api\/events\/([^/]+)\/activities$/);
+  if (activitiesMatch && method === "GET") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const eventId = activitiesMatch[1];
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM event_activities WHERE event_id = ? ORDER BY (starts_at IS NULL), starts_at ASC, position ASC, created_at ASC"
+    ).bind(eventId).all();
+    return json({ activities: results });
+  }
+  if (activitiesMatch && method === "POST") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const eventId = activitiesMatch[1];
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    const { kind, name, description, starts_at, ends_at, location, position } = await body(request);
+    if (!name) return err(400, "name required.");
+    if (!["game", "event"].includes(kind)) return err(400, "kind must be game/event.");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, position || 0, user.id).run();
+    return json({ id });
+  }
+  const activityMatch = pathname.match(/^\/api\/events\/([^/]+)\/activities\/([^/]+)$/);
+  if (activityMatch && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const [, eventId, activityId] = activityMatch;
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    const { name, description, starts_at, ends_at, location, status, position } = await body(request);
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
+    const updates = [];
+    const binds = [];
+    if (name !== void 0) { updates.push("name = ?"); binds.push(name); }
+    if (description !== void 0) { updates.push("description = ?"); binds.push(description); }
+    if (starts_at !== void 0) { updates.push("starts_at = ?"); binds.push(starts_at); }
+    if (ends_at !== void 0) { updates.push("ends_at = ?"); binds.push(ends_at); }
+    if (location !== void 0) { updates.push("location = ?"); binds.push(location); }
+    if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
+    if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
+    if (!updates.length) return err(400, "Nothing to update.");
+    binds.push(activityId);
+    await env.DB.prepare(`UPDATE event_activities SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+  if (activityMatch && method === "DELETE") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const [, eventId, activityId] = activityMatch;
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    await env.DB.prepare("DELETE FROM event_activities WHERE id = ?").bind(activityId).run();
+    return json({ ok: true });
+  }
   const materialsMatch = pathname.match(/^\/api\/events\/([^/]+)\/materials$/);
   if (materialsMatch && method === "GET") {
     const authErr = requireAuth();
@@ -544,10 +585,11 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = materialsMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { item, position } = await body(request);
+    const { item, category, activity_id, position } = await body(request);
     if (!item) return err(400, "item required.");
+    if (category !== void 0 && !["need", "want"].includes(category)) return err(400, "category must be need/want.");
     const id = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO event_materials (id, event_id, item, position, created_by) VALUES (?, ?, ?, ?, ?)").bind(id, eventId, item, position || 0, user.id).run();
+    await env.DB.prepare("INSERT INTO event_materials (id, event_id, item, category, activity_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, eventId, item, category || "need", activity_id || null, position || 0, user.id).run();
     return json({ id });
   }
   const materialMatch = pathname.match(/^\/api\/events\/([^/]+)\/materials\/([^/]+)$/);
@@ -556,10 +598,13 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, materialId] = materialMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { item, position } = await body(request);
+    const { item, category, activity_id, position } = await body(request);
+    if (category !== void 0 && !["need", "want"].includes(category)) return err(400, "category must be need/want.");
     const updates = [];
     const binds = [];
     if (item !== void 0) { updates.push("item = ?"); binds.push(item); }
+    if (category !== void 0) { updates.push("category = ?"); binds.push(category); }
+    if (activity_id !== void 0) { updates.push("activity_id = ?"); binds.push(activity_id); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(materialId);
