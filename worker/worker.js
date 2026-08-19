@@ -3,6 +3,13 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 
 // worker.js
 var SESSION_DAYS = 30;
+// Assigning members to a specific event's crew is switched off for now (see
+// CREW_ASSIGNMENT_ENABLED in members/app.js). While it's off, crew-hub
+// content (schedule, meetups, materials, activities, projects) is open to
+// every signed-in member for every upcoming event, since there's no way to
+// be excluded from a roster that nobody is being added to anyway. Flip this
+// back on, alongside the frontend flag, once assignment is back in use.
+var CREW_ASSIGNMENT_ENABLED = false;
 function bytesToHex(bytes) {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -64,6 +71,7 @@ function isModerator(user) {
 __name(isModerator, "isModerator");
 async function isCrew(env, user, eventId) {
   if (!user) return false;
+  if (!CREW_ASSIGNMENT_ENABLED) return true;
   if (isModerator(user)) return true;
   const row = await env.DB.prepare("SELECT 1 FROM event_crew WHERE event_id = ? AND user_id = ?").bind(eventId, user.id).first();
   return !!row;
@@ -312,7 +320,7 @@ async function api(request, env, url) {
   if (pathname === "/api/me/crew" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;
-    const stmt = isModerator(user) ? env.DB.prepare(
+    const stmt = (!CREW_ASSIGNMENT_ENABLED || isModerator(user)) ? env.DB.prepare(
       `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
        LEFT JOIN chapters ON chapters.id = events.chapter_id
        WHERE events.starts_at >= datetime('now') ORDER BY events.starts_at ASC`

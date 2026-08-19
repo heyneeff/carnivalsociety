@@ -250,18 +250,14 @@ async function renderOnboarding() {
 }
 
 // ── App shell ────────────────────────────────────────────────────────
-// Event crew hub (crew rosters, per-event Schedule/Meetups/Projects/Materials,
-// and the "Manage Crew" assignment UI on Events) is switched off for now --
-// not in use yet, and it was confusing members who landed on "Hub" and saw
-// "you're not on a crew for an upcoming event" with no obvious way to fix
-// that. Code stays in place; flip this back on when crew assignment is
-// actually being used.
-const CREW_HUB_ENABLED = false;
+// Assigning members to an event's crew ("Manage Crew" on Events) is switched
+// off for now -- won't be needed for a while. The crew Hub itself (nav link,
+// tabs, routes) stays fully in place; only the assignment UI is hidden. Flip
+// this back on whenever crew assignment starts being used again.
+const CREW_ASSIGNMENT_ENABLED = false;
 
 function currentRoute() {
-  const route = window.location.hash.replace(/^#\/?/, '') || (CREW_HUB_ENABLED ? 'hub' : 'guild-hall');
-  if (!CREW_HUB_ENABLED && (route === 'hub' || route.startsWith('crew/'))) return 'guild-hall';
-  return route;
+  return window.location.hash.replace(/^#\/?/, '') || 'hub';
 }
 
 function renderShell() {
@@ -279,12 +275,11 @@ function renderShell() {
           <span class="crest">Carnival Society</span>
           <span class="crest-sub">Guild Hall</span>
         </div>
-        ${CREW_HUB_ENABLED ? `
         <div>
           <ul class="nav-list nav-list-hub">
             <li><a class="nav-link ${route === 'hub' || route.startsWith('crew/') ? 'active' : ''}" href="#/hub">Hub</a></li>
           </ul>
-        </div>` : ''}
+        </div>
         <div>
           <div class="nav-group-label">Boards</div>
           <ul class="nav-list">
@@ -712,8 +707,8 @@ async function renderEventsView(mainView) {
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
-      ${canManage ? `<div class="post-actions">${CREW_HUB_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}<button class="action-btn danger" data-delete-event="${e.id}">Delete</button></div>` : ''}
-      ${canManage && CREW_HUB_ENABLED ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
+      ${canManage ? `<div class="post-actions">${CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}<button class="action-btn danger" data-delete-event="${e.id}">Delete</button></div>` : ''}
+      ${canManage && CREW_ASSIGNMENT_ENABLED ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
     </div>
   `).join('') : '<div class="placeholder-note">Nothing scheduled yet.</div>';
 
