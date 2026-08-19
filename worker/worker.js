@@ -260,32 +260,26 @@ async function api(request, env, url) {
     ).all();
     return json({ events: results.map(shapeEvent) }, { headers: { "Access-Control-Allow-Origin": "*" } });
   }
-  // Public, unauthenticated one-click entry for a crew: lists the
-  // non-Ringleader crew of an event so a pre-auth "pick your name" screen
-  // can render buttons, and a matching sign-in with no password. Deliberately
-  // narrow: only works for users already on that event's crew roster, and
-  // never for a Ringleader (they still need a real password) — this trades
-  // per-click friction for the ability to impersonate one of a handful of
-  // known volunteers on one event, not guild-wide access.
-  const quickCrewMatch = pathname.match(/^\/api\/events\/([^/]+)\/quick-crew$/);
-  if (quickCrewMatch && method === "GET") {
+  // Public, unauthenticated one-click entry: lists every non-Ringleader
+  // member guild-wide so the pre-auth "pick your name" screen can render
+  // buttons, and a matching sign-in with no password. Ringleaders always
+  // need a real password -- this trades per-click friction for the ability
+  // to impersonate any non-Ringleader member, guild-wide, indefinitely, so
+  // it's only appropriate because the roster is a small known guild and
+  // Ringleader/steward accounts (the ones with real permissions) are exempt.
+  if (pathname === "/api/quick-signin-roster" && method === "GET") {
     const { results } = await env.DB.prepare(
-      `SELECT users.id, users.display_name FROM event_crew
-       JOIN users ON users.id = event_crew.user_id
-       WHERE event_crew.event_id = ? AND users.is_ringleader = 0
-       ORDER BY users.display_name`
-    ).bind(quickCrewMatch[1]).all();
-    return json({ crew: results });
+      `SELECT id, display_name FROM users WHERE is_ringleader = 0 ORDER BY display_name`
+    ).all();
+    return json({ members: results });
   }
-  const quickSigninMatch = pathname.match(/^\/api\/events\/([^/]+)\/quick-signin$/);
-  if (quickSigninMatch && method === "POST") {
+  if (pathname === "/api/quick-signin" && method === "POST") {
     const { user_id } = await body(request);
     if (!user_id) return err(400, "user_id required.");
     const candidate = await env.DB.prepare(
-      `SELECT users.* FROM event_crew JOIN users ON users.id = event_crew.user_id
-       WHERE event_crew.event_id = ? AND event_crew.user_id = ? AND users.is_ringleader = 0`
-    ).bind(quickSigninMatch[1], user_id).first();
-    if (!candidate) return err(403, "Not on this event's crew.");
+      `SELECT * FROM users WHERE id = ? AND is_ringleader = 0`
+    ).bind(user_id).first();
+    if (!candidate) return err(403, "Not a valid quick sign-in member.");
     const token = await createSession(env, candidate.id);
     return json({ user: publicUser(candidate) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } });
   }
@@ -674,9 +668,26 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { rank, is_ringleader, dues_paid, dues_amount, dues_date, steward_role } = await body(request);
+    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, dues_paid, dues_amount, dues_date, steward_role } = await body(request);
     const updates = [];
     const binds = [];
+    if (display_name !== void 0) {
+      if (!display_name) return err(400, "display_name required.");
+      updates.push("display_name = ?");
+      binds.push(display_name);
+    }
+    if (home_chapter_id !== void 0) {
+      updates.push("home_chapter_id = ?");
+      binds.push(home_chapter_id || null);
+    }
+    if (birthday !== void 0) {
+      updates.push("birthday = ?");
+      binds.push(birthday || null);
+    }
+    if (skills !== void 0) {
+      updates.push("skills = ?");
+      binds.push(skills || null);
+    }
     if (rank !== void 0) {
       updates.push("rank = ?");
       binds.push(rank);
@@ -993,7 +1004,9 @@ function shapeMember(row) {
     dues_paid: !!row.dues_paid,
     dues_amount: row.dues_amount,
     dues_date: row.dues_date,
-    steward_role: row.steward_role || null
+    steward_role: row.steward_role || null,
+    birthday: row.birthday || null,
+    skills: row.skills || ""
   };
 }
 __name(shapeMember, "shapeMember");

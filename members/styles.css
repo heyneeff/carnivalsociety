@@ -52,7 +52,8 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 
 /* AUTH SCREEN */
 .auth-screen {
-  min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem;
+  min-height: 100vh; display: flex; flex-wrap: wrap; align-items: flex-start;
+  justify-content: center; gap: 1.5rem; padding: 2rem;
 }
 .auth-panel {
   width: 100%; max-width: 420px; background: var(--surface);
@@ -94,8 +95,11 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   color: #E08A8A; font-style: italic; font-size: 0.9rem; text-align: center; min-height: 1.2em;
 }
 
-.quickpick-panel { max-width: 520px; }
-.quickpick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.7rem; margin-bottom: 1.5rem; }
+.quickpick-panel { max-width: 340px; align-self: stretch; display: flex; flex-direction: column; }
+.quickpick-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.7rem;
+  overflow-y: auto;
+}
 .quickpick-btn {
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
   color: var(--cream); padding: 1rem 0.5rem; font-family: 'Playfair Display', serif;
@@ -104,6 +108,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .quickpick-btn:hover { background: var(--burgundy-red); border-color: var(--burgundy-red); }
 .quickpick-fallback { text-align: center; font-style: italic; font-size: 0.85rem; color: var(--cream-soft); }
 .quickpick-fallback a { color: var(--gold-deep); }
+
+@media (max-width: 800px) {
+  .quickpick-panel { max-width: 420px; }
+}
 
 /* APP SHELL */
 .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
@@ -249,11 +257,25 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 
 /* RINGLEADER HUB */
 .admin-note { font-style: italic; color: var(--cream-soft); margin-bottom: 1.5rem; }
-.admin-toolbar { display: flex; justify-content: flex-end; margin-bottom: 1rem; max-width: 480px; }
+.admin-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 1rem; max-width: 920px; gap: 1rem; }
+.admin-search {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.4rem 0.7rem; color: var(--cream); outline: none; flex: 1; min-width: 160px; max-width: 260px;
+}
+.admin-search:focus { border-color: var(--burgundy-red); }
+.admin-sort-control {
+  display: flex; align-items: center; gap: 0.5rem; font-style: italic;
+  font-size: 0.9rem; color: var(--cream-soft); white-space: nowrap;
+}
+.admin-sort-control select {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.35rem 0.5rem; color: var(--cream); outline: none;
+}
 .admin-list { display: flex; flex-direction: column; gap: 0.6rem; max-width: 920px; }
 .admin-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; background: var(--surface);
-  border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 1.1rem;
+  border: 1px solid var(--border); border-left-width: 10px; border-radius: 4px; padding: 0.75rem 1.1rem;
+  transition: border-left-color 0.15s;
 }
 .admin-identity { flex: 1; min-width: 140px; }
 .admin-name { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--cream); }
@@ -262,11 +284,32 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
   padding: 0.4rem 0.6rem; color: var(--cream); outline: none;
 }
+.admin-rank { font-weight: 600; }
 .admin-dues-amount { width: 90px; }
 .admin-ringleader-toggle {
   display: flex; align-items: center; gap: 0.4rem; font-style: italic;
   font-size: 0.9rem; color: var(--gold); white-space: nowrap; cursor: pointer;
 }
+.admin-edit-btn { font-style: italic; font-size: 0.85rem; padding: 0.4rem 0.8rem; }
+
+/* Members Hub edit modal */
+.admin-edit-overlay {
+  position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.75);
+  display: none; align-items: center; justify-content: center; padding: 1rem;
+}
+.admin-edit-overlay.open { display: flex; }
+.admin-edit-modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  width: 420px; max-width: 100%; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;
+}
+.admin-edit-modal-header {
+  padding: 1rem 1.25rem 0.85rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.admin-edit-modal-header h3 { font-family: 'Playfair Display', serif; font-style: italic; color: var(--gold-bright); }
+.admin-edit-modal-header button { background: none; border: none; color: var(--cream-soft); font-size: 1.2rem; cursor: pointer; }
+.admin-edit-modal-body { padding: 1rem 1.25rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; }
+.admin-edit-modal-footer { padding: 0.85rem 1.25rem; border-top: 1px solid var(--border); display: flex; gap: 0.6rem; justify-content: flex-end; }
 
 /* GUILD MAP — scoped local theme so it doesn't touch the site's own --bg etc. */
 .gm-shell {

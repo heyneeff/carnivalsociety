@@ -84,58 +84,29 @@ function render() {
   renderShell();
 }
 
-// ── Pre-auth: one-click "pick your name" for a known event crew, falling
-// back to the real sign-in form if there's no crew to pick from (or for
-// Ringleaders/anyone with an existing account). ─────────────────────────
+// ── Pre-auth ─────────────────────────────────────────────────────────
 async function renderPreAuth() {
-  app.innerHTML = `<div class="loading-screen"><span class="loading-mark">♦</span></div>`;
-  try {
-    const { events } = await apiFetch('/api/events');
-    const nextEvent = (events || [])[0];
-    if (nextEvent) {
-      const { crew } = await apiFetch(`/api/events/${nextEvent.id}/quick-crew`);
-      if ((crew || []).length) { renderQuickPickScreen(nextEvent, crew); return; }
-    }
-  } catch (e) { /* fall through to the normal sign-in form */ }
   renderAuthScreen();
 }
 
-function renderQuickPickScreen(event, crew) {
-  app.innerHTML = `
-    <div class="auth-screen">
-      <div class="auth-panel quickpick-panel">
-        <h1>${escapeHtml(event.title)} Crew</h1>
-        <p class="auth-sub">Tap your name to jump in — no password needed.</p>
-        <div class="quickpick-grid">
-          ${crew.map(m => `<button class="quickpick-btn" data-user="${m.id}">${escapeHtml(m.display_name)}</button>`).join('')}
-        </div>
-        <p class="quickpick-fallback">Ringleader or existing account? <a href="#" id="quickpickFallbackLink">Sign in here</a></p>
-      </div>
-    </div>
-  `;
-
-  document.querySelectorAll('.quickpick-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const { user } = await apiFetch(`/api/events/${event.id}/quick-signin`, { method: 'POST', body: { user_id: btn.dataset.user } });
-      session = true;
-      profile = user;
-      await loadAppData();
-      render();
-    });
-  });
-
-  document.getElementById('quickpickFallbackLink').addEventListener('click', e => { e.preventDefault(); renderAuthScreen(); });
-}
-
-// ── Auth screen ──────────────────────────────────────────────────────
+// ── Auth screen: the real sign-in/join form, plus a "tap your name" quick
+// sign-in panel alongside it for every non-Ringleader member guild-wide.
+// Ringleaders (and anyone with a real account they want to use) still sign
+// in with email + password on the left. ─────────────────────────────────
 async function ensureChaptersLoaded() {
   if (!chapters.length) { const { chapters: c } = await apiFetch('/api/chapters'); chapters = c || []; }
 }
 
-function renderAuthScreen(mode = 'signin', errorMsg = '') {
+async function renderAuthScreen(mode = 'signin', errorMsg = '') {
   const chapterOptions = chapters.length
     ? chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
     : '<option value="">Loading chapters…</option>';
+
+  let roster = [];
+  try {
+    const { members } = await apiFetch('/api/quick-signin-roster');
+    roster = members || [];
+  } catch (e) { /* quick sign-in panel just won't show */ }
 
   app.innerHTML = `
     <div class="auth-screen">
@@ -167,14 +138,30 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
           <p class="auth-error">${escapeHtml(errorMsg)}</p>
           <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join' : 'Enter'}</button>
         </form>
-        <p class="quickpick-fallback"><a href="#" id="preAuthBackLink">← Back</a></p>
       </div>
+      ${roster.length ? `
+      <div class="auth-panel quickpick-panel">
+        <h1>Or Tap Your Name</h1>
+        <p class="auth-sub">No password needed.</p>
+        <div class="quickpick-grid">
+          ${roster.map(m => `<button class="quickpick-btn" data-user="${m.id}">${escapeHtml(m.display_name)}</button>`).join('')}
+        </div>
+      </div>` : ''}
     </div>
   `;
 
   document.getElementById('tabSignin').onclick = () => renderAuthScreen('signin');
   document.getElementById('tabSignup').onclick = async () => { await ensureChaptersLoaded(); renderAuthScreen('signup'); };
-  document.getElementById('preAuthBackLink').addEventListener('click', e => { e.preventDefault(); renderPreAuth(); });
+
+  document.querySelectorAll('.quickpick-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { user } = await apiFetch('/api/quick-signin', { method: 'POST', body: { user_id: btn.dataset.user } });
+      session = true;
+      profile = user;
+      await loadAppData();
+      render();
+    });
+  });
 
   document.getElementById('authForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -263,8 +250,18 @@ async function renderOnboarding() {
 }
 
 // ── App shell ────────────────────────────────────────────────────────
+// Event crew hub (crew rosters, per-event Schedule/Meetups/Projects/Materials,
+// and the "Manage Crew" assignment UI on Events) is switched off for now --
+// not in use yet, and it was confusing members who landed on "Hub" and saw
+// "you're not on a crew for an upcoming event" with no obvious way to fix
+// that. Code stays in place; flip this back on when crew assignment is
+// actually being used.
+const CREW_HUB_ENABLED = false;
+
 function currentRoute() {
-  return window.location.hash.replace(/^#\/?/, '') || 'hub';
+  const route = window.location.hash.replace(/^#\/?/, '') || (CREW_HUB_ENABLED ? 'hub' : 'guild-hall');
+  if (!CREW_HUB_ENABLED && (route === 'hub' || route.startsWith('crew/'))) return 'guild-hall';
+  return route;
 }
 
 function renderShell() {
@@ -282,11 +279,12 @@ function renderShell() {
           <span class="crest">Carnival Society</span>
           <span class="crest-sub">Guild Hall</span>
         </div>
+        ${CREW_HUB_ENABLED ? `
         <div>
           <ul class="nav-list nav-list-hub">
             <li><a class="nav-link ${route === 'hub' || route.startsWith('crew/') ? 'active' : ''}" href="#/hub">Hub</a></li>
           </ul>
-        </div>
+        </div>` : ''}
         <div>
           <div class="nav-group-label">Boards</div>
           <ul class="nav-list">
@@ -392,6 +390,21 @@ function authorBadge(authorProfile) {
 
 function isModerator() {
   return !!profile && (profile.rank === 'master' || profile.is_ringleader);
+}
+
+// ── Rank metadata: shared order + color coding for badges, selects, sorting ──
+const RANKS = ['apprentice', 'journeyman', 'master', 'clown'];
+const RANK_COLORS = {
+  apprentice: 'var(--cream-soft)',
+  journeyman: 'var(--accent-2)',
+  master: 'var(--gold-bright)',
+  clown: 'var(--accent-4)',
+};
+function rankLabel(rank) {
+  return rank.charAt(0).toUpperCase() + rank.slice(1);
+}
+function rankColor(rank) {
+  return RANK_COLORS[rank] || 'var(--cream)';
 }
 
 // ── Board view: composer + top-level post list ─────────────────────────
@@ -570,9 +583,7 @@ async function renderMemberPicker() {
       </select>
       <select id="memberRankFilter">
         <option value="">All ranks</option>
-        <option value="apprentice">Apprentice</option>
-        <option value="journeyman">Journeyman</option>
-        <option value="master">Master</option>
+        ${RANKS.map(r => `<option value="${r}">${rankLabel(r)}</option>`).join('')}
       </select>
     </div>
     <div class="post-list" id="memberResults" style="margin-bottom:1.75rem;"></div>
@@ -701,8 +712,8 @@ async function renderEventsView(mainView) {
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
-      ${canManage ? `<div class="post-actions"><button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button><button class="action-btn danger" data-delete-event="${e.id}">Delete</button></div>` : ''}
-      ${canManage ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
+      ${canManage ? `<div class="post-actions">${CREW_HUB_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}<button class="action-btn danger" data-delete-event="${e.id}">Delete</button></div>` : ''}
+      ${canManage && CREW_HUB_ENABLED ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
     </div>
   `).join('') : '<div class="placeholder-note">Nothing scheduled yet.</div>';
 
@@ -822,6 +833,34 @@ function debounce(fn, ms) {
 }
 
 // ── Ringleader hub: manage every member's rank/permissions/dues ────────
+// Standing order high-to-low: Ringleader, Master, Journeyman, Apprentice, Clown.
+// Ringleader is a separate flag rather than a rank value, so it's weighted in
+// ahead of rank when sorting "by rank" -- a Ringleader outranks a non-Ringleader
+// Master regardless of their underlying rank.
+const RANK_ORDER = { master: 2, journeyman: 1, apprentice: 0, clown: -1 };
+function memberWeight(m) {
+  return (m.is_ringleader ? 10 : 0) + RANK_ORDER[m.rank];
+}
+const ADMIN_SORTS = {
+  name: { label: 'Name', cmp: (a, b) => a.display_name.localeCompare(b.display_name) },
+  rank: { label: 'Rank', cmp: (a, b) => memberWeight(b) - memberWeight(a) || a.display_name.localeCompare(b.display_name) },
+  chapter: { label: 'Chapter', cmp: (a, b) => (a.home_chapter?.name || '￿').localeCompare(b.home_chapter?.name || '￿') || a.display_name.localeCompare(b.display_name) },
+  dues: { label: 'Dues status', cmp: (a, b) => (b.dues_paid - a.dues_paid) || a.display_name.localeCompare(b.display_name) },
+};
+const STEWARD_ROLES = [
+  ['founder_steward', 'Founder Steward'],
+  ['systems_steward', 'Systems Steward'],
+  ['participation_steward', 'Participation Steward'],
+  ['archive_steward', 'Archive Steward'],
+  ['place_living_steward', 'Place/Living Steward'],
+  ['temporal_steward', 'Temporal Steward'],
+  ['operations_finance_steward', 'Operations & Finance Steward'],
+  ['carnival_director', 'Carnival Director'],
+];
+let adminSortKey = 'name';
+let adminSearchQuery = '';
+let adminMembersCache = [];
+
 async function renderAdminView(mainView) {
   if (!profile?.is_ringleader) {
     mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
@@ -830,35 +869,20 @@ async function renderAdminView(mainView) {
   mainView.innerHTML = `<h2>Members Hub</h2><div class="placeholder-note">Loading…</div>`;
 
   const { members } = await apiFetch('/api/members');
-
-  const rowsHtml = (members || []).map(m => `
-    <div class="admin-row" data-user-id="${m.id}">
-      <div class="admin-identity">
-        <div class="admin-name">${escapeHtml(m.display_name)}</div>
-        <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}</div>
-      </div>
-      <select class="admin-rank" data-field="rank">
-        ${['apprentice', 'journeyman', 'master', 'clown'].map(r =>
-          `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`
-        ).join('')}
-      </select>
-      <label class="admin-ringleader-toggle">
-        <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
-        Ringleader
-      </label>
-      <label class="admin-ringleader-toggle">
-        <input type="checkbox" data-field="dues_paid" ${m.dues_paid ? 'checked' : ''}>
-        Dues Paid
-      </label>
-      <input type="text" class="admin-dues-amount" data-field="dues_amount" placeholder="Amount" value="${escapeHtml(m.dues_amount || '')}">
-      <input type="date" class="admin-dues-date" data-field="dues_date" value="${escapeHtml(m.dues_date || '')}">
-    </div>
-  `).join('') || '<div class="placeholder-note">No members yet.</div>';
+  adminMembersCache = members || [];
 
   mainView.innerHTML = `
     <h2>Members Hub</h2>
     <p class="admin-note">Every member of the guild. Changes save immediately.</p>
-    <div class="admin-toolbar"><button class="gm-btn" id="newMemberToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add Member</button></div>
+    <div class="admin-toolbar">
+      <input type="text" id="adminSearchInput" class="admin-search" placeholder="Search members…" value="${escapeHtml(adminSearchQuery)}">
+      <label class="admin-sort-control">Sort by
+        <select id="adminSortSelect">
+          ${Object.entries(ADMIN_SORTS).map(([key, s]) => `<option value="${key}" ${key === adminSortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+      </label>
+      <button class="gm-btn" id="newMemberToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add Member</button>
+    </div>
     <div class="card new-project-form" id="newMemberForm">
       <div class="field-row"><label>Name</label><input type="text" id="nmName" placeholder="e.g. Amelia"></div>
       <div class="field-row"><label>Home Chapter</label>
@@ -873,8 +897,18 @@ async function renderAdminView(mainView) {
         <button class="gm-btn" id="nmCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
       </div>
     </div>
-    <div class="admin-list">${rowsHtml}</div>
+    <div class="admin-list" id="adminList"></div>
   `;
+
+  document.getElementById('adminSortSelect').addEventListener('change', e => {
+    adminSortKey = e.target.value;
+    renderAdminRows(mainView);
+  });
+
+  document.getElementById('adminSearchInput').addEventListener('input', e => {
+    adminSearchQuery = e.target.value;
+    renderAdminRows(mainView);
+  });
 
   document.getElementById('newMemberToggleBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.toggle('open'));
   document.getElementById('nmCancelBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.remove('open'));
@@ -888,12 +922,68 @@ async function renderAdminView(mainView) {
     renderAdminView(mainView);
   });
 
-  mainView.querySelectorAll('.admin-row').forEach(row => {
+  renderAdminRows(mainView);
+}
+
+function renderAdminRows(mainView) {
+  const list = document.getElementById('adminList');
+  if (!list) return;
+
+  const q = adminSearchQuery.trim().toLowerCase();
+  const filtered = adminMembersCache.filter(m =>
+    !q || m.display_name.toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q)
+  );
+  const sorted = [...filtered].sort(ADMIN_SORTS[adminSortKey].cmp);
+
+  list.innerHTML = sorted.map(m => `
+    <div class="admin-row" data-user-id="${m.id}" style="border-left-color: ${rankColor(m.rank)};">
+      <div class="admin-identity">
+        <div class="admin-name">${escapeHtml(m.display_name)}</div>
+        <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}</div>
+      </div>
+      <select class="admin-rank" data-field="rank" style="color: ${rankColor(m.rank)};">
+        ${RANKS.map(r =>
+          `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${rankLabel(r)}</option>`
+        ).join('')}
+      </select>
+      <label class="admin-ringleader-toggle">
+        <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
+        Ringleader
+      </label>
+      <label class="admin-ringleader-toggle">
+        <input type="checkbox" data-field="dues_paid" ${m.dues_paid ? 'checked' : ''}>
+        Dues Paid
+      </label>
+      <input type="text" class="admin-dues-amount" data-field="dues_amount" placeholder="Amount" value="${escapeHtml(m.dues_amount || '')}">
+      <input type="date" class="admin-dues-date" data-field="dues_date" value="${escapeHtml(m.dues_date || '')}">
+      <button class="gm-btn admin-edit-btn" data-edit="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
+    </div>
+  `).join('') || '<div class="placeholder-note">No members match.</div>';
+
+  list.querySelectorAll('.admin-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openAdminEditModal(mainView, btn.dataset.edit));
+  });
+
+  list.querySelectorAll('.admin-row').forEach(row => {
     const userId = row.dataset.userId;
+    const member = adminMembersCache.find(m => m.id === userId);
 
     const patchField = async (field, value) => {
-      await apiFetch(`/api/members/${userId}`, { method: 'PATCH', body: { [field]: value } });
+      try {
+        await apiFetch(`/api/members/${userId}`, { method: 'PATCH', body: { [field]: value } });
+      } catch (e) {
+        alert(`Couldn't save: ${e.message}`);
+        renderAdminRows(mainView);
+        return;
+      }
+      member[field] = value;
       if (userId === profile.id && (field === 'rank' || field === 'is_ringleader')) { await refreshProfile(); renderShell(); }
+      if (field === 'rank') {
+        row.style.borderLeftColor = rankColor(value);
+        row.querySelector('[data-field="rank"]').style.color = rankColor(value);
+      }
+      const affectsSort = (adminSortKey === 'rank' && (field === 'rank' || field === 'is_ringleader')) || (adminSortKey === 'dues' && field === 'dues_paid');
+      if (affectsSort) renderAdminRows(mainView);
     };
 
     row.querySelector('[data-field="rank"]').addEventListener('change', e => patchField('rank', e.target.value));
@@ -901,6 +991,71 @@ async function renderAdminView(mainView) {
     row.querySelector('[data-field="dues_paid"]').addEventListener('change', e => patchField('dues_paid', e.target.checked));
     row.querySelector('[data-field="dues_amount"]').addEventListener('change', e => patchField('dues_amount', e.target.value));
     row.querySelector('[data-field="dues_date"]').addEventListener('change', e => patchField('dues_date', e.target.value));
+  });
+}
+
+function openAdminEditModal(mainView, userId) {
+  const member = adminMembersCache.find(m => m.id === userId);
+  if (!member) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-edit-overlay open';
+  overlay.innerHTML = `
+    <div class="admin-edit-modal">
+      <div class="admin-edit-modal-header">
+        <h3>Edit ${escapeHtml(member.display_name)}</h3>
+        <button id="adminEditClose">&times;</button>
+      </div>
+      <div class="admin-edit-modal-body">
+        <div class="field-row"><label>Name</label><input type="text" id="aeName" value="${escapeHtml(member.display_name)}"></div>
+        <div class="field-row"><label>Home Chapter</label>
+          <select id="aeChapter">
+            <option value="">No chapter</option>
+            ${chapters.map(c => `<option value="${c.id}" ${member.home_chapter_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row"><label>Steward Role</label>
+          <select id="aeSteward">
+            <option value="">None</option>
+            ${STEWARD_ROLES.map(([v, label]) => `<option value="${v}" ${member.steward_role === v ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row"><label>Birthday</label><input type="date" id="aeBirthday" value="${escapeHtml(member.birthday || '')}"></div>
+        <div class="field-row"><label>Skills</label><input type="text" id="aeSkills" placeholder="e.g. rigging, sound, first aid" value="${escapeHtml(member.skills || '')}"></div>
+      </div>
+      <div class="admin-edit-modal-footer">
+        <button class="composer-submit" id="aeSaveBtn">Save</button>
+        <button class="gm-btn" id="aeCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#adminEditClose').addEventListener('click', close);
+  overlay.querySelector('#aeCancelBtn').addEventListener('click', close);
+  overlay.querySelector('#aeSaveBtn').addEventListener('click', async () => {
+    const display_name = overlay.querySelector('#aeName').value.trim();
+    if (!display_name) { alert('Name is required.'); return; }
+    const body = {
+      display_name,
+      home_chapter_id: overlay.querySelector('#aeChapter').value || null,
+      steward_role: overlay.querySelector('#aeSteward').value || null,
+      birthday: overlay.querySelector('#aeBirthday').value || null,
+      skills: overlay.querySelector('#aeSkills').value.trim() || null,
+    };
+    try {
+      await apiFetch(`/api/members/${userId}`, { method: 'PATCH', body });
+    } catch (e) {
+      alert(`Couldn't save: ${e.message}`);
+      return;
+    }
+    Object.assign(member, body);
+    member.home_chapter = body.home_chapter_id ? { name: chapters.find(c => c.id === body.home_chapter_id)?.name } : null;
+    if (userId === profile.id) { await refreshProfile(); renderShell(); }
+    close();
+    renderAdminRows(mainView);
   });
 }
 
