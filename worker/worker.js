@@ -796,6 +796,64 @@ async function api(request, env, url) {
     await env.DB.prepare("DELETE FROM event_signs WHERE id = ?").bind(signId).run();
     return json({ ok: true });
   }
+  const raffleMatch = pathname.match(/^\/api\/events\/([^/]+)\/raffle$/);
+  if (raffleMatch && method === "GET") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const eventId = raffleMatch[1];
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    const { results } = await env.DB.prepare(
+      `SELECT event_raffle.*, users.display_name AS assignee_name FROM event_raffle
+       LEFT JOIN users ON users.id = event_raffle.assignee_id
+       WHERE event_raffle.event_id = ? ORDER BY event_raffle.position ASC, event_raffle.created_at ASC`
+    ).bind(eventId).all();
+    return json({ raffle: results });
+  }
+  if (raffleMatch && method === "POST") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const eventId = raffleMatch[1];
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    const { name, assignee_id, status, position } = await body(request);
+    if (!name) return err(400, "name required.");
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO event_raffle (id, event_id, name, assignee_id, status, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, name, assignee_id || null, status || "proposed", position || 0, user.id).run();
+    return json({ id });
+  }
+  const raffleItemMatch = pathname.match(/^\/api\/events\/([^/]+)\/raffle\/([^/]+)$/);
+  if (raffleItemMatch && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const [, eventId, raffleId] = raffleItemMatch;
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    const { name, assignee_id, status, position } = await body(request);
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
+    const updates = [];
+    const binds = [];
+    if (name !== void 0) {
+      if (!name) return err(400, "name required.");
+      updates.push("name = ?");
+      binds.push(name);
+    }
+    if (assignee_id !== void 0) { updates.push("assignee_id = ?"); binds.push(assignee_id || null); }
+    if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
+    if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
+    if (!updates.length) return err(400, "Nothing to update.");
+    binds.push(raffleId);
+    await env.DB.prepare(`UPDATE event_raffle SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+  if (raffleItemMatch && method === "DELETE") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const [, eventId, raffleId] = raffleItemMatch;
+    if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
+    await env.DB.prepare("DELETE FROM event_raffle WHERE id = ?").bind(raffleId).run();
+    return json({ ok: true });
+  }
   if (pathname === "/api/roster" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;

@@ -2347,6 +2347,7 @@ const CREW_TABS = [
   ['activities', 'Games & Events'],
   ['merch', 'Merch'],
   ['signs', 'Signs'],
+  ['raffle', 'Raffle'],
   ['projects', 'Required Builds'],
   ['materials', 'Materials'],
 ];
@@ -2403,6 +2404,7 @@ async function renderCrewTabs(mainView, activeTab) {
   if (activeTab === 'activities') return renderCrewActivitiesView(body);
   if (activeTab === 'merch') return renderCrewMerchView(body);
   if (activeTab === 'signs') return renderCrewSignsView(body);
+  if (activeTab === 'raffle') return renderCrewRaffleView(body);
   if (activeTab === 'projects') return renderCrewProjectsView(body);
   if (activeTab === 'materials') return renderCrewMaterialsView(body);
 }
@@ -2412,13 +2414,14 @@ async function renderCrewOverviewView(mainView) {
   const evt = myCrewEvent();
   mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
-  const [{ meetups }, { activities }, { projects }, { materials }, { merch }, { signs }] = await Promise.all([
+  const [{ meetups }, { activities }, { projects }, { materials }, { merch }, { signs }, { raffle }] = await Promise.all([
     apiFetch(`/api/events/${evt.id}/meetups`),
     apiFetch(`/api/events/${evt.id}/activities`),
     apiFetch(`/api/events/${evt.id}/projects`),
     apiFetch(`/api/events/${evt.id}/materials`),
     apiFetch(`/api/events/${evt.id}/merch`),
     apiFetch(`/api/events/${evt.id}/signs`),
+    apiFetch(`/api/events/${evt.id}/raffle`),
   ]);
 
   const games = (activities || []).filter(a => a.kind === 'game');
@@ -2502,6 +2505,11 @@ async function renderCrewOverviewView(mainView) {
           <h4 class="overview-materials-heading">Signs</h4>
           ${overviewAssignedList(signs || [], 'Nothing listed yet.')}
           <div class="post-actions"><a class="action-btn" href="#/crew/signs">View all</a></div>
+        </div>
+        <div class="card overview-card activity-color-3">
+          <h3 class="section-heading">Raffle</h3>
+          ${overviewAssignedList(raffle || [], 'Nothing listed yet.')}
+          <div class="post-actions"><a class="action-btn" href="#/crew/raffle">View all</a></div>
         </div>
       </div>
       <div class="card overview-materials-col activity-color-4">
@@ -3118,6 +3126,89 @@ async function renderCrewSignsView(mainView) {
     btn.addEventListener('click', async () => {
       await apiFetch(`/api/events/${evt.id}/signs/${btn.dataset.deleteSign}`, { method: 'DELETE' });
       renderCrewSignsView(mainView);
+    });
+  });
+}
+
+// ── Crew: Raffle (what's up for raffle, who's bringing it) ──────────────
+async function renderCrewRaffleView(mainView) {
+  const evt = myCrewEvent();
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
+
+  const [{ raffle }, { roster }] = await Promise.all([
+    apiFetch(`/api/events/${evt.id}/raffle`),
+    apiFetch('/api/roster'),
+  ]);
+  const list = raffle || [];
+  const assigneeOptions = unassignedLabel =>
+    `<option value="">${unassignedLabel}</option>${(roster || []).map(m => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('')}`;
+
+  mainView.innerHTML = `
+    <form class="composer" id="raffleComposer">
+      <input type="text" id="raffleName" placeholder="What are we raffling?" required>
+      <select id="raffleStatus">
+        <option value="proposed">Proposed</option>
+        <option value="locked_in">Locked In</option>
+      </select>
+      <select id="raffleAssignee">${assigneeOptions('Who’s bringing it?')}</select>
+      <button type="submit" class="composer-submit">Add</button>
+    </form>
+    <ul class="materials-list">
+      ${list.length ? list.map(r => `
+        <li class="materials-item activity-status-${r.status}" data-raffle="${r.id}">
+          <input type="text" class="materials-item-input" value="${escapeHtml(r.name)}">
+          <select class="activity-status-select raffle-status-select" data-raffle="${r.id}">
+            <option value="proposed" ${r.status === 'proposed' ? 'selected' : ''}>Proposed</option>
+            <option value="locked_in" ${r.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
+          </select>
+          <select class="merch-assignee-select">${assigneeOptions('Unassigned')}</select>
+          <button class="crew-chip-remove" data-delete-raffle="${r.id}" title="Remove">&times;</button>
+        </li>
+      `).join('') : '<div class="placeholder-note">Nothing listed yet.</div>'}
+    </ul>
+  `;
+
+  mainView.querySelectorAll('.merch-assignee-select').forEach(select => {
+    const raffleId = select.closest('[data-raffle]').dataset.raffle;
+    const item = list.find(r => r.id === raffleId);
+    select.value = item?.assignee_id || '';
+  });
+
+  document.getElementById('raffleComposer').addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = document.getElementById('raffleName').value.trim();
+    if (!name) return;
+    const status = document.getElementById('raffleStatus').value;
+    const assignee_id = document.getElementById('raffleAssignee').value || null;
+    await apiFetch(`/api/events/${evt.id}/raffle`, { method: 'POST', body: { name, status, assignee_id } });
+    renderCrewRaffleView(mainView);
+  });
+
+  mainView.querySelectorAll('.materials-item-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.closest('[data-raffle]').dataset.raffle;
+      await apiFetch(`/api/events/${evt.id}/raffle/${id}`, { method: 'PATCH', body: { name: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('.raffle-status-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      await apiFetch(`/api/events/${evt.id}/raffle/${select.dataset.raffle}`, { method: 'PATCH', body: { status: select.value } });
+      renderCrewRaffleView(mainView);
+    });
+  });
+
+  mainView.querySelectorAll('.merch-assignee-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      const id = select.closest('[data-raffle]').dataset.raffle;
+      await apiFetch(`/api/events/${evt.id}/raffle/${id}`, { method: 'PATCH', body: { assignee_id: select.value || null } });
+    });
+  });
+
+  mainView.querySelectorAll('[data-delete-raffle]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/api/events/${evt.id}/raffle/${btn.dataset.deleteRaffle}`, { method: 'DELETE' });
+      renderCrewRaffleView(mainView);
     });
   });
 }
