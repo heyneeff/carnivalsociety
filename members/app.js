@@ -3228,17 +3228,36 @@ async function renderCrewRaffleView(mainView) {
 }
 
 // ── Crew: Materials (Needs / Wants, two columns) ────────────────────────
-function materialsColumnHtml(items, activityNames, showPriority) {
-  return items.length ? `<ul class="materials-list">${items.map(m => {
+// Dedupe materials by item text (case/whitespace-insensitive) within a
+// category — same item added under two different games/events collapses
+// into one row, with every activity it's needed for listed under the (i)
+// info button instead of showing as separate duplicate rows.
+function groupMaterials(items, activityNames) {
+  const groups = new Map();
+  items.forEach(m => {
+    const key = m.item.trim().toLowerCase();
+    if (!groups.has(key)) groups.set(key, { key, item: m.item, category: m.category, ids: [], priority: false, sources: [] });
+    const g = groups.get(key);
+    g.ids.push(m.id);
+    if (m.priority) g.priority = true;
     const source = m.activity_id && activityNames[m.activity_id];
+    if (source && !g.sources.includes(source)) g.sources.push(source);
+  });
+  return [...groups.values()];
+}
+
+function materialsColumnHtml(groups, showPriority) {
+  return groups.length ? `<ul class="materials-list">${groups.map(g => {
+    const idsAttr = g.ids.join(',');
     return `
-    <li class="materials-item ${m.priority ? 'materials-priority' : ''}" data-material="${m.id}">
-      ${showPriority ? `<label class="materials-priority-toggle" title="Priority"><input type="checkbox" class="materials-priority-checkbox" ${m.priority ? 'checked' : ''}> ★</label>` : ''}
-      <input type="text" class="materials-item-input" value="${escapeHtml(m.item)}">
-      ${source ? `<button class="materials-source-toggle" data-source-toggle="${m.id}" title="What's this for?">ⓘ</button>` : ''}
-      <button class="crew-chip-remove" data-move-material="${m.id}" data-to="${m.category === 'need' ? 'want' : 'need'}" title="Move to ${m.category === 'need' ? 'Wants' : 'Needs'}">⇄</button>
-      <button class="crew-chip-remove" data-delete-material="${m.id}" title="Remove">&times;</button>
-      ${source ? `<div class="materials-source-detail" id="materialsSource-${m.id}" hidden>For: ${escapeHtml(source)}</div>` : ''}
+    <li class="materials-item ${g.priority ? 'materials-priority' : ''}" data-material-ids="${idsAttr}">
+      ${showPriority ? `<label class="materials-priority-toggle" title="Priority"><input type="checkbox" class="materials-priority-checkbox" ${g.priority ? 'checked' : ''}> ★</label>` : ''}
+      <input type="text" class="materials-item-input" value="${escapeHtml(g.item)}">
+      ${g.ids.length > 1 ? `<span class="materials-source-tag">×${g.ids.length}</span>` : ''}
+      ${g.sources.length ? `<button class="materials-source-toggle" data-source-toggle="${escapeHtml(g.key)}" title="What's this for?">ⓘ</button>` : ''}
+      <button class="crew-chip-remove" data-move-material data-to="${g.category === 'need' ? 'want' : 'need'}" title="Move to ${g.category === 'need' ? 'Wants' : 'Needs'}">⇄</button>
+      <button class="crew-chip-remove" data-delete-material title="Remove">&times;</button>
+      ${g.sources.length ? `<div class="materials-source-detail" id="materialsSource-${escapeHtml(g.key)}" hidden>For: ${g.sources.map(escapeHtml).join(', ')}</div>` : ''}
     </li>
   `; }).join('')}</ul>` : '<div class="placeholder-note">Nothing listed yet.</div>';
 }
@@ -3253,9 +3272,9 @@ async function renderCrewMaterialsView(mainView) {
   ]);
   const activityNames = {};
   (activities || []).forEach(a => { activityNames[a.id] = a.name; });
-  const needs = (materials || []).filter(m => m.category !== 'want')
+  const needGroups = groupMaterials((materials || []).filter(m => m.category !== 'want'), activityNames)
     .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
-  const wants = (materials || []).filter(m => m.category === 'want');
+  const wantGroups = groupMaterials((materials || []).filter(m => m.category === 'want'), activityNames);
 
   mainView.innerHTML = `
     <form class="composer" id="materialComposer">
@@ -3269,11 +3288,11 @@ async function renderCrewMaterialsView(mainView) {
     <div class="materials-columns">
       <div class="materials-column">
         <h3 class="section-heading">Needs</h3>
-        ${materialsColumnHtml(needs, activityNames, true)}
+        ${materialsColumnHtml(needGroups, true)}
       </div>
       <div class="materials-column">
         <h3 class="section-heading">Wants</h3>
-        ${materialsColumnHtml(wants, activityNames, false)}
+        ${materialsColumnHtml(wantGroups, false)}
       </div>
     </div>
   `;
@@ -3288,31 +3307,40 @@ async function renderCrewMaterialsView(mainView) {
     renderCrewMaterialsView(mainView);
   });
 
+  const groupIds = el => el.closest('[data-material-ids]').dataset.materialIds.split(',');
+
   mainView.querySelectorAll('.materials-item-input').forEach(input => {
     input.addEventListener('change', async () => {
-      const id = input.closest('[data-material]').dataset.material;
-      await apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { item: input.value.trim() } });
+      const value = input.value.trim();
+      await Promise.all(groupIds(input).map(id =>
+        apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { item: value } })
+      ));
     });
   });
 
   mainView.querySelectorAll('.materials-priority-checkbox').forEach(cb => {
     cb.addEventListener('change', async () => {
-      const id = cb.closest('[data-material]').dataset.material;
-      await apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { priority: cb.checked } });
+      await Promise.all(groupIds(cb).map(id =>
+        apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { priority: cb.checked } })
+      ));
       renderCrewMaterialsView(mainView);
     });
   });
 
   mainView.querySelectorAll('[data-move-material]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await apiFetch(`/api/events/${evt.id}/materials/${btn.dataset.moveMaterial}`, { method: 'PATCH', body: { category: btn.dataset.to } });
+      await Promise.all(groupIds(btn).map(id =>
+        apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { category: btn.dataset.to } })
+      ));
       renderCrewMaterialsView(mainView);
     });
   });
 
   mainView.querySelectorAll('[data-delete-material]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await apiFetch(`/api/events/${evt.id}/materials/${btn.dataset.deleteMaterial}`, { method: 'DELETE' });
+      await Promise.all(groupIds(btn).map(id =>
+        apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'DELETE' })
+      ));
       renderCrewMaterialsView(mainView);
     });
   });
