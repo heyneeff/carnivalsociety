@@ -144,8 +144,9 @@ async function renderAuthScreen(mode = 'signin', errorMsg = '') {
         <h1>Or Tap Your Name</h1>
         <p class="auth-sub">No password needed.</p>
         <div class="quickpick-grid">
-          ${roster.map(m => `<button class="quickpick-btn" data-user="${m.id}">${escapeHtml(m.display_name)}</button>`).join('')}
+          ${roster.map(m => `<button type="button" class="quickpick-btn" data-user="${m.id}">${escapeHtml(m.display_name)}</button>`).join('')}
         </div>
+        <p class="auth-error" id="quickpickError"></p>
       </div>` : ''}
     </div>
   `;
@@ -155,11 +156,22 @@ async function renderAuthScreen(mode = 'signin', errorMsg = '') {
 
   document.querySelectorAll('.quickpick-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const { user } = await apiFetch('/api/quick-signin', { method: 'POST', body: { user_id: btn.dataset.user } });
-      session = true;
-      profile = user;
-      await loadAppData();
-      render();
+      document.querySelectorAll('.quickpick-btn').forEach(b => { b.disabled = true; });
+      const original = btn.textContent;
+      btn.textContent = 'Signing in…';
+      const errorEl = document.getElementById('quickpickError');
+      if (errorEl) errorEl.textContent = '';
+      try {
+        const { user } = await apiFetch('/api/quick-signin', { method: 'POST', body: { user_id: btn.dataset.user } });
+        session = true;
+        profile = user;
+        await loadAppData();
+        render();
+      } catch (err) {
+        document.querySelectorAll('.quickpick-btn').forEach(b => { b.disabled = false; });
+        btn.textContent = original;
+        if (errorEl) errorEl.textContent = err.message || 'Sign-in failed. Try again.';
+      }
     });
   });
 
