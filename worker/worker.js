@@ -659,13 +659,14 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, materialId] = materialMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { item, category, activity_id, position } = await body(request);
+    const { item, category, activity_id, priority, position } = await body(request);
     if (category !== void 0 && !["need", "want"].includes(category)) return err(400, "category must be need/want.");
     const updates = [];
     const binds = [];
     if (item !== void 0) { updates.push("item = ?"); binds.push(item); }
     if (category !== void 0) { updates.push("category = ?"); binds.push(category); }
     if (activity_id !== void 0) { updates.push("activity_id = ?"); binds.push(activity_id); }
+    if (priority !== void 0) { updates.push("priority = ?"); binds.push(priority ? 1 : 0); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(materialId);

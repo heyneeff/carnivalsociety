@@ -3228,11 +3228,12 @@ async function renderCrewRaffleView(mainView) {
 }
 
 // ── Crew: Materials (Needs / Wants, two columns) ────────────────────────
-function materialsColumnHtml(items, activityNames) {
+function materialsColumnHtml(items, activityNames, showPriority) {
   return items.length ? `<ul class="materials-list">${items.map(m => {
     const source = m.activity_id && activityNames[m.activity_id];
     return `
-    <li class="materials-item" data-material="${m.id}">
+    <li class="materials-item ${m.priority ? 'materials-priority' : ''}" data-material="${m.id}">
+      ${showPriority ? `<label class="materials-priority-toggle" title="Priority"><input type="checkbox" class="materials-priority-checkbox" ${m.priority ? 'checked' : ''}> ★</label>` : ''}
       <input type="text" class="materials-item-input" value="${escapeHtml(m.item)}">
       ${source ? `<button class="materials-source-toggle" data-source-toggle="${m.id}" title="What's this for?">ⓘ</button>` : ''}
       <button class="crew-chip-remove" data-move-material="${m.id}" data-to="${m.category === 'need' ? 'want' : 'need'}" title="Move to ${m.category === 'need' ? 'Wants' : 'Needs'}">⇄</button>
@@ -3252,7 +3253,8 @@ async function renderCrewMaterialsView(mainView) {
   ]);
   const activityNames = {};
   (activities || []).forEach(a => { activityNames[a.id] = a.name; });
-  const needs = (materials || []).filter(m => m.category !== 'want');
+  const needs = (materials || []).filter(m => m.category !== 'want')
+    .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
   const wants = (materials || []).filter(m => m.category === 'want');
 
   mainView.innerHTML = `
@@ -3267,11 +3269,11 @@ async function renderCrewMaterialsView(mainView) {
     <div class="materials-columns">
       <div class="materials-column">
         <h3 class="section-heading">Needs</h3>
-        ${materialsColumnHtml(needs, activityNames)}
+        ${materialsColumnHtml(needs, activityNames, true)}
       </div>
       <div class="materials-column">
         <h3 class="section-heading">Wants</h3>
-        ${materialsColumnHtml(wants, activityNames)}
+        ${materialsColumnHtml(wants, activityNames, false)}
       </div>
     </div>
   `;
@@ -3290,6 +3292,14 @@ async function renderCrewMaterialsView(mainView) {
     input.addEventListener('change', async () => {
       const id = input.closest('[data-material]').dataset.material;
       await apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { item: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('.materials-priority-checkbox').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const id = cb.closest('[data-material]').dataset.material;
+      await apiFetch(`/api/events/${evt.id}/materials/${id}`, { method: 'PATCH', body: { priority: cb.checked } });
+      renderCrewMaterialsView(mainView);
     });
   });
 

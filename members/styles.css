@@ -677,6 +677,14 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 }
 .activity-material-add-hint { font-size: 0.8rem; font-style: italic; color: var(--cream-soft); align-self: center; }
 
+.materials-priority-toggle {
+  display: flex; align-items: center; gap: 0.2rem; cursor: pointer; color: var(--border);
+  font-size: 1rem; flex-shrink: 0;
+}
+.materials-priority-toggle input { accent-color: var(--gold-bright); cursor: pointer; }
+.materials-item.materials-priority .materials-priority-toggle { color: var(--gold-bright); }
+.materials-item.materials-priority { border-left: 4px solid var(--gold-bright); padding-left: 0.5rem; }
+
 .crew-tabs { display: flex; gap: 0.4rem; border-bottom: 1px solid var(--border); margin-bottom: 1.2rem; flex-wrap: wrap; }
 .crew-tab {
   padding: 0.5rem 1rem; font-style: italic; color: var(--cream-soft); text-decoration: none;
