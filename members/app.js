@@ -2412,11 +2412,13 @@ async function renderCrewOverviewView(mainView) {
   const evt = myCrewEvent();
   mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
-  const [{ meetups }, { activities }, { projects }, { materials }] = await Promise.all([
+  const [{ meetups }, { activities }, { projects }, { materials }, { merch }, { signs }] = await Promise.all([
     apiFetch(`/api/events/${evt.id}/meetups`),
     apiFetch(`/api/events/${evt.id}/activities`),
     apiFetch(`/api/events/${evt.id}/projects`),
     apiFetch(`/api/events/${evt.id}/materials`),
+    apiFetch(`/api/events/${evt.id}/merch`),
+    apiFetch(`/api/events/${evt.id}/signs`),
   ]);
 
   const games = (activities || []).filter(a => a.kind === 'game');
@@ -2430,6 +2432,12 @@ async function renderCrewOverviewView(mainView) {
   const wants = (materials || []).filter(m => m.category === 'want');
   const activityNames = {};
   (activities || []).forEach(a => { activityNames[a.id] = a.name; });
+
+  const overviewAssignedList = (items, emptyText) => items.length
+    ? `<ul class="hub-todo-list">${items.map(m => `
+        <li>${escapeHtml(m.name)} <span class="hub-todo-deadline">— ${m.assignee_name ? escapeHtml(m.assignee_name) : 'unassigned'}</span></li>
+      `).join('')}</ul>`
+    : `<div class="placeholder-note">${emptyText}</div>`;
 
   const overviewMaterialsList = items => items.length
     ? `<ul class="overview-materials-list">${items.map(m => `
@@ -2485,6 +2493,15 @@ async function renderCrewOverviewView(mainView) {
             <li>${escapeHtml(a.name)}${a.starts_at ? ` <span class="hub-todo-deadline">— ${formatEventDate(a.starts_at)}</span>` : ''} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span></li>
           `).join('')}</ul>` : '<div class="placeholder-note">No events yet.</div>'}
           <div class="post-actions"><a class="action-btn" href="#/crew/activities">View all</a></div>
+        </div>
+        <div class="card overview-card activity-color-1">
+          <h3 class="section-heading">Merch &amp; Signs</h3>
+          <h4 class="overview-materials-heading">Merch</h4>
+          ${overviewAssignedList(merch || [], 'Nothing listed yet.')}
+          <div class="post-actions"><a class="action-btn" href="#/crew/merch">View all</a></div>
+          <h4 class="overview-materials-heading">Signs</h4>
+          ${overviewAssignedList(signs || [], 'Nothing listed yet.')}
+          <div class="post-actions"><a class="action-btn" href="#/crew/signs">View all</a></div>
         </div>
       </div>
       <div class="card overview-materials-col activity-color-4">
