@@ -3534,7 +3534,7 @@ async function renderCrewLoreView(mainView) {
     }
     mainView.innerHTML = `
       ${profile?.is_ringleader ? `<div class="post-actions" style="margin-bottom:0.6rem;"><button class="action-btn" id="loreEditBtn">Edit</button></div>` : ''}
-      <div style="max-width:760px;">${renderMarkdown(content || '*Nothing here yet.*')}</div>
+      <div class="meeting-content-card" style="max-width:760px;">${renderMarkdown(content || '*Nothing here yet.*')}</div>
     `;
     const editBtn = document.getElementById('loreEditBtn');
     if (editBtn) editBtn.addEventListener('click', () => { editing = true; draw(); });
