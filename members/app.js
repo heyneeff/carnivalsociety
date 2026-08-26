@@ -682,11 +682,19 @@ function formatEventDate(iso) {
   });
 }
 
+// datetime-local inputs want "YYYY-MM-DDTHH:mm" in local time, no timezone.
+function toDatetimeLocalValue(iso) {
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 async function renderEventsView(mainView) {
   mainView.innerHTML = `<h2>Events</h2><div class="placeholder-note">Loading…</div>`;
 
   const { events } = await apiFetch('/api/events');
   const canManage = isModerator();
+  const canEdit = !!profile?.is_ringleader;
 
   const composerHtml = canManage ? `
     <form class="composer" id="eventComposer">
@@ -707,7 +715,11 @@ async function renderEventsView(mainView) {
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
-      ${canManage ? `<div class="post-actions">${CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}<button class="action-btn danger" data-delete-event="${e.id}">Delete</button></div>` : ''}
+      ${canManage || canEdit ? `<div class="post-actions">
+        ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
+        ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}
+        ${canManage ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
+      </div>` : ''}
       ${canManage && CREW_ASSIGNMENT_ENABLED ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
     </div>
   `).join('') : '<div class="placeholder-note">Nothing scheduled yet.</div>';
@@ -743,16 +755,19 @@ async function renderEventsView(mainView) {
     });
   });
 
+  mainView.querySelectorAll('[data-edit-event]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const evt = (events || []).find(e => e.id === btn.dataset.editEvent);
+      if (evt) openEventEditModal(mainView, evt);
+    });
+  });
+
   mainView.querySelectorAll('[data-manage-crew]').forEach(btn => {
     btn.addEventListener('click', () => toggleCrewEditor(btn.dataset.manageCrew));
   });
 
-  document.getElementById('toggleArchivedBtn').addEventListener('click', async btnEvent => {
-    const btn = btnEvent.currentTarget;
+  async function loadArchivedEvents() {
     const el = document.getElementById('archivedEvents');
-    if (el.classList.contains('open')) { el.classList.remove('open'); el.innerHTML = ''; btn.textContent = 'Show Past Events'; return; }
-    el.classList.add('open');
-    btn.textContent = 'Hide Past Events';
     el.innerHTML = '<div class="placeholder-note">Loading…</div>';
     const { events: archived } = await apiFetch('/api/events?scope=archived');
     el.innerHTML = (archived || []).length ? `<div class="post-list">${archived.map(e => `
@@ -760,7 +775,10 @@ async function renderEventsView(mainView) {
         <div class="post-title">${escapeHtml(e.title)}</div>
         <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
         ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
-        ${canManage ? `<div class="post-actions"><button class="action-btn danger" data-delete-archived="${e.id}">Delete</button></div>` : ''}
+        ${canManage || canEdit ? `<div class="post-actions">
+          ${canEdit ? `<button class="action-btn" data-edit-archived="${e.id}">Edit</button>` : ''}
+          ${canManage ? `<button class="action-btn danger" data-delete-archived="${e.id}">Delete</button>` : ''}
+        </div>` : ''}
       </div>
     `).join('')}</div>` : '<div class="placeholder-note">No past events yet.</div>';
     el.querySelectorAll('[data-delete-archived]').forEach(delBtn => {
@@ -770,6 +788,76 @@ async function renderEventsView(mainView) {
         delBtn.closest('.archived-event').remove();
       });
     });
+    el.querySelectorAll('[data-edit-archived]').forEach(editBtn => {
+      editBtn.addEventListener('click', () => {
+        const evt = (archived || []).find(ev => ev.id === editBtn.dataset.editArchived);
+        if (evt) openEventEditModal(mainView, evt, loadArchivedEvents);
+      });
+    });
+  }
+
+  document.getElementById('toggleArchivedBtn').addEventListener('click', async btnEvent => {
+    const btn = btnEvent.currentTarget;
+    const el = document.getElementById('archivedEvents');
+    if (el.classList.contains('open')) { el.classList.remove('open'); el.innerHTML = ''; btn.textContent = 'Show Past Events'; return; }
+    el.classList.add('open');
+    btn.textContent = 'Hide Past Events';
+    await loadArchivedEvents();
+  });
+}
+
+function openEventEditModal(mainView, evt, onSaved) {
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-edit-overlay open';
+  overlay.innerHTML = `
+    <div class="admin-edit-modal">
+      <div class="admin-edit-modal-header">
+        <h3>Edit Event</h3>
+        <button id="eeClose">&times;</button>
+      </div>
+      <div class="admin-edit-modal-body">
+        <div class="field-row"><label>Title</label><input type="text" id="eeTitle" value="${escapeHtml(evt.title)}"></div>
+        <div class="field-row"><label>Chapter</label>
+          <select id="eeChapter">
+            <option value="">Guild-wide</option>
+            ${chapters.map(c => `<option value="${c.id}" ${evt.chapter_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row"><label>Starts</label><input type="datetime-local" id="eeStarts" value="${toDatetimeLocalValue(evt.starts_at)}"></div>
+        <div class="field-row"><label>Location</label><input type="text" id="eeLocation" value="${escapeHtml(evt.location || '')}"></div>
+        <div class="field-row"><label>Details</label><textarea id="eeDescription">${escapeHtml(evt.description || '')}</textarea></div>
+      </div>
+      <div class="admin-edit-modal-footer">
+        <button class="composer-submit" id="eeSaveBtn">Save</button>
+        <button class="gm-btn" id="eeCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#eeClose').addEventListener('click', close);
+  overlay.querySelector('#eeCancelBtn').addEventListener('click', close);
+  overlay.querySelector('#eeSaveBtn').addEventListener('click', async () => {
+    const title = overlay.querySelector('#eeTitle').value.trim();
+    const startsAt = overlay.querySelector('#eeStarts').value;
+    if (!title || !startsAt) { alert('Title and start time are required.'); return; }
+    const body = {
+      title,
+      chapter_id: overlay.querySelector('#eeChapter').value || null,
+      starts_at: new Date(startsAt).toISOString(),
+      location: overlay.querySelector('#eeLocation').value.trim() || null,
+      description: overlay.querySelector('#eeDescription').value.trim() || null,
+    };
+    try {
+      await apiFetch(`/api/events/${evt.id}`, { method: 'PATCH', body });
+    } catch (e) {
+      alert(`Couldn't save: ${e.message}`);
+      return;
+    }
+    close();
+    if (onSaved) onSaved(); else renderEventsView(mainView);
   });
 }
 
@@ -2667,6 +2755,7 @@ async function renderCrewActivitiesView(mainView) {
         <div class="field-row"><label>Ends</label><input type="datetime-local" id="${kind}Ends"></div>
         <div class="field-row"><label>Location</label><input type="text" id="${kind}Location"></div>` : ''}
         <div class="field-row"><label>Details</label><input type="text" id="${kind}Description"></div>
+        <div class="field-row"><label>Materials</label><input type="text" id="${kind}Materials" placeholder="Comma-separated, e.g. rope, folding table"></div>
         <div class="form-actions">
           <button class="composer-submit" id="${kind}CreateBtn">Add</button>
           <button class="gm-btn" id="${kind}CancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
@@ -2684,7 +2773,8 @@ async function renderCrewActivitiesView(mainView) {
       if (!name) return;
       const starts = kind === 'event' ? document.getElementById(`${kind}Starts`).value : '';
       const ends = kind === 'event' ? document.getElementById(`${kind}Ends`).value : '';
-      await apiFetch(`/api/events/${evt.id}/activities`, {
+      const materials = document.getElementById(`${kind}Materials`).value.split(',').map(s => s.trim()).filter(Boolean);
+      const { id: activityId } = await apiFetch(`/api/events/${evt.id}/activities`, {
         method: 'POST',
         body: {
           kind,
@@ -2695,6 +2785,9 @@ async function renderCrewActivitiesView(mainView) {
           location: kind === 'event' ? (document.getElementById(`${kind}Location`).value.trim() || null) : null,
         },
       });
+      for (const item of materials) {
+        await apiFetch(`/api/events/${evt.id}/materials`, { method: 'POST', body: { item, activity_id: activityId } });
+      }
       renderCrewActivitiesView(mainView);
     });
   };

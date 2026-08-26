@@ -310,6 +310,40 @@ async function api(request, env, url) {
     if (!eventRow) return err(404, "Not found.");
     return json({ event: shapeEvent(eventRow) });
   }
+  if (eventMatch && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { title, chapter_id, starts_at, location, description } = await body(request);
+    const updates = [];
+    const binds = [];
+    if (title !== void 0) {
+      if (!title) return err(400, "title required.");
+      updates.push("title = ?");
+      binds.push(title);
+    }
+    if (chapter_id !== void 0) {
+      updates.push("chapter_id = ?");
+      binds.push(chapter_id || null);
+    }
+    if (starts_at !== void 0) {
+      if (!starts_at) return err(400, "starts_at required.");
+      updates.push("starts_at = ?");
+      binds.push(starts_at);
+    }
+    if (location !== void 0) {
+      updates.push("location = ?");
+      binds.push(location || null);
+    }
+    if (description !== void 0) {
+      updates.push("description = ?");
+      binds.push(description || null);
+    }
+    if (!updates.length) return err(400, "Nothing to update.");
+    binds.push(eventMatch[1]);
+    await env.DB.prepare(`UPDATE events SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    return json({ ok: true });
+  }
   if (eventMatch && method === "DELETE") {
     const authErr = requireAuth();
     if (authErr) return authErr;
