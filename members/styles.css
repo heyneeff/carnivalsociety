@@ -741,3 +741,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
   padding: 0.5rem 0.7rem; color: var(--cream); outline: none; font-family: inherit;
 }
+.merch-assignee-select {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--cream-soft);
+  font-family: inherit; padding: 0.4rem 0.5rem;
+}

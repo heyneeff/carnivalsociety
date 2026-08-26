@@ -2345,6 +2345,7 @@ const CREW_TABS = [
   ['overview', 'Overview'],
   ['meetups', 'Meetups'],
   ['activities', 'Games & Events'],
+  ['merch', 'Merch'],
   ['projects', 'Projects'],
   ['materials', 'Materials'],
 ];
@@ -2399,6 +2400,7 @@ async function renderCrewTabs(mainView, activeTab) {
   if (activeTab === 'overview') return renderCrewOverviewView(body);
   if (activeTab === 'meetups') return renderCrewMeetupsView(body);
   if (activeTab === 'activities') return renderCrewActivitiesView(body);
+  if (activeTab === 'merch') return renderCrewMerchView(body);
   if (activeTab === 'projects') return renderCrewProjectsView(body);
   if (activeTab === 'materials') return renderCrewMaterialsView(body);
 }
@@ -2908,6 +2910,73 @@ async function renderCrewActivitiesView(mainView) {
         body: { item, activity_id: form.dataset.activity },
       });
       renderCrewActivitiesView(mainView);
+    });
+  });
+}
+
+// ── Crew: Merch (what we're making, who's making it) ────────────────────
+async function renderCrewMerchView(mainView) {
+  const evt = myCrewEvent();
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
+
+  const [{ merch }, { roster }] = await Promise.all([
+    apiFetch(`/api/events/${evt.id}/merch`),
+    apiFetch('/api/roster'),
+  ]);
+  const list = merch || [];
+  const assigneeOptions = unassignedLabel =>
+    `<option value="">${unassignedLabel}</option>${(roster || []).map(m => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('')}`;
+
+  mainView.innerHTML = `
+    <form class="composer" id="merchComposer">
+      <input type="text" id="merchName" placeholder="What are we making?" required>
+      <select id="merchAssignee">${assigneeOptions('Who’s making it?')}</select>
+      <button type="submit" class="composer-submit">Add</button>
+    </form>
+    <ul class="materials-list">
+      ${list.length ? list.map(m => `
+        <li class="materials-item" data-merch="${m.id}">
+          <input type="text" class="materials-item-input" value="${escapeHtml(m.name)}">
+          <select class="merch-assignee-select">${assigneeOptions('Unassigned')}</select>
+          <button class="crew-chip-remove" data-delete-merch="${m.id}" title="Remove">&times;</button>
+        </li>
+      `).join('') : '<div class="placeholder-note">Nothing listed yet.</div>'}
+    </ul>
+  `;
+
+  mainView.querySelectorAll('.merch-assignee-select').forEach(select => {
+    const merchId = select.closest('[data-merch]').dataset.merch;
+    const item = list.find(m => m.id === merchId);
+    select.value = item?.assignee_id || '';
+  });
+
+  document.getElementById('merchComposer').addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = document.getElementById('merchName').value.trim();
+    if (!name) return;
+    const assignee_id = document.getElementById('merchAssignee').value || null;
+    await apiFetch(`/api/events/${evt.id}/merch`, { method: 'POST', body: { name, assignee_id } });
+    renderCrewMerchView(mainView);
+  });
+
+  mainView.querySelectorAll('.materials-item-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.closest('[data-merch]').dataset.merch;
+      await apiFetch(`/api/events/${evt.id}/merch/${id}`, { method: 'PATCH', body: { name: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('.merch-assignee-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      const id = select.closest('[data-merch]').dataset.merch;
+      await apiFetch(`/api/events/${evt.id}/merch/${id}`, { method: 'PATCH', body: { assignee_id: select.value || null } });
+    });
+  });
+
+  mainView.querySelectorAll('[data-delete-merch]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/api/events/${evt.id}/merch/${btn.dataset.deleteMerch}`, { method: 'DELETE' });
+      renderCrewMerchView(mainView);
     });
   });
 }
