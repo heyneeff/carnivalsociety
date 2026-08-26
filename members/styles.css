@@ -769,3 +769,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   border-radius: 4px; padding: 0.7rem 1.2rem; font-size: 0.9rem; cursor: pointer;
   max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 }
+
+.meeting-content-card {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1.2rem 1.4rem; color: var(--cream);
+}
+.meeting-content-card .ld-table { background: rgba(0,0,0,0.15); }
+.meeting-content-card .ld-table th, .meeting-content-card .ld-table td { border-color: var(--border); }

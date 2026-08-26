@@ -2399,7 +2399,7 @@ async function renderMeetingsView(mainView) {
         <div class="ld-tabs" id="mtTabs" style="flex-direction:column;"></div>
       </div>
       <div class="projects-main">
-        <div id="mtContent"></div>
+        <div id="mtContent" class="meeting-content-card"></div>
       </div>
     </div>
     <div class="gm-overlay" id="mtAddOverlay">
