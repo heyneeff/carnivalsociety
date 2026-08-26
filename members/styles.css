@@ -762,3 +762,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .materials-item.activity-status-proposed, .materials-item.activity-status-locked_in {
   border-left: 4px solid var(--border); padding-left: 0.5rem;
 }
+
+.global-error-banner {
+  position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); z-index: 999;
+  background: var(--burgundy-red); color: var(--cream); border: 1px solid var(--gold-deep);
+  border-radius: 4px; padding: 0.7rem 1.2rem; font-size: 0.9rem; cursor: pointer;
+  max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}

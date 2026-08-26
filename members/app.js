@@ -13,6 +13,25 @@ async function apiFetch(path, opts = {}) {
   return data;
 }
 
+// Most render*View functions are async and get called by their router
+// without an await/catch (fire-and-forget, so navigation itself stays
+// synchronous). If one throws, it used to vanish as a silent unhandled
+// rejection — the screen would just sit on "Loading…" forever with zero
+// feedback. This surfaces it instead, with a tap-to-retry banner.
+window.addEventListener('unhandledrejection', event => {
+  console.error('Unhandled error:', event.reason);
+  let banner = document.getElementById('globalErrorBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'globalErrorBanner';
+    banner.className = 'global-error-banner';
+    document.body.appendChild(banner);
+  }
+  const msg = (event.reason && event.reason.message) || 'Something went wrong loading this page.';
+  banner.textContent = `${msg} — tap to retry`;
+  banner.onclick = () => { banner.remove(); render(); };
+});
+
 const app = document.getElementById('app');
 let session = false; // true once signed in
 let profile = null;
@@ -79,7 +98,7 @@ window.addEventListener('hashchange', render);
 
 // ── Render root ───────────────────────────────────────────────────────
 function render() {
-  if (!session) { renderPreAuth(); return; }
+  if (!session || !profile) { session = false; profile = null; renderPreAuth(); return; }
   if (!profile.onboarded) { renderOnboarding(); return; }
   renderShell();
 }
