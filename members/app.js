@@ -122,10 +122,11 @@ async function renderAuthScreen(mode = 'signin', errorMsg = '') {
     : '<option value="">Loading chapters…</option>';
 
   let roster = [];
+  let rosterFailed = false;
   try {
     const { members } = await apiFetch('/api/quick-signin-roster');
     roster = members || [];
-  } catch (e) { /* quick sign-in panel just won't show */ }
+  } catch (e) { rosterFailed = true; }
 
   app.innerHTML = `
     <div class="auth-screen">
@@ -158,17 +159,26 @@ async function renderAuthScreen(mode = 'signin', errorMsg = '') {
           <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join' : 'Enter'}</button>
         </form>
       </div>
-      ${roster.length ? `
+      ${roster.length || rosterFailed ? `
       <div class="auth-panel quickpick-panel">
         <h1>Or Tap Your Name</h1>
+        ${rosterFailed ? `
+        <p class="auth-sub">Couldn't load the member list.</p>
+        <button type="button" class="gm-btn" id="quickpickRetryBtn">Retry</button>
+        ` : `
         <p class="auth-sub">No password needed.</p>
         <div class="quickpick-grid">
           ${roster.map(m => `<button type="button" class="quickpick-btn" data-user="${m.id}">${escapeHtml(m.display_name)}</button>`).join('')}
         </div>
         <p class="auth-error" id="quickpickError"></p>
+        `}
       </div>` : ''}
     </div>
   `;
+
+  if (rosterFailed) {
+    document.getElementById('quickpickRetryBtn').addEventListener('click', () => renderAuthScreen(mode, errorMsg));
+  }
 
   document.getElementById('tabSignin').onclick = () => renderAuthScreen('signin');
   document.getElementById('tabSignup').onclick = async () => { await ensureChaptersLoaded(); renderAuthScreen('signup'); };
