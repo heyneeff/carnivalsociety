@@ -2472,7 +2472,14 @@ async function renderCrewOverviewView(mainView) {
         </div>
         <div class="card overview-card activity-color-5">
           <h3 class="section-heading">Games &amp; Events</h3>
-          <div class="post-meta">${games.length} game${games.length === 1 ? '' : 's'} · ${events.length} event${events.length === 1 ? '' : 's'} planned</div>
+          <h4 class="overview-materials-heading">Games</h4>
+          ${games.length ? `<ul class="hub-todo-list">${games.map(a => `
+            <li>${escapeHtml(a.name)} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span></li>
+          `).join('')}</ul>` : '<div class="placeholder-note">No games yet.</div>'}
+          <h4 class="overview-materials-heading">Events</h4>
+          ${events.length ? `<ul class="hub-todo-list">${events.map(a => `
+            <li>${escapeHtml(a.name)}${a.starts_at ? ` <span class="hub-todo-deadline">— ${formatEventDate(a.starts_at)}</span>` : ''} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span></li>
+          `).join('')}</ul>` : '<div class="placeholder-note">No events yet.</div>'}
           <div class="post-actions"><a class="action-btn" href="#/crew/activities">View all</a></div>
         </div>
       </div>

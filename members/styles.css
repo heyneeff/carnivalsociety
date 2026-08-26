@@ -624,6 +624,13 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 }
 .meetup-category-tag.field_trip { color: var(--accent-4); border-color: var(--accent-4); }
 .meetup-category-tag.meeting { color: var(--accent-3); border-color: var(--accent-3); }
+
+.activity-status-tag {
+  font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem;
+  border-radius: 3px; border: 1px solid var(--border); color: var(--cream-soft); vertical-align: middle;
+}
+.activity-status-tag.proposed { color: var(--accent-5); border-color: var(--accent-5); }
+.activity-status-tag.locked_in { color: var(--accent-2); border-color: var(--accent-2); }
 .meetup-card { border-left: 8px solid var(--border); }
 .meetup-card.meetup-category-meeting { border-left-color: var(--accent-3); }
 .meetup-card.meetup-category-field_trip { border-left-color: var(--accent-4); }
