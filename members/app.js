@@ -2346,7 +2346,8 @@ const CREW_TABS = [
   ['meetups', 'Meetups'],
   ['activities', 'Games & Events'],
   ['merch', 'Merch'],
-  ['projects', 'Projects'],
+  ['signs', 'Signs'],
+  ['projects', 'Required Builds'],
   ['materials', 'Materials'],
 ];
 
@@ -2401,6 +2402,7 @@ async function renderCrewTabs(mainView, activeTab) {
   if (activeTab === 'meetups') return renderCrewMeetupsView(body);
   if (activeTab === 'activities') return renderCrewActivitiesView(body);
   if (activeTab === 'merch') return renderCrewMerchView(body);
+  if (activeTab === 'signs') return renderCrewSignsView(body);
   if (activeTab === 'projects') return renderCrewProjectsView(body);
   if (activeTab === 'materials') return renderCrewMaterialsView(body);
 }
@@ -2599,7 +2601,7 @@ async function renderCrewProjectsView(mainView) {
   cpProjects = projects || [];
 
   mainView.innerHTML = `
-    <div class="projects-toolbar"><button class="gm-btn" id="newCpToggleBtn" style="background:var(--surface);color:var(--cream);">+ New Project</button></div>
+    <div class="projects-toolbar"><button class="gm-btn" id="newCpToggleBtn" style="background:var(--surface);color:var(--cream);">+ New Required Build</button></div>
     <div class="card new-project-form" id="newCpForm">
       <div class="field-row"><label>Name</label><input type="text" id="cpName" placeholder="e.g. Sound Setup"></div>
       <div class="field-row"><label>Description</label><input type="text" id="cpDescription" placeholder="One line"></div>
@@ -2640,7 +2642,7 @@ async function reloadCpProjects() {
 function renderCpCards() {
   const listEl = document.getElementById('cpList');
   const top = cpProjects.filter(p => !p.parent_id);
-  if (!top.length) { listEl.innerHTML = '<div class="placeholder-note">No projects yet. Use "+ New Project" above.</div>'; return; }
+  if (!top.length) { listEl.innerHTML = '<div class="placeholder-note">No required builds yet. Use "+ New Required Build" above.</div>'; return; }
   listEl.innerHTML = '';
   top.forEach(proj => {
     const card = document.createElement('div');
@@ -2665,7 +2667,7 @@ function buildCpBlock(proj, depth) {
       </select>
       <input type="date" class="cp-deadline-input" data-project="${proj.id}" value="${escapeHtml(proj.deadline || '')}" title="Deadline">
       <div class="gm-project-actions">
-        <button class="gm-btn" data-cp-subproject="${proj.id}">+ Sub-project</button>
+        <button class="gm-btn" data-cp-subproject="${proj.id}">+ Sub-build</button>
         <button class="gm-btn gm-danger" data-cp-delete="${proj.id}">Delete</button>
       </div>
     </div>
@@ -2695,13 +2697,13 @@ function buildCpBlock(proj, depth) {
     await apiFetch(`/api/events/${cpEventId}/projects/${proj.id}`, { method: 'PATCH', body: { deadline: e.target.value || null } });
   });
   block.querySelector('[data-cp-subproject]').addEventListener('click', async () => {
-    const name = prompt('Sub-project name?');
+    const name = prompt('Sub-build name?');
     if (!name) return;
     await apiFetch(`/api/events/${cpEventId}/projects`, { method: 'POST', body: { name, parent_id: proj.id } });
     await reloadCpProjects();
   });
   block.querySelector('[data-cp-delete]').addEventListener('click', async () => {
-    if (!confirm(`Delete "${proj.name}"? This also deletes any sub-projects.`)) return;
+    if (!confirm(`Delete "${proj.name}"? This also deletes any sub-builds.`)) return;
     await apiFetch(`/api/events/${cpEventId}/projects/${proj.id}`, { method: 'DELETE' });
     await reloadCpProjects();
   });
@@ -2985,6 +2987,73 @@ async function renderCrewMerchView(mainView) {
     btn.addEventListener('click', async () => {
       await apiFetch(`/api/events/${evt.id}/merch/${btn.dataset.deleteMerch}`, { method: 'DELETE' });
       renderCrewMerchView(mainView);
+    });
+  });
+}
+
+// ── Crew: Signs (what signs we're making, who's making them) ────────────
+async function renderCrewSignsView(mainView) {
+  const evt = myCrewEvent();
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
+
+  const [{ signs }, { roster }] = await Promise.all([
+    apiFetch(`/api/events/${evt.id}/signs`),
+    apiFetch('/api/roster'),
+  ]);
+  const list = signs || [];
+  const assigneeOptions = unassignedLabel =>
+    `<option value="">${unassignedLabel}</option>${(roster || []).map(m => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('')}`;
+
+  mainView.innerHTML = `
+    <form class="composer" id="signComposer">
+      <input type="text" id="signName" placeholder="What sign do we need?" required>
+      <select id="signAssignee">${assigneeOptions('Who’s making it?')}</select>
+      <button type="submit" class="composer-submit">Add</button>
+    </form>
+    <ul class="materials-list">
+      ${list.length ? list.map(s => `
+        <li class="materials-item" data-sign="${s.id}">
+          <input type="text" class="materials-item-input" value="${escapeHtml(s.name)}">
+          <select class="merch-assignee-select">${assigneeOptions('Unassigned')}</select>
+          <button class="crew-chip-remove" data-delete-sign="${s.id}" title="Remove">&times;</button>
+        </li>
+      `).join('') : '<div class="placeholder-note">Nothing listed yet.</div>'}
+    </ul>
+  `;
+
+  mainView.querySelectorAll('.merch-assignee-select').forEach(select => {
+    const signId = select.closest('[data-sign]').dataset.sign;
+    const item = list.find(s => s.id === signId);
+    select.value = item?.assignee_id || '';
+  });
+
+  document.getElementById('signComposer').addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = document.getElementById('signName').value.trim();
+    if (!name) return;
+    const assignee_id = document.getElementById('signAssignee').value || null;
+    await apiFetch(`/api/events/${evt.id}/signs`, { method: 'POST', body: { name, assignee_id } });
+    renderCrewSignsView(mainView);
+  });
+
+  mainView.querySelectorAll('.materials-item-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.closest('[data-sign]').dataset.sign;
+      await apiFetch(`/api/events/${evt.id}/signs/${id}`, { method: 'PATCH', body: { name: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('.merch-assignee-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      const id = select.closest('[data-sign]').dataset.sign;
+      await apiFetch(`/api/events/${evt.id}/signs/${id}`, { method: 'PATCH', body: { assignee_id: select.value || null } });
+    });
+  });
+
+  mainView.querySelectorAll('[data-delete-sign]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await apiFetch(`/api/events/${evt.id}/signs/${btn.dataset.deleteSign}`, { method: 'DELETE' });
+      renderCrewSignsView(mainView);
     });
   });
 }
