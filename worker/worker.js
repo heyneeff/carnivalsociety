@@ -102,6 +102,15 @@ __name(body, "body");
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // This zone doesn't have "Always Use HTTPS" on, so plain http:// requests
+    // were reaching the Worker directly (200, no redirect) instead of being
+    // upgraded at the edge. The session cookie is Secure-only, so a page
+    // loaded over http silently never got it — every API call after that
+    // failed with 401 "Sign in required," including right after signing in.
+    if (url.protocol === "http:") {
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 301);
+    }
     if (url.pathname.startsWith("/api/")) {
       try {
         return await api(request, env, url);
