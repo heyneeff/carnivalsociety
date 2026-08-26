@@ -2486,11 +2486,11 @@ async function renderCrewOverviewView(mainView) {
           <h3 class="section-heading">Games &amp; Events</h3>
           <h4 class="overview-materials-heading">Games</h4>
           ${games.length ? `<ul class="hub-todo-list">${games.map(a => `
-            <li>${escapeHtml(a.name)} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span></li>
+            <li>${escapeHtml(a.name)} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'}</span></li>
           `).join('')}</ul>` : '<div class="placeholder-note">No games yet.</div>'}
           <h4 class="overview-materials-heading">Events</h4>
           ${events.length ? `<ul class="hub-todo-list">${events.map(a => `
-            <li>${escapeHtml(a.name)}${a.starts_at ? ` <span class="hub-todo-deadline">— ${formatEventDate(a.starts_at)}</span>` : ''} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span></li>
+            <li>${escapeHtml(a.name)}${a.starts_at ? ` <span class="hub-todo-deadline">— ${formatEventDate(a.starts_at)}</span>` : ''} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'}</span></li>
           `).join('')}</ul>` : '<div class="placeholder-note">No events yet.</div>'}
           <div class="post-actions"><a class="action-btn" href="#/crew/activities">View all</a></div>
         </div>
@@ -2761,9 +2761,10 @@ async function renderCrewActivitiesView(mainView) {
   const evt = myCrewEvent();
   mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
 
-  const [{ activities }, { materials }] = await Promise.all([
+  const [{ activities }, { materials }, { roster }] = await Promise.all([
     apiFetch(`/api/events/${evt.id}/activities`),
     apiFetch(`/api/events/${evt.id}/materials`),
+    apiFetch('/api/roster'),
   ]);
   const list = activities || [];
   const materialsByActivity = {};
@@ -2771,6 +2772,8 @@ async function renderCrewActivitiesView(mainView) {
     if (!m.activity_id) return;
     (materialsByActivity[m.activity_id] || (materialsByActivity[m.activity_id] = [])).push(m);
   });
+  const assigneeOptions = unassignedLabel =>
+    `<option value="">${unassignedLabel}</option>${(roster || []).map(m => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('')}`;
 
   const addFormHtml = kind => {
     const label = kind === 'game' ? 'Game' : 'Event';
@@ -2791,6 +2794,7 @@ async function renderCrewActivitiesView(mainView) {
         <div class="field-row"><label>Location</label><input type="text" id="${kind}Location"></div>` : ''}
         <div class="field-row"><label>Details</label><input type="text" id="${kind}Description"></div>
         <div class="field-row"><label>Materials</label><input type="text" id="${kind}Materials" placeholder="Comma-separated, e.g. rope, folding table"></div>
+        <div class="field-row"><label>Assigned to</label><select id="${kind}Assignee">${assigneeOptions('Unassigned')}</select></div>
         <div class="form-actions">
           <button class="composer-submit" id="${kind}CreateBtn">Add</button>
           <button class="gm-btn" id="${kind}CancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
@@ -2819,6 +2823,7 @@ async function renderCrewActivitiesView(mainView) {
           ends_at: ends ? new Date(ends).toISOString() : null,
           location: kind === 'event' ? (document.getElementById(`${kind}Location`).value.trim() || null) : null,
           status: kind === 'game' ? document.getElementById(`${kind}Status`).value : void 0,
+          assignee_id: document.getElementById(`${kind}Assignee`).value || null,
         },
       });
       for (const item of materials) {
@@ -2834,13 +2839,14 @@ async function renderCrewActivitiesView(mainView) {
     <details class="activity-card ${a._colorClass || ''}" data-activity="${a.id}">
       <summary>
         ${escapeHtml(a.name)}
-        <span class="activity-material-count">${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
+        <span class="activity-material-count">${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'} · ${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
       </summary>
       <div class="activity-body">
         <select class="activity-status-select" data-activity="${a.id}">
           <option value="proposed" ${a.status === 'proposed' ? 'selected' : ''}>Proposed</option>
           <option value="locked_in" ${a.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
         </select>
+        <select class="activity-assignee-select" data-activity="${a.id}">${assigneeOptions('Unassigned')}</select>
         ${a.kind === 'event' && (a.starts_at || a.location) ? `<div class="post-meta">${a.starts_at ? formatEventDate(a.starts_at) : 'No time set'}${a.ends_at ? ` – ${formatEventDate(a.ends_at)}` : ''}${a.location ? ` · ${escapeHtml(a.location)}` : ''}</div>` : ''}
         ${a.description ? `<div class="post-snippet">${escapeHtml(a.description)}</div>` : ''}
         <ul class="materials-list">
@@ -2908,6 +2914,15 @@ async function renderCrewActivitiesView(mainView) {
   mainView.querySelectorAll('.activity-status-select').forEach(select => {
     select.addEventListener('change', async () => {
       await apiFetch(`/api/events/${evt.id}/activities/${select.dataset.activity}`, { method: 'PATCH', body: { status: select.value } });
+      renderCrewActivitiesView(mainView);
+    });
+  });
+
+  mainView.querySelectorAll('.activity-assignee-select').forEach(select => {
+    const item = list.find(a => a.id === select.dataset.activity);
+    select.value = item?.assignee_id || '';
+    select.addEventListener('change', async () => {
+      await apiFetch(`/api/events/${evt.id}/activities/${select.dataset.activity}`, { method: 'PATCH', body: { assignee_id: select.value || null } });
       renderCrewActivitiesView(mainView);
     });
   });

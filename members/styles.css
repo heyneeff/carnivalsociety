@@ -613,7 +613,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   .activities-columns, .meetups-columns { grid-template-columns: 1fr; }
 }
 
-.activity-status-select {
+.activity-status-select, .activity-assignee-select {
   background: var(--surface); border: 1px solid var(--border); color: var(--cream-soft);
   border-radius: 3px; padding: 0.3rem 0.5rem; font-family: inherit; font-size: 0.85rem; margin-bottom: 0.5rem;
 }

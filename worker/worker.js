@@ -559,7 +559,10 @@ async function api(request, env, url) {
     const eventId = activitiesMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
     const { results } = await env.DB.prepare(
-      "SELECT * FROM event_activities WHERE event_id = ? ORDER BY (starts_at IS NULL), starts_at ASC, position ASC, created_at ASC"
+      `SELECT event_activities.*, users.display_name AS assignee_name FROM event_activities
+       LEFT JOIN users ON users.id = event_activities.assignee_id
+       WHERE event_activities.event_id = ?
+       ORDER BY (event_activities.starts_at IS NULL), event_activities.starts_at ASC, event_activities.position ASC, event_activities.created_at ASC`
     ).bind(eventId).all();
     return json({ activities: results });
   }
@@ -568,14 +571,14 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = activitiesMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { kind, name, description, starts_at, ends_at, location, status, position } = await body(request);
+    const { kind, name, description, starts_at, ends_at, location, status, assignee_id, position } = await body(request);
     if (!name) return err(400, "name required.");
     if (!["game", "event"].includes(kind)) return err(400, "kind must be game/event.");
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, status || "proposed", position || 0, user.id).run();
+      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, assignee_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, status || "proposed", assignee_id || null, position || 0, user.id).run();
     return json({ id });
   }
   const activityMatch = pathname.match(/^\/api\/events\/([^/]+)\/activities\/([^/]+)$/);
@@ -584,7 +587,7 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, activityId] = activityMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, description, starts_at, ends_at, location, status, position } = await body(request);
+    const { name, description, starts_at, ends_at, location, status, assignee_id, position } = await body(request);
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const updates = [];
     const binds = [];
@@ -594,6 +597,7 @@ async function api(request, env, url) {
     if (ends_at !== void 0) { updates.push("ends_at = ?"); binds.push(ends_at); }
     if (location !== void 0) { updates.push("location = ?"); binds.push(location); }
     if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
+    if (assignee_id !== void 0) { updates.push("assignee_id = ?"); binds.push(assignee_id || null); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(activityId);
