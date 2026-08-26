@@ -2501,6 +2501,7 @@ const CREW_TABS = [
   ['raffle', 'Raffle'],
   ['projects', 'Required Builds'],
   ['materials', 'Materials'],
+  ['lore', 'Carny Code'],
 ];
 
 let crewHubCountdownTimer = null;
@@ -2558,6 +2559,7 @@ async function renderCrewTabs(mainView, activeTab) {
   if (activeTab === 'raffle') return renderCrewRaffleView(body);
   if (activeTab === 'projects') return renderCrewProjectsView(body);
   if (activeTab === 'materials') return renderCrewMaterialsView(body);
+  if (activeTab === 'lore') return renderCrewLoreView(body);
 }
 
 // ── Crew: Overview (summary of every other tab, with links out) ─────────
@@ -3502,6 +3504,43 @@ async function renderCrewMaterialsView(mainView) {
       detail.hidden = !detail.hidden;
     });
   });
+}
+
+// ── Crew: Carny Code — guild lore recited at meetings, open to everyone,
+// editable only by Ringleaders ───────────────────────────────────────────
+async function renderCrewLoreView(mainView) {
+  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
+  let content = (await apiFetch('/api/lore')).content;
+  let editing = false;
+
+  function draw() {
+    if (editing) {
+      mainView.innerHTML = `
+        <div class="post-actions" style="margin-bottom:0.6rem;">
+          <button class="composer-submit" id="loreSaveBtn">Save</button>
+          <button class="gm-btn" id="loreCancelBtn">Cancel</button>
+        </div>
+        <textarea id="loreEditContent" rows="24" style="width:100%;max-width:760px;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:0.7rem;color:var(--cream);font-family:inherit;">${escapeHtml(content)}</textarea>
+      `;
+      document.getElementById('loreSaveBtn').addEventListener('click', async () => {
+        const value = document.getElementById('loreEditContent').value;
+        await apiFetch('/api/lore', { method: 'PATCH', body: { content: value } });
+        content = value;
+        editing = false;
+        draw();
+      });
+      document.getElementById('loreCancelBtn').addEventListener('click', () => { editing = false; draw(); });
+      return;
+    }
+    mainView.innerHTML = `
+      ${profile?.is_ringleader ? `<div class="post-actions" style="margin-bottom:0.6rem;"><button class="action-btn" id="loreEditBtn">Edit</button></div>` : ''}
+      <div style="max-width:760px;">${renderMarkdown(content || '*Nothing here yet.*')}</div>
+    `;
+    const editBtn = document.getElementById('loreEditBtn');
+    if (editBtn) editBtn.addEventListener('click', () => { editing = true; draw(); });
+  }
+
+  draw();
 }
 
 boot();

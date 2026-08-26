@@ -911,6 +911,24 @@ async function api(request, env, url) {
     await env.DB.prepare("DELETE FROM guild_meetings WHERE id = ?").bind(meetingMatch[1]).run();
     return json({ ok: true });
   }
+  if (pathname === "/api/lore" && method === "GET") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    const row = await env.DB.prepare("SELECT content, updated_at FROM guild_lore WHERE id = 'main'").first();
+    return json({ content: row ? row.content : "", updated_at: row ? row.updated_at : null });
+  }
+  if (pathname === "/api/lore" && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { content } = await body(request);
+    if (content === void 0) return err(400, "content required.");
+    await env.DB.prepare(
+      `INSERT INTO guild_lore (id, content, updated_at, updated_by) VALUES ('main', ?, datetime('now'), ?)
+       ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
+    ).bind(content, user.id).run();
+    return json({ ok: true });
+  }
   if (pathname === "/api/roster" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;
