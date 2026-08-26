@@ -745,3 +745,6 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--cream-soft);
   font-family: inherit; padding: 0.4rem 0.5rem;
 }
+.materials-item.activity-status-proposed, .materials-item.activity-status-locked_in {
+  border-left: 4px solid var(--border); padding-left: 0.5rem;
+}

@@ -698,12 +698,13 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = merchMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, assignee_id, position } = await body(request);
+    const { name, assignee_id, status, position } = await body(request);
     if (!name) return err(400, "name required.");
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO event_merch (id, event_id, name, assignee_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(id, eventId, name, assignee_id || null, position || 0, user.id).run();
+      "INSERT INTO event_merch (id, event_id, name, assignee_id, status, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, name, assignee_id || null, status || "proposed", position || 0, user.id).run();
     return json({ id });
   }
   const merchItemMatch = pathname.match(/^\/api\/events\/([^/]+)\/merch\/([^/]+)$/);
@@ -712,7 +713,8 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, merchId] = merchItemMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, assignee_id, position } = await body(request);
+    const { name, assignee_id, status, position } = await body(request);
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const updates = [];
     const binds = [];
     if (name !== void 0) {
@@ -721,6 +723,7 @@ async function api(request, env, url) {
       binds.push(name);
     }
     if (assignee_id !== void 0) { updates.push("assignee_id = ?"); binds.push(assignee_id || null); }
+    if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(merchId);
@@ -753,12 +756,13 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = signsMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, assignee_id, position } = await body(request);
+    const { name, assignee_id, status, position } = await body(request);
     if (!name) return err(400, "name required.");
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO event_signs (id, event_id, name, assignee_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(id, eventId, name, assignee_id || null, position || 0, user.id).run();
+      "INSERT INTO event_signs (id, event_id, name, assignee_id, status, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, name, assignee_id || null, status || "proposed", position || 0, user.id).run();
     return json({ id });
   }
   const signItemMatch = pathname.match(/^\/api\/events\/([^/]+)\/signs\/([^/]+)$/);
@@ -767,7 +771,8 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, signId] = signItemMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, assignee_id, position } = await body(request);
+    const { name, assignee_id, status, position } = await body(request);
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const updates = [];
     const binds = [];
     if (name !== void 0) {
@@ -776,6 +781,7 @@ async function api(request, env, url) {
       binds.push(name);
     }
     if (assignee_id !== void 0) { updates.push("assignee_id = ?"); binds.push(assignee_id || null); }
+    if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(signId);

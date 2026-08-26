@@ -2435,7 +2435,7 @@ async function renderCrewOverviewView(mainView) {
 
   const overviewAssignedList = (items, emptyText) => items.length
     ? `<ul class="hub-todo-list">${items.map(m => `
-        <li>${escapeHtml(m.name)} <span class="hub-todo-deadline">— ${m.assignee_name ? escapeHtml(m.assignee_name) : 'unassigned'}</span></li>
+        <li>${escapeHtml(m.name)} <span class="activity-status-tag ${m.status}">${m.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${m.assignee_name ? escapeHtml(m.assignee_name) : 'unassigned'}</span></li>
       `).join('')}</ul>`
     : `<div class="placeholder-note">${emptyText}</div>`;
 
@@ -2972,13 +2972,21 @@ async function renderCrewMerchView(mainView) {
   mainView.innerHTML = `
     <form class="composer" id="merchComposer">
       <input type="text" id="merchName" placeholder="What are we making?" required>
+      <select id="merchStatus">
+        <option value="proposed">Proposed</option>
+        <option value="locked_in">Locked In</option>
+      </select>
       <select id="merchAssignee">${assigneeOptions('Who’s making it?')}</select>
       <button type="submit" class="composer-submit">Add</button>
     </form>
     <ul class="materials-list">
       ${list.length ? list.map(m => `
-        <li class="materials-item" data-merch="${m.id}">
+        <li class="materials-item activity-status-${m.status}" data-merch="${m.id}">
           <input type="text" class="materials-item-input" value="${escapeHtml(m.name)}">
+          <select class="activity-status-select merch-status-select" data-merch="${m.id}">
+            <option value="proposed" ${m.status === 'proposed' ? 'selected' : ''}>Proposed</option>
+            <option value="locked_in" ${m.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
+          </select>
           <select class="merch-assignee-select">${assigneeOptions('Unassigned')}</select>
           <button class="crew-chip-remove" data-delete-merch="${m.id}" title="Remove">&times;</button>
         </li>
@@ -2996,8 +3004,9 @@ async function renderCrewMerchView(mainView) {
     e.preventDefault();
     const name = document.getElementById('merchName').value.trim();
     if (!name) return;
+    const status = document.getElementById('merchStatus').value;
     const assignee_id = document.getElementById('merchAssignee').value || null;
-    await apiFetch(`/api/events/${evt.id}/merch`, { method: 'POST', body: { name, assignee_id } });
+    await apiFetch(`/api/events/${evt.id}/merch`, { method: 'POST', body: { name, status, assignee_id } });
     renderCrewMerchView(mainView);
   });
 
@@ -3005,6 +3014,13 @@ async function renderCrewMerchView(mainView) {
     input.addEventListener('change', async () => {
       const id = input.closest('[data-merch]').dataset.merch;
       await apiFetch(`/api/events/${evt.id}/merch/${id}`, { method: 'PATCH', body: { name: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('.merch-status-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      await apiFetch(`/api/events/${evt.id}/merch/${select.dataset.merch}`, { method: 'PATCH', body: { status: select.value } });
+      renderCrewMerchView(mainView);
     });
   });
 
@@ -3039,13 +3055,21 @@ async function renderCrewSignsView(mainView) {
   mainView.innerHTML = `
     <form class="composer" id="signComposer">
       <input type="text" id="signName" placeholder="What sign do we need?" required>
+      <select id="signStatus">
+        <option value="proposed">Proposed</option>
+        <option value="locked_in">Locked In</option>
+      </select>
       <select id="signAssignee">${assigneeOptions('Who’s making it?')}</select>
       <button type="submit" class="composer-submit">Add</button>
     </form>
     <ul class="materials-list">
       ${list.length ? list.map(s => `
-        <li class="materials-item" data-sign="${s.id}">
+        <li class="materials-item activity-status-${s.status}" data-sign="${s.id}">
           <input type="text" class="materials-item-input" value="${escapeHtml(s.name)}">
+          <select class="activity-status-select sign-status-select" data-sign="${s.id}">
+            <option value="proposed" ${s.status === 'proposed' ? 'selected' : ''}>Proposed</option>
+            <option value="locked_in" ${s.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
+          </select>
           <select class="merch-assignee-select">${assigneeOptions('Unassigned')}</select>
           <button class="crew-chip-remove" data-delete-sign="${s.id}" title="Remove">&times;</button>
         </li>
@@ -3063,8 +3087,9 @@ async function renderCrewSignsView(mainView) {
     e.preventDefault();
     const name = document.getElementById('signName').value.trim();
     if (!name) return;
+    const status = document.getElementById('signStatus').value;
     const assignee_id = document.getElementById('signAssignee').value || null;
-    await apiFetch(`/api/events/${evt.id}/signs`, { method: 'POST', body: { name, assignee_id } });
+    await apiFetch(`/api/events/${evt.id}/signs`, { method: 'POST', body: { name, status, assignee_id } });
     renderCrewSignsView(mainView);
   });
 
@@ -3072,6 +3097,13 @@ async function renderCrewSignsView(mainView) {
     input.addEventListener('change', async () => {
       const id = input.closest('[data-sign]').dataset.sign;
       await apiFetch(`/api/events/${evt.id}/signs/${id}`, { method: 'PATCH', body: { name: input.value.trim() } });
+    });
+  });
+
+  mainView.querySelectorAll('.sign-status-select').forEach(select => {
+    select.addEventListener('change', async () => {
+      await apiFetch(`/api/events/${evt.id}/signs/${select.dataset.sign}`, { method: 'PATCH', body: { status: select.value } });
+      renderCrewSignsView(mainView);
     });
   });
 
