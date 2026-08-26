@@ -864,6 +864,53 @@ async function api(request, env, url) {
     await env.DB.prepare("DELETE FROM event_raffle WHERE id = ?").bind(raffleId).run();
     return json({ ok: true });
   }
+  if (pathname === "/api/meetings" && method === "GET") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { results } = await env.DB.prepare(
+      "SELECT * FROM guild_meetings ORDER BY position ASC, created_at ASC"
+    ).all();
+    return json({ meetings: results });
+  }
+  if (pathname === "/api/meetings" && method === "POST") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { title, content, position } = await body(request);
+    if (!title) return err(400, "title required.");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO guild_meetings (id, title, content, position, created_by) VALUES (?, ?, ?, ?, ?)"
+    ).bind(id, title, content || "", position || 0, user.id).run();
+    return json({ id });
+  }
+  const meetingMatch = pathname.match(/^\/api\/meetings\/([^/]+)$/);
+  if (meetingMatch && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { title, content, position } = await body(request);
+    const updates = ["updated_at = datetime('now')"];
+    const binds = [];
+    if (title !== void 0) {
+      if (!title) return err(400, "title required.");
+      updates.push("title = ?");
+      binds.push(title);
+    }
+    if (content !== void 0) { updates.push("content = ?"); binds.push(content); }
+    if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
+    binds.push(meetingMatch[1]);
+    await env.DB.prepare(`UPDATE guild_meetings SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    return json({ ok: true });
+  }
+  if (meetingMatch && method === "DELETE") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    await env.DB.prepare("DELETE FROM guild_meetings WHERE id = ?").bind(meetingMatch[1]).run();
+    return json({ ok: true });
+  }
   if (pathname === "/api/roster" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;

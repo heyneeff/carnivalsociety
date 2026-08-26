@@ -347,6 +347,7 @@ function renderShell() {
             <li><a class="nav-link ${route === 'field' ? 'active' : ''}" href="#/field">Guild Map</a></li>
             <li><a class="nav-link ${route === 'projects' ? 'active' : ''}" href="#/projects">Projects</a></li>
             <li><a class="nav-link ${route === 'network' ? 'active' : ''}" href="#/network">Member Network</a></li>
+            <li><a class="nav-link ${route === 'meetings' ? 'active' : ''}" href="#/meetings">Meetings</a></li>
           </ul>
         </div>` : ''}
         <div class="sidebar-footer">
@@ -385,6 +386,7 @@ function renderMainView(route) {
   if (route === 'field') { renderFieldView(mainView); return; }
   if (route === 'projects') { renderProjectsView(mainView); return; }
   if (route === 'network') { renderNetworkView(mainView); return; }
+  if (route === 'meetings') { renderMeetingsView(mainView); return; }
   if (route.startsWith('post/')) { renderThreadView(mainView, route.slice(5)); return; }
   renderGuildHallTabs(mainView, route === 'guild-hall' ? 'guild-hall' : route);
 }
@@ -2372,6 +2374,114 @@ async function renderNetworkView(mainView) {
     `;
     document.getElementById('nwPanel').classList.add('open');
   }
+}
+
+// ── Meetings — guild-wide run-of-show docs, Ringleaders only ────────────
+async function renderMeetingsView(mainView) {
+  if (!profile?.is_ringleader) {
+    mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
+    return;
+  }
+  mainView.innerHTML = `<h2>Meetings</h2><div class="placeholder-note">Loading…</div>`;
+
+  const { meetings } = await apiFetch('/api/meetings');
+  const list = meetings || [];
+  let activeId = list[0]?.id || null;
+  let editing = false;
+
+  mainView.innerHTML = `
+    <div class="projects-layout">
+      <div class="leadership-docs-col" style="min-width:200px;">
+        <div class="ld-header">
+          <span>Meetings</span>
+          <button class="ld-add-btn" id="mtAddBtn" title="Add a meeting doc">+ New</button>
+        </div>
+        <div class="ld-tabs" id="mtTabs" style="flex-direction:column;"></div>
+      </div>
+      <div class="projects-main">
+        <div id="mtContent"></div>
+      </div>
+    </div>
+    <div class="gm-overlay" id="mtAddOverlay">
+      <div class="gm-modal">
+        <div class="gm-modal-header"><h3>New Meeting Doc</h3><button id="mtAddClose">&times;</button></div>
+        <div class="gm-modal-body">
+          <div class="field-row"><label>Title</label><input type="text" id="mtNewTitle" placeholder="e.g. Meeting 3 — Sign Painting"></div>
+        </div>
+        <div class="gm-modal-footer">
+          <button class="gm-btn" id="mtNewCancel">Cancel</button>
+          <button class="composer-submit" id="mtNewSave">Create</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const tabsEl = document.getElementById('mtTabs');
+  const contentEl = document.getElementById('mtContent');
+
+  function renderTabs() {
+    tabsEl.innerHTML = list.map(m => `<button class="ld-tab ${m.id === activeId ? 'active' : ''}" data-meeting="${m.id}">${escapeHtml(m.title)}</button>`).join('');
+    tabsEl.querySelectorAll('.ld-tab').forEach(t => t.addEventListener('click', () => { activeId = t.dataset.meeting; editing = false; renderTabs(); renderContent(); }));
+  }
+
+  function renderContent() {
+    const doc = list.find(m => m.id === activeId);
+    if (!doc) { contentEl.innerHTML = '<div class="placeholder-note">No meeting docs yet. Use "+ New" to add one.</div>'; return; }
+    if (editing) {
+      contentEl.innerHTML = `
+        <div class="post-actions" style="margin-bottom:0.6rem;">
+          <button class="composer-submit" id="mtSaveBtn">Save</button>
+          <button class="gm-btn" id="mtCancelEditBtn">Cancel</button>
+        </div>
+        <textarea id="mtEditContent" rows="24" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:0.7rem;color:var(--cream);font-family:inherit;">${escapeHtml(doc.content)}</textarea>
+      `;
+      document.getElementById('mtSaveBtn').addEventListener('click', async () => {
+        const content = document.getElementById('mtEditContent').value;
+        await apiFetch(`/api/meetings/${doc.id}`, { method: 'PATCH', body: { content } });
+        doc.content = content;
+        editing = false;
+        renderContent();
+      });
+      document.getElementById('mtCancelEditBtn').addEventListener('click', () => { editing = false; renderContent(); });
+      return;
+    }
+    contentEl.innerHTML = `
+      <div class="post-actions" style="margin-bottom:0.6rem;">
+        <button class="action-btn" id="mtEditBtn">Edit</button>
+        <button class="action-btn danger" id="mtDeleteBtn">Delete</button>
+      </div>
+      ${renderMarkdown(doc.content || '*Empty — click Edit to add content.*')}
+    `;
+    document.getElementById('mtEditBtn').addEventListener('click', () => { editing = true; renderContent(); });
+    document.getElementById('mtDeleteBtn').addEventListener('click', async () => {
+      if (!confirm(`Delete "${doc.title}"?`)) return;
+      await apiFetch(`/api/meetings/${doc.id}`, { method: 'DELETE' });
+      const idx = list.findIndex(m => m.id === doc.id);
+      list.splice(idx, 1);
+      activeId = list[0]?.id || null;
+      renderTabs();
+      renderContent();
+    });
+  }
+
+  renderTabs();
+  renderContent();
+
+  document.getElementById('mtAddBtn').addEventListener('click', () => document.getElementById('mtAddOverlay').classList.add('open'));
+  document.getElementById('mtAddClose').addEventListener('click', () => document.getElementById('mtAddOverlay').classList.remove('open'));
+  document.getElementById('mtNewCancel').addEventListener('click', () => document.getElementById('mtAddOverlay').classList.remove('open'));
+  document.getElementById('mtNewSave').addEventListener('click', async () => {
+    const title = document.getElementById('mtNewTitle').value.trim();
+    if (!title) return;
+    const { id } = await apiFetch('/api/meetings', { method: 'POST', body: { title, content: '' } });
+    list.push({ id, title, content: '' });
+    activeId = id;
+    editing = true;
+    document.getElementById('mtNewTitle').value = '';
+    document.getElementById('mtAddOverlay').classList.remove('open');
+    renderTabs();
+    renderContent();
+  });
 }
 
 // ── Hub == Crew Hub ──────────────────────────────────────────────────────
