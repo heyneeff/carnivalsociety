@@ -2436,6 +2436,14 @@ async function renderCrewOverviewView(mainView) {
   const activityNames = {};
   (activities || []).forEach(a => { activityNames[a.id] = a.name; });
 
+  const myTasks = [
+    ...games.map(a => ({ ...a, _type: 'Game' })),
+    ...events.map(a => ({ ...a, _type: 'Event' })),
+    ...(merch || []).map(m => ({ ...m, _type: 'Merch' })),
+    ...(signs || []).map(s => ({ ...s, _type: 'Sign' })),
+    ...(raffle || []).map(r => ({ ...r, _type: 'Raffle' })),
+  ].filter(x => x.assignee_id === profile.id);
+
   const overviewAssignedList = (items, emptyText) => items.length
     ? `<ul class="hub-todo-list">${items.map(m => `
         <li>${escapeHtml(m.name)} <span class="activity-status-tag ${m.status}">${m.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${m.assignee_name ? escapeHtml(m.assignee_name) : 'unassigned'}</span></li>
@@ -2465,6 +2473,12 @@ async function renderCrewOverviewView(mainView) {
   mainView.innerHTML = `
     <div class="overview-layout">
       <div class="overview-main">
+        <div class="card overview-card activity-color-4">
+          <h3 class="section-heading">My Tasks</h3>
+          ${myTasks.length ? `<ul class="hub-todo-list">${myTasks.map(x => `
+            <li>${escapeHtml(x.name)} <span class="activity-status-tag ${x.status}">${x.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${x._type}</span></li>
+          `).join('')}</ul>` : '<div class="placeholder-note">Nothing assigned to you yet.</div>'}
+        </div>
         <div class="card overview-card activity-color-0">
           <h3 class="section-heading">Next Up</h3>
           ${nextUp ? `
