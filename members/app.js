@@ -2406,15 +2406,15 @@ async function renderMeetingsView(mainView) {
   let editing = false;
 
   mainView.innerHTML = `
-    <div class="projects-layout">
-      <div class="leadership-docs-col" style="min-width:200px;">
+    <div class="meetings-layout">
+      <div class="leadership-docs-col">
         <div class="ld-header">
           <span>Meetings</span>
           <button class="ld-add-btn" id="mtAddBtn" title="Add a meeting doc">+ New</button>
         </div>
         <div class="ld-tabs" id="mtTabs" style="flex-direction:column;"></div>
       </div>
-      <div class="projects-main">
+      <div class="meetings-main">
         <div id="mtContent" class="meeting-content-card"></div>
       </div>
     </div>

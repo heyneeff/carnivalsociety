@@ -500,6 +500,14 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 /* LEADERSHIP DOCS COLUMN */
 .projects-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 2.5rem; align-items: start; }
 .projects-main { min-width: 0; }
+
+/* MEETINGS — narrow tab sidebar on the left, wide run-of-show content on the right */
+.meetings-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 2rem; align-items: start; }
+.meetings-main { min-width: 0; }
+@media (max-width: 800px) {
+  .meetings-layout { grid-template-columns: 1fr; }
+  .meetings-layout .leadership-docs-col { position: static; height: auto; }
+}
 .leadership-docs-col {
   position: sticky; top: 0; height: calc(100vh - 5rem); display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
