@@ -1988,7 +1988,23 @@ function renderMarkdown(md) {
     }
     if (/^\d+\.\s+/.test(line)) {
       html += '<ol class="ld-list">';
-      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) { html += `<li>${inline(lines[i].replace(/^\d+\.\s+/, ''))}</li>`; i++; }
+      while (i < lines.length) {
+        if (/^\d+\.\s+/.test(lines[i])) {
+          let item = inline(lines[i].replace(/^\d+\.\s+/, ''));
+          i++;
+          // Indented lines right after a numbered line (a root/description
+          // note under the tenet) belong to this item, not a new paragraph —
+          // otherwise every item resets to "1." since the next numbered line
+          // no longer looks consecutive to the parser.
+          while (i < lines.length && /^\s+\S/.test(lines[i])) { item += `<br>${inline(lines[i].trim())}`; i++; }
+          html += `<li>${item}</li>`;
+        } else if (!lines[i].trim()) {
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j++;
+          if (j < lines.length && /^\d+\.\s+/.test(lines[j])) { i = j; continue; }
+          break;
+        } else break;
+      }
       html += '</ol>';
       continue;
     }
