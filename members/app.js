@@ -2759,6 +2759,13 @@ async function renderCrewActivitiesView(mainView) {
       <div class="activities-toolbar"><button class="gm-btn" id="new${label}ToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add ${label}</button></div>
       <div class="card new-project-form" id="new${label}Form">
         <div class="field-row"><label>Name</label><input type="text" id="${kind}Name"></div>
+        ${kind === 'game' ? `
+        <div class="field-row"><label>Status</label>
+          <select id="${kind}Status">
+            <option value="proposed">Proposed</option>
+            <option value="locked_in">Locked In</option>
+          </select>
+        </div>` : ''}
         ${kind === 'event' ? `
         <div class="field-row"><label>Starts</label><input type="datetime-local" id="${kind}Starts"></div>
         <div class="field-row"><label>Ends</label><input type="datetime-local" id="${kind}Ends"></div>
@@ -2792,6 +2799,7 @@ async function renderCrewActivitiesView(mainView) {
           starts_at: starts ? new Date(starts).toISOString() : null,
           ends_at: ends ? new Date(ends).toISOString() : null,
           location: kind === 'event' ? (document.getElementById(`${kind}Location`).value.trim() || null) : null,
+          status: kind === 'game' ? document.getElementById(`${kind}Status`).value : void 0,
         },
       });
       for (const item of materials) {

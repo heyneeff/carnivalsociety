@@ -568,13 +568,14 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = activitiesMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { kind, name, description, starts_at, ends_at, location, position } = await body(request);
+    const { kind, name, description, starts_at, ends_at, location, status, position } = await body(request);
     if (!name) return err(400, "name required.");
     if (!["game", "event"].includes(kind)) return err(400, "kind must be game/event.");
+    if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, position || 0, user.id).run();
+      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, status || "proposed", position || 0, user.id).run();
     return json({ id });
   }
   const activityMatch = pathname.match(/^\/api\/events\/([^/]+)\/activities\/([^/]+)$/);
