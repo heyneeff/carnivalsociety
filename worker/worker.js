@@ -577,7 +577,7 @@ async function api(request, env, url) {
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, assignee_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, assignee_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, status || "proposed", assignee_id || null, position || 0, user.id).run();
     return json({ id });
   }
