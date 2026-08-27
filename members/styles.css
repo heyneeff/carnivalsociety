@@ -653,6 +653,8 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   padding: 0.4rem 0.6rem; font-size: 0.82rem; color: var(--cream); cursor: grab;
 }
 .schedule-chip.dragging { opacity: 0.4; }
+.schedule-dropzone.drag-hover { border-color: var(--gold); background: rgba(212, 175, 108, 0.08); }
+.activity-card[draggable="true"] summary { cursor: grab; }
 
 .activity-status-select, .activity-assignee-select {
   background: var(--surface); border: 1px solid var(--border); color: var(--cream-soft);

@@ -3027,7 +3027,7 @@ async function renderCrewActivitiesView(mainView) {
   const activityCardHtml = a => {
     const mats = materialsByActivity[a.id] || [];
     return `
-    <details class="activity-card ${a._colorClass || ''}" data-activity="${a.id}">
+    <details class="activity-card ${a._colorClass || ''}" data-activity="${a.id}" draggable="true">
       <summary>
         ${escapeHtml(a.name)}
         <span class="activity-material-count">${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'} · ${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
@@ -3074,29 +3074,32 @@ async function renderCrewActivitiesView(mainView) {
     a._colorClass = `activity-color-${dayColors.get(day)}`;
   });
 
-  // Schedule board — drag events (not games) onto one of 5 fixed festival
-  // days to build a run-of-show order. schedule_day is a plain date string;
-  // ordering within a day (and in the Unscheduled bucket) reuses `position`,
-  // same column everything else in this table already orders by.
+  // Schedule board — drag a game or event card straight from the columns on
+  // the left onto one of 5 fixed festival days, or onto Ongoing for things
+  // that run all festival long rather than on one day. schedule_day is a
+  // plain date string (null = Ongoing); ordering within a slot reuses
+  // `position`, same column everything else in this table orders by.
   const scheduleYear = evt.starts_at ? new Date(evt.starts_at).getFullYear() : new Date().getFullYear();
   const SCHEDULE_DAYS = [10, 11, 12, 13, 14].map(d => ({
     key: `${scheduleYear}-09-${String(d).padStart(2, '0')}`,
     label: `Sept ${d}`,
   }));
   let visibleDays = new Set(SCHEDULE_DAYS.map(d => d.key));
+  let draggingId = null; // activity id currently mid-drag, from either a source card or a schedule chip
 
   const scheduleChipHtml = a => `<div class="schedule-chip" draggable="true" data-activity="${a.id}">${escapeHtml(a.name)}</div>`;
 
   function scheduleColumnHtml() {
-    const byDay = key => events.filter(a => (a.schedule_day || null) === key).sort((a, b) => (a.position || 0) - (b.position || 0));
+    const byDay = key => list.filter(a => (a.schedule_day || null) === key).sort((a, b) => (a.position || 0) - (b.position || 0));
     return `
       <div class="activities-column schedule-column">
         <h3 class="section-heading">Schedule</h3>
+        <p class="activity-material-add-hint" style="margin-bottom:0.6rem;">Drag a game or event card here.</p>
         <div class="schedule-day-toggles">
           ${SCHEDULE_DAYS.map(d => `<button class="schedule-day-toggle ${visibleDays.has(d.key) ? 'active' : ''}" data-day-toggle="${d.key}">${d.label}</button>`).join('')}
         </div>
         <div class="schedule-day" data-day-block="">
-          <h4>Unscheduled</h4>
+          <h4>Ongoing</h4>
           <div class="schedule-dropzone" data-day="">${byDay(null).map(scheduleChipHtml).join('')}</div>
         </div>
         ${SCHEDULE_DAYS.filter(d => visibleDays.has(d.key)).map(d => `
@@ -3107,6 +3110,19 @@ async function renderCrewActivitiesView(mainView) {
         `).join('')}
       </div>
     `;
+  }
+
+  function wireCardDragSources() {
+    mainView.querySelectorAll('.activity-card[draggable="true"]').forEach(card => {
+      card.addEventListener('dragstart', e => {
+        // Only start a drag when grabbing the summary line — otherwise
+        // dragging inside the expanded body (materials inputs, selects)
+        // would fight with using those controls normally.
+        if (!e.target.closest('summary')) { e.preventDefault(); return; }
+        draggingId = card.dataset.activity;
+      });
+      card.addEventListener('dragend', () => { draggingId = null; });
+    });
   }
 
   function wireScheduleColumn() {
@@ -3134,9 +3150,10 @@ async function renderCrewActivitiesView(mainView) {
     }
 
     scheduleCol.querySelectorAll('.schedule-chip').forEach(chip => {
-      chip.addEventListener('dragstart', () => chip.classList.add('dragging'));
+      chip.addEventListener('dragstart', () => { draggingId = chip.dataset.activity; chip.classList.add('dragging'); });
       chip.addEventListener('dragend', async () => {
         chip.classList.remove('dragging');
+        draggingId = null;
         const zone = chip.closest('.schedule-dropzone');
         const day = zone.dataset.day || null;
         const ids = [...zone.querySelectorAll('.schedule-chip')].map(c => c.dataset.activity);
@@ -3150,10 +3167,28 @@ async function renderCrewActivitiesView(mainView) {
     scheduleCol.querySelectorAll('.schedule-dropzone').forEach(zone => {
       zone.addEventListener('dragover', e => {
         e.preventDefault();
-        const dragging = scheduleCol.querySelector('.schedule-chip.dragging');
-        if (!dragging) return;
+        zone.classList.add('drag-hover');
+        const draggingChip = scheduleCol.querySelector('.schedule-chip.dragging');
+        if (!draggingChip) return;
         const afterEl = getDragAfterElement(zone, e.clientY);
-        if (afterEl == null) zone.appendChild(dragging); else zone.insertBefore(dragging, afterEl);
+        if (afterEl == null) zone.appendChild(draggingChip); else zone.insertBefore(draggingChip, afterEl);
+      });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
+      zone.addEventListener('drop', async e => {
+        e.preventDefault();
+        zone.classList.remove('drag-hover');
+        if (!draggingId) return;
+        // A chip being reordered/moved is already handled by the chip's own
+        // dragend (it was live-moved into place during dragover above). This
+        // branch only fires for a fresh drag straight from a Games/Events
+        // card, which has no chip anywhere yet.
+        if (zone.querySelector(`.schedule-chip[data-activity="${draggingId}"]`)) return;
+        const day = zone.dataset.day || null;
+        const position = zone.querySelectorAll('.schedule-chip').length;
+        const id = draggingId;
+        draggingId = null;
+        await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, position } });
+        renderCrewActivitiesView(mainView);
       });
     });
   }
@@ -3178,6 +3213,7 @@ async function renderCrewActivitiesView(mainView) {
 
   wireAddForm('game');
   wireAddForm('event');
+  wireCardDragSources();
   wireScheduleColumn();
 
   mainView.querySelectorAll('[data-delete-activity]').forEach(btn => {
