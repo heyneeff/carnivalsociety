@@ -3074,6 +3074,90 @@ async function renderCrewActivitiesView(mainView) {
     a._colorClass = `activity-color-${dayColors.get(day)}`;
   });
 
+  // Schedule board — drag events (not games) onto one of 5 fixed festival
+  // days to build a run-of-show order. schedule_day is a plain date string;
+  // ordering within a day (and in the Unscheduled bucket) reuses `position`,
+  // same column everything else in this table already orders by.
+  const scheduleYear = evt.starts_at ? new Date(evt.starts_at).getFullYear() : new Date().getFullYear();
+  const SCHEDULE_DAYS = [10, 11, 12, 13, 14].map(d => ({
+    key: `${scheduleYear}-09-${String(d).padStart(2, '0')}`,
+    label: `Sept ${d}`,
+  }));
+  let visibleDays = new Set(SCHEDULE_DAYS.map(d => d.key));
+
+  const scheduleChipHtml = a => `<div class="schedule-chip" draggable="true" data-activity="${a.id}">${escapeHtml(a.name)}</div>`;
+
+  function scheduleColumnHtml() {
+    const byDay = key => events.filter(a => (a.schedule_day || null) === key).sort((a, b) => (a.position || 0) - (b.position || 0));
+    return `
+      <div class="activities-column schedule-column">
+        <h3 class="section-heading">Schedule</h3>
+        <div class="schedule-day-toggles">
+          ${SCHEDULE_DAYS.map(d => `<button class="schedule-day-toggle ${visibleDays.has(d.key) ? 'active' : ''}" data-day-toggle="${d.key}">${d.label}</button>`).join('')}
+        </div>
+        <div class="schedule-day" data-day-block="">
+          <h4>Unscheduled</h4>
+          <div class="schedule-dropzone" data-day="">${byDay(null).map(scheduleChipHtml).join('')}</div>
+        </div>
+        ${SCHEDULE_DAYS.filter(d => visibleDays.has(d.key)).map(d => `
+          <div class="schedule-day" data-day-block="${d.key}">
+            <h4>${d.label}</h4>
+            <div class="schedule-dropzone" data-day="${d.key}">${byDay(d.key).map(scheduleChipHtml).join('')}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function wireScheduleColumn() {
+    const scheduleCol = mainView.querySelector('.schedule-column');
+
+    scheduleCol.querySelectorAll('[data-day-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.dayToggle;
+        if (visibleDays.has(key)) visibleDays.delete(key); else visibleDays.add(key);
+        const fresh = document.createElement('div');
+        fresh.innerHTML = scheduleColumnHtml();
+        scheduleCol.replaceWith(fresh.firstElementChild);
+        wireScheduleColumn();
+      });
+    });
+
+    function getDragAfterElement(container, y) {
+      const chips = [...container.querySelectorAll('.schedule-chip:not(.dragging)')];
+      return chips.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset, element: child };
+        return closest;
+      }, { offset: -Infinity, element: null }).element;
+    }
+
+    scheduleCol.querySelectorAll('.schedule-chip').forEach(chip => {
+      chip.addEventListener('dragstart', () => chip.classList.add('dragging'));
+      chip.addEventListener('dragend', async () => {
+        chip.classList.remove('dragging');
+        const zone = chip.closest('.schedule-dropzone');
+        const day = zone.dataset.day || null;
+        const ids = [...zone.querySelectorAll('.schedule-chip')].map(c => c.dataset.activity);
+        await Promise.all(ids.map((id, position) =>
+          apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: id === chip.dataset.activity ? day : void 0, position } })
+        ));
+        renderCrewActivitiesView(mainView);
+      });
+    });
+
+    scheduleCol.querySelectorAll('.schedule-dropzone').forEach(zone => {
+      zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        const dragging = scheduleCol.querySelector('.schedule-chip.dragging');
+        if (!dragging) return;
+        const afterEl = getDragAfterElement(zone, e.clientY);
+        if (afterEl == null) zone.appendChild(dragging); else zone.insertBefore(dragging, afterEl);
+      });
+    });
+  }
+
   const listHtml = `
     <div class="activities-columns">
       <div class="activities-column">
@@ -3086,6 +3170,7 @@ async function renderCrewActivitiesView(mainView) {
         ${events.length ? `<div class="activity-list">${events.map(activityCardHtml).join('')}</div>` : '<div class="placeholder-note">No events yet.</div>'}
         ${addFormHtml('event')}
       </div>
+      ${scheduleColumnHtml()}
     </div>
   `;
 
@@ -3093,6 +3178,7 @@ async function renderCrewActivitiesView(mainView) {
 
   wireAddForm('game');
   wireAddForm('event');
+  wireScheduleColumn();
 
   mainView.querySelectorAll('[data-delete-activity]').forEach(btn => {
     btn.addEventListener('click', async () => {

@@ -596,7 +596,7 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, activityId] = activityMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, description, starts_at, ends_at, location, status, assignee_id, position } = await body(request);
+    const { name, description, starts_at, ends_at, location, status, assignee_id, schedule_day, position } = await body(request);
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const updates = [];
     const binds = [];
@@ -607,6 +607,7 @@ async function api(request, env, url) {
     if (location !== void 0) { updates.push("location = ?"); binds.push(location); }
     if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
     if (assignee_id !== void 0) { updates.push("assignee_id = ?"); binds.push(assignee_id || null); }
+    if (schedule_day !== void 0) { updates.push("schedule_day = ?"); binds.push(schedule_day || null); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
     binds.push(activityId);
