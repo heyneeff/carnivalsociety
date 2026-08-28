@@ -2404,6 +2404,7 @@ async function renderMeetingsView(mainView) {
   const list = meetings || [];
   let activeId = list[0]?.id || null;
   let editing = false;
+  let panel = 'content'; // 'content' | 'recap'
 
   mainView.innerHTML = `
     <div class="meetings-layout">
@@ -2423,6 +2424,7 @@ async function renderMeetingsView(mainView) {
         <div class="gm-modal-header"><h3>New Meeting Doc</h3><button id="mtAddClose">&times;</button></div>
         <div class="gm-modal-body">
           <div class="field-row"><label>Title</label><input type="text" id="mtNewTitle" placeholder="e.g. Meeting 3 — Sign Painting"></div>
+          <div class="field-row"><label>Date</label><input type="date" id="mtNewDate"></div>
         </div>
         <div class="gm-modal-footer">
           <button class="gm-btn" id="mtNewCancel">Cancel</button>
@@ -2435,26 +2437,38 @@ async function renderMeetingsView(mainView) {
   const tabsEl = document.getElementById('mtTabs');
   const contentEl = document.getElementById('mtContent');
 
+  function formatMeetingDate(dateStr) {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
   function renderTabs() {
-    tabsEl.innerHTML = list.map(m => `<button class="ld-tab ${m.id === activeId ? 'active' : ''}" data-meeting="${m.id}">${escapeHtml(m.title)}</button>`).join('');
-    tabsEl.querySelectorAll('.ld-tab').forEach(t => t.addEventListener('click', () => { activeId = t.dataset.meeting; editing = false; renderTabs(); renderContent(); }));
+    tabsEl.innerHTML = list.map(m => `
+      <button class="ld-tab ${m.id === activeId ? 'active' : ''}" data-meeting="${m.id}">
+        ${escapeHtml(m.title)}${m.meeting_date ? `<span class="meeting-tab-date">${formatMeetingDate(m.meeting_date)}</span>` : ''}
+      </button>
+    `).join('');
+    tabsEl.querySelectorAll('.ld-tab').forEach(t => t.addEventListener('click', () => { activeId = t.dataset.meeting; editing = false; panel = 'content'; renderTabs(); renderContent(); }));
   }
 
   function renderContent() {
     const doc = list.find(m => m.id === activeId);
     if (!doc) { contentEl.innerHTML = '<div class="placeholder-note">No meeting docs yet. Use "+ New" to add one.</div>'; return; }
+    const field = panel === 'recap' ? 'recap' : 'content';
+    const label = panel === 'recap' ? 'Meeting Recap' : 'Run of Show';
     if (editing) {
       contentEl.innerHTML = `
         <div class="post-actions" style="margin-bottom:0.6rem;">
           <button class="composer-submit" id="mtSaveBtn">Save</button>
           <button class="gm-btn" id="mtCancelEditBtn">Cancel</button>
         </div>
-        <textarea id="mtEditContent" rows="24" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:0.7rem;color:var(--cream);font-family:inherit;">${escapeHtml(doc.content)}</textarea>
+        <textarea id="mtEditContent" rows="24" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:0.7rem;color:var(--cream);font-family:inherit;">${escapeHtml(doc[field])}</textarea>
       `;
       document.getElementById('mtSaveBtn').addEventListener('click', async () => {
-        const content = document.getElementById('mtEditContent').value;
-        await apiFetch(`/api/meetings/${doc.id}`, { method: 'PATCH', body: { content } });
-        doc.content = content;
+        const value = document.getElementById('mtEditContent').value;
+        await apiFetch(`/api/meetings/${doc.id}`, { method: 'PATCH', body: { [field]: value } });
+        doc[field] = value;
         editing = false;
         renderContent();
       });
@@ -2462,12 +2476,16 @@ async function renderMeetingsView(mainView) {
       return;
     }
     contentEl.innerHTML = `
-      <div class="post-actions" style="margin-bottom:0.6rem;">
+      <div class="post-actions" style="margin-bottom:0.6rem;align-items:center;">
+        ${doc.meeting_date ? `<span class="meeting-doc-date">${formatMeetingDate(doc.meeting_date)}</span>` : ''}
+        <button class="action-btn" id="mtRecapBtn">${panel === 'recap' ? 'Run of Show' : 'Meeting Recap'}</button>
         <button class="action-btn" id="mtEditBtn">Edit</button>
         <button class="action-btn danger" id="mtDeleteBtn">Delete</button>
       </div>
-      ${renderMarkdown(doc.content || '*Empty — click Edit to add content.*')}
+      <h3 style="margin-top:0;">${label}</h3>
+      ${renderMarkdown(doc[field] || (panel === 'recap' ? '*No recap yet — click Edit to add one.*' : '*Empty — click Edit to add content.*'))}
     `;
+    document.getElementById('mtRecapBtn').addEventListener('click', () => { panel = panel === 'recap' ? 'content' : 'recap'; renderContent(); });
     document.getElementById('mtEditBtn').addEventListener('click', () => { editing = true; renderContent(); });
     document.getElementById('mtDeleteBtn').addEventListener('click', async () => {
       if (!confirm(`Delete "${doc.title}"?`)) return;
@@ -2475,6 +2493,7 @@ async function renderMeetingsView(mainView) {
       const idx = list.findIndex(m => m.id === doc.id);
       list.splice(idx, 1);
       activeId = list[0]?.id || null;
+      panel = 'content';
       renderTabs();
       renderContent();
     });
@@ -2488,12 +2507,15 @@ async function renderMeetingsView(mainView) {
   document.getElementById('mtNewCancel').addEventListener('click', () => document.getElementById('mtAddOverlay').classList.remove('open'));
   document.getElementById('mtNewSave').addEventListener('click', async () => {
     const title = document.getElementById('mtNewTitle').value.trim();
+    const meeting_date = document.getElementById('mtNewDate').value || null;
     if (!title) return;
-    const { id } = await apiFetch('/api/meetings', { method: 'POST', body: { title, content: '' } });
-    list.push({ id, title, content: '' });
+    const { id } = await apiFetch('/api/meetings', { method: 'POST', body: { title, content: '', meeting_date } });
+    list.push({ id, title, content: '', recap: '', meeting_date });
     activeId = id;
     editing = true;
+    panel = 'content';
     document.getElementById('mtNewTitle').value = '';
+    document.getElementById('mtNewDate').value = '';
     document.getElementById('mtAddOverlay').classList.remove('open');
     renderTabs();
     renderContent();

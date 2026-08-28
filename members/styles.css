@@ -530,6 +530,8 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .ld-tab.active { color: var(--gold); border-color: var(--gold); }
 .ld-tab-private { border-color: var(--gold-deep); }
 .ld-tab-private.active { color: var(--gold-bright); border-color: var(--gold-bright); }
+.meeting-tab-date { display: block; font-size: 0.7rem; font-style: normal; opacity: 0.65; margin-top: 1px; }
+.meeting-doc-date { font-size: 0.8rem; font-style: italic; color: var(--cream-soft); opacity: 0.75; margin-right: auto; }
 .ld-s-note { font-size: 0.8rem; color: var(--cream-soft); font-style: italic; margin-bottom: 0.9rem; line-height: 1.5; }
 .ld-content { flex: 1; overflow-y: auto; padding: 1.1rem 1.25rem; }
 .ld-h3 { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--gold-bright); font-size: 1.15rem; margin: 1.1rem 0 0.5rem; }
