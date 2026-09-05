@@ -301,6 +301,8 @@ function currentRoute() {
   return window.location.hash.replace(/^#\/?/, '') || 'hub';
 }
 
+let mobileNavOpen = false; // off-canvas sidebar drawer, ≤800px only (see .sidebar.open in styles.css)
+
 function renderShell() {
   const route = currentRoute();
   const initials = (profile?.display_name || '?').trim().slice(0, 1).toUpperCase();
@@ -311,7 +313,9 @@ function renderShell() {
 
   app.innerHTML = `
     <div class="shell">
-      <div class="sidebar">
+      <button class="hamburger-btn" id="hamburgerBtn" aria-label="Menu">☰</button>
+      <div class="nav-scrim ${mobileNavOpen ? 'open' : ''}" id="navScrim"></div>
+      <div class="sidebar ${mobileNavOpen ? 'open' : ''}">
         <div class="sidebar-mark">
           <span class="crest">Carnival Society</span>
           <span class="crest-sub">Guild Hall</span>
@@ -368,8 +372,15 @@ function renderShell() {
   document.getElementById('signoutBtn').onclick = async () => {
     await apiFetch('/api/auth/signout', { method: 'POST' });
     session = false; profile = null; chapters = []; boards = []; crewEvents = []; activeCrewEventId = null;
+    mobileNavOpen = false;
     render();
   };
+
+  document.getElementById('hamburgerBtn').onclick = () => { mobileNavOpen = true; renderShell(); };
+  document.getElementById('navScrim').onclick = () => { mobileNavOpen = false; renderShell(); };
+  document.querySelector('.sidebar').addEventListener('click', e => {
+    if (e.target.closest('.nav-link')) mobileNavOpen = false;
+  });
 
   renderMainView(route);
 }
@@ -1260,6 +1271,7 @@ async function renderFieldView(mainView) {
           </div>
           <button class="gm-btn" id="gmSettingsBtn">⚙ Settings</button>
           <button class="gm-btn gm-accent" id="gmAddBtn">+ Add Person</button>
+          <button class="gm-btn gm-legend-toggle-btn" id="gmLegendToggle">☰ Info</button>
         </div>
       </div>
       <div class="gm-body">
@@ -1333,7 +1345,10 @@ async function renderFieldView(mainView) {
   const svg = d3.select('#gmSvg').attr('viewBox', `0 0 ${W} ${H}`);
   const centerG = svg.append('g').attr('transform', `translate(${W / 2},${H / 2})`);
   const zg = centerG.append('g');
-  svg.call(d3.zoom().scaleExtent([0.15, 4]).on('zoom', e => zg.attr('transform', e.transform)));
+  const isMobile = window.matchMedia('(max-width: 800px)').matches;
+  const fieldZoom = d3.zoom().scaleExtent([isMobile ? 0.4 : 0.15, 4]).on('zoom', e => zg.attr('transform', e.transform));
+  svg.call(fieldZoom);
+  if (isMobile) svg.call(fieldZoom.scaleTo, 0.7);
 
   const ringsG = zg.append('g');
   fLinksG = zg.append('g');
@@ -1414,6 +1429,7 @@ function fRenderGraph() {
   fNodesG.selectAll('.gm-node-group').data(filtered, d => d.id).join(
     enter => {
       const ng = enter.append('g').attr('class', 'gm-node-group').attr('transform', d => `translate(${d.x || 0},${d.y || 0})`).call(drag).on('click', (e, d) => { e.stopPropagation(); openFieldPanel(d.id); });
+      ng.append('circle').attr('class', 'gm-node-hit').attr('r', 16);
       ng.append('circle').attr('class', 'gm-node-circle');
       ng.append('text').attr('class', 'gm-node-label');
       return ng;
@@ -1615,6 +1631,7 @@ function refreshFieldLayoutDropdown() {
 function fWireControls() {
   document.getElementById('gmSearch').addEventListener('input', e => { fSearchQuery = e.target.value; fRenderGraph(); });
   document.getElementById('gmAddBtn').addEventListener('click', () => openFieldPersonModal(null));
+  document.getElementById('gmLegendToggle').addEventListener('click', () => document.getElementById('gmLegend').classList.toggle('open'));
   document.getElementById('gmPersonModalClose').addEventListener('click', () => document.getElementById('gmPersonOverlay').classList.remove('open'));
   document.getElementById('gmPersonCancel').addEventListener('click', () => document.getElementById('gmPersonOverlay').classList.remove('open'));
   document.getElementById('gmPersonSave').addEventListener('click', () => {
@@ -2294,9 +2311,10 @@ async function renderNetworkView(mainView) {
     <h2>Member Network</h2>
     <p class="admin-note">Who knows who across the guild — pulled from real signups and onboarding. Not private like the Guild Map; any Ringleader sees this same graph.</p>
     <div id="nwBirthdays"></div>
-    <div class="gm-shell" style="height:70vh;">
+    <div class="gm-shell gm-shell-network">
       <div class="gm-body">
         <svg id="nwSvg"></svg>
+        <button class="gm-btn gm-legend-toggle-btn nw-legend-toggle-btn" id="nwLegendToggle">☰ Info</button>
         <div class="gm-legend" id="nwLegend"></div>
         <div class="gm-panel" id="nwPanel">
           <div class="gm-panel-header">
@@ -2332,6 +2350,7 @@ async function renderNetworkView(mainView) {
     <h4>Chapter</h4>
     ${nwChaptersCache.map(c => `<div class="gm-legend-row"><span class="gm-legend-dot" style="background:${nwChapterColor(c.id)}"></span>${escapeHtml(c.name)}</div>`).join('')}
   `;
+  document.getElementById('nwLegendToggle').onclick = () => document.getElementById('nwLegend').classList.toggle('open');
 
   if (!members.length) {
     document.querySelector('#nwSvg').closest('.gm-body').innerHTML = '<div class="gm-empty-note">No members yet.</div>';
@@ -2342,7 +2361,10 @@ async function renderNetworkView(mainView) {
   const W = svgEl.clientWidth || 900, H = svgEl.clientHeight || 600;
   const svg = d3.select('#nwSvg').attr('viewBox', `0 0 ${W} ${H}`);
   const zg = svg.append('g');
-  svg.call(d3.zoom().scaleExtent([0.2, 3]).on('zoom', e => zg.attr('transform', e.transform)));
+  const isMobile = window.matchMedia('(max-width: 800px)').matches;
+  const nwZoom = d3.zoom().scaleExtent([isMobile ? 0.45 : 0.2, 3]).on('zoom', e => zg.attr('transform', e.transform));
+  svg.call(nwZoom);
+  if (isMobile) svg.call(nwZoom.scaleTo, 0.7);
 
   const nodes = members.map(m => ({ ...m }));
   const nodeById = Object.fromEntries(nodes.map(n => [n.id, n]));
@@ -2364,6 +2386,7 @@ async function renderNetworkView(mainView) {
 
   const nodeSel = nodesG.selectAll('.gm-node-group').data(nodes).join(enter => {
     const ng = enter.append('g').attr('class', 'gm-node-group').call(drag).on('click', (e, d) => { e.stopPropagation(); openNetworkPanel(d); });
+    ng.append('circle').attr('class', 'gm-node-hit').attr('r', 18);
     ng.append('circle').attr('class', 'gm-node-circle').attr('r', 8);
     ng.append('text').attr('class', 'gm-node-label').attr('y', 20);
     return ng;
@@ -3097,17 +3120,21 @@ async function renderCrewActivitiesView(mainView) {
   });
 
   // Schedule board — drag a game or event card straight from the columns on
-  // the left onto one of 5 fixed festival days, or onto Ongoing for things
+  // the left onto Friday, Saturday, or Sunday, or onto Ongoing for things
   // that run all festival long rather than on one day. schedule_day is a
   // plain date string (null = Ongoing); ordering within a slot reuses
   // `position`, same column everything else in this table orders by.
   const scheduleYear = evt.starts_at ? new Date(evt.starts_at).getFullYear() : new Date().getFullYear();
-  const SCHEDULE_DAYS = [10, 11, 12, 13, 14].map(d => ({
-    key: `${scheduleYear}-09-${String(d).padStart(2, '0')}`,
-    label: `Sept ${d}`,
+  const SCHEDULE_DAYS = [
+    { day: 11, label: 'Friday' },
+    { day: 12, label: 'Saturday' },
+    { day: 13, label: 'Sunday' },
+  ].map(({ day, label }) => ({
+    key: `${scheduleYear}-09-${String(day).padStart(2, '0')}`,
+    label: `${label} (Sept ${day})`,
   }));
-  let visibleDays = new Set(SCHEDULE_DAYS.map(d => d.key));
   let draggingId = null; // activity id currently mid-drag, from either a source card or a schedule chip
+  let tapPickedId = null; // activity id "picked up" via tap — touch fallback for browsers with no drag-and-drop
 
   const scheduleChipHtml = a => `<div class="schedule-chip" draggable="true" data-activity="${a.id}">${escapeHtml(a.name)}</div>`;
 
@@ -3117,19 +3144,18 @@ async function renderCrewActivitiesView(mainView) {
       <div class="activities-column schedule-column">
         <h3 class="section-heading">Schedule</h3>
         <p class="activity-material-add-hint" style="margin-bottom:0.6rem;">Drag a game or event card here.</p>
-        <div class="schedule-day-toggles">
-          ${SCHEDULE_DAYS.map(d => `<button class="schedule-day-toggle ${visibleDays.has(d.key) ? 'active' : ''}" data-day-toggle="${d.key}">${d.label}</button>`).join('')}
-        </div>
-        <div class="schedule-day" data-day-block="">
-          <h4>Ongoing</h4>
-          <div class="schedule-dropzone" data-day="">${byDay(null).map(scheduleChipHtml).join('')}</div>
-        </div>
-        ${SCHEDULE_DAYS.filter(d => visibleDays.has(d.key)).map(d => `
-          <div class="schedule-day" data-day-block="${d.key}">
-            <h4>${d.label}</h4>
-            <div class="schedule-dropzone" data-day="${d.key}">${byDay(d.key).map(scheduleChipHtml).join('')}</div>
+        <div class="schedule-grid">
+          <div class="schedule-day" data-day-block="">
+            <h4>Ongoing</h4>
+            <div class="schedule-dropzone" data-day="">${byDay(null).map(scheduleChipHtml).join('')}</div>
           </div>
-        `).join('')}
+          ${SCHEDULE_DAYS.map(d => `
+            <div class="schedule-day" data-day-block="${d.key}">
+              <h4>${d.label}</h4>
+              <div class="schedule-dropzone" data-day="${d.key}">${byDay(d.key).map(scheduleChipHtml).join('')}</div>
+            </div>
+          `).join('')}
+        </div>
       </div>
     `;
   }
@@ -3149,17 +3175,6 @@ async function renderCrewActivitiesView(mainView) {
 
   function wireScheduleColumn() {
     const scheduleCol = mainView.querySelector('.schedule-column');
-
-    scheduleCol.querySelectorAll('[data-day-toggle]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.dayToggle;
-        if (visibleDays.has(key)) visibleDays.delete(key); else visibleDays.add(key);
-        const fresh = document.createElement('div');
-        fresh.innerHTML = scheduleColumnHtml();
-        scheduleCol.replaceWith(fresh.firstElementChild);
-        wireScheduleColumn();
-      });
-    });
 
     function getDragAfterElement(container, y) {
       const chips = [...container.querySelectorAll('.schedule-chip:not(.dragging)')];
@@ -3215,6 +3230,71 @@ async function renderCrewActivitiesView(mainView) {
     });
   }
 
+  // Tap-to-assign — a touch fallback for the drag-and-drop above, since native
+  // HTML5 DnD (used everywhere else in this function) never fires on
+  // touchscreens. Tap a card or chip to "pick it up" (highlighted), then tap
+  // a dropzone (or a chip inside one) to send it there; tap the picked item
+  // again, or anywhere else, to cancel. Coexists with mouse drag untouched.
+  function wireTapAssign() {
+    const scheduleCol = mainView.querySelector('.schedule-column');
+
+    function clearPick() {
+      tapPickedId = null;
+      mainView.querySelectorAll('.tap-picked').forEach(el => el.classList.remove('tap-picked'));
+      scheduleCol.querySelectorAll('.schedule-dropzone').forEach(z => z.classList.remove('tap-target'));
+    }
+
+    function pick(id, el) {
+      tapPickedId = id;
+      el.classList.add('tap-picked');
+      scheduleCol.querySelectorAll('.schedule-dropzone').forEach(z => z.classList.add('tap-target'));
+    }
+
+    async function assignPickedTo(zone) {
+      const day = zone.dataset.day || null;
+      const position = zone.querySelectorAll('.schedule-chip').length;
+      const id = tapPickedId;
+      clearPick();
+      await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, position } });
+      renderCrewActivitiesView(mainView);
+    }
+
+    mainView.querySelectorAll('.activity-card').forEach(card => {
+      card.addEventListener('click', e => {
+        if (!e.target.closest('summary')) return;
+        const id = card.dataset.activity;
+        if (tapPickedId === id) { clearPick(); return; }
+        clearPick();
+        pick(id, card);
+      });
+    });
+
+    scheduleCol.querySelectorAll('.schedule-chip').forEach(chip => {
+      chip.addEventListener('click', async () => {
+        const id = chip.dataset.activity;
+        if (tapPickedId && tapPickedId !== id) { await assignPickedTo(chip.closest('.schedule-dropzone')); return; }
+        if (tapPickedId === id) { clearPick(); return; }
+        clearPick();
+        pick(id, chip);
+      });
+    });
+
+    scheduleCol.querySelectorAll('.schedule-dropzone').forEach(zone => {
+      zone.addEventListener('click', e => {
+        if (!tapPickedId || e.target.closest('.schedule-chip')) return;
+        assignPickedTo(zone);
+      });
+    });
+
+    // Assigned (not addEventListener) so each re-render replaces the previous
+    // handler instead of stacking another one on this long-lived container.
+    mainView.onclick = e => {
+      if (!tapPickedId) return;
+      if (e.target.closest('.activity-card, .schedule-chip, .schedule-dropzone')) return;
+      clearPick();
+    };
+  }
+
   const listHtml = `
     <div class="activities-columns">
       <div class="activities-column">
@@ -3237,6 +3317,7 @@ async function renderCrewActivitiesView(mainView) {
   wireAddForm('event');
   wireCardDragSources();
   wireScheduleColumn();
+  wireTapAssign();
 
   mainView.querySelectorAll('[data-delete-activity]').forEach(btn => {
     btn.addEventListener('click', async () => {
