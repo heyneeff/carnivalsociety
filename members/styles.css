@@ -685,22 +685,20 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .hub-todo-deadline { color: var(--cream-soft); font-size: 0.85rem; }
 
 .activities-toolbar { margin-top: 0.8rem; }
-.activities-columns { display: grid; grid-template-columns: 1fr 1fr minmax(280px, 640px); gap: 2rem; max-width: 1800px; align-items: start; }
+.activities-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; max-width: 1800px; align-items: start; margin-top: 1.6rem; }
 .activities-column .activity-list { max-width: none; }
 .meetups-columns { display: grid; grid-template-columns: 1fr 340px; gap: 2rem; max-width: 1100px; align-items: start; }
-@media (max-width: 1300px) {
-  .activities-columns { grid-template-columns: 1fr 1fr; }
-  .schedule-column { grid-column: 1 / 3; }
-}
 @media (max-width: 800px) {
   .activities-columns, .meetups-columns { grid-template-columns: 1fr; }
-  .schedule-column { grid-column: 1; }
 }
 
-.schedule-column { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem; }
-.schedule-grid { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 0.7rem; }
-@media (max-width: 700px) {
+.schedule-board { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem; max-width: 1800px; }
+.schedule-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; align-items: start; }
+@media (max-width: 900px) {
   .schedule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .schedule-grid { grid-template-columns: 1fr; }
   .crew-tabs {
     flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
     scroll-snap-type: x proximity; padding-bottom: 2px;
@@ -715,17 +713,14 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   font-size: 0.85rem; margin-bottom: 0.35rem;
 }
 .schedule-dropzone {
-  min-height: 6rem; display: flex; flex-direction: column; gap: 0.4rem;
+  min-height: 6rem; max-width: none; gap: 0.5rem;
   background: var(--bg); border: 1px dashed var(--border); border-radius: 4px; padding: 0.4rem;
 }
-.schedule-chip {
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 3px;
-  padding: 0.4rem 0.6rem; font-size: 0.82rem; color: var(--cream); cursor: grab;
-}
-.schedule-chip.dragging { opacity: 0.4; }
+.schedule-dropzone .activity-card { padding: 0.6rem 0.7rem; }
 .schedule-dropzone.drag-hover { border-color: var(--gold); background: rgba(212, 175, 108, 0.08); }
 .activity-card[draggable="true"] summary { cursor: grab; }
-.activity-card.tap-picked, .schedule-chip.tap-picked { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+.activity-card.dragging { opacity: 0.4; }
+.activity-card.tap-picked { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
 .schedule-dropzone.tap-target { border-style: solid; border-color: var(--gold-bright); background: rgba(212, 175, 108, 0.05); }
 
 .activity-status-select, .activity-assignee-select {

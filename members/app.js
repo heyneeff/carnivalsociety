@@ -3142,27 +3142,30 @@ async function renderCrewActivitiesView(mainView) {
     key: `${scheduleYear}-09-${String(day).padStart(2, '0')}`,
     label: `${label} (Sept ${day})`,
   }));
-  let draggingId = null; // activity id currently mid-drag, from either a source card or a schedule chip
+  let draggingId = null; // activity id currently mid-drag
   let tapPickedId = null; // activity id "picked up" via tap — touch fallback for browsers with no drag-and-drop
 
-  const scheduleChipHtml = a => `<div class="schedule-chip" draggable="true" data-activity="${a.id}">${escapeHtml(a.name)}</div>`;
-
-  function scheduleColumnHtml() {
+  // The Schedule board reuses activityCardHtml — a scheduled game/event is
+  // the exact same expandable card as in the Games/Events lists below, just
+  // sitting in a day column instead. Same markup means the same coloring,
+  // the same expand/status/assignee/materials controls, and the same drag
+  // handling, for free.
+  function scheduleBoardHtml() {
     const byDay = key => list.filter(a => onSchedule(a) && a.schedule_day === key)
       .sort((a, b) => (a.schedule_position || 0) - (b.schedule_position || 0));
     return `
-      <div class="activities-column schedule-column">
+      <div class="schedule-board">
         <h3 class="section-heading">Schedule</h3>
         <p class="activity-material-add-hint" style="margin-bottom:0.6rem;">Drag a game or event card here.</p>
         <div class="schedule-grid">
           <div class="schedule-day" data-day-block="">
             <h4>Ongoing</h4>
-            <div class="schedule-dropzone" data-day="">${byDay('').map(scheduleChipHtml).join('')}</div>
+            <div class="schedule-dropzone activity-list" data-day="">${byDay('').map(activityCardHtml).join('')}</div>
           </div>
           ${SCHEDULE_DAYS.map(d => `
             <div class="schedule-day" data-day-block="${d.key}">
               <h4>${d.label}</h4>
-              <div class="schedule-dropzone" data-day="${d.key}">${byDay(d.key).map(scheduleChipHtml).join('')}</div>
+              <div class="schedule-dropzone activity-list" data-day="${d.key}">${byDay(d.key).map(activityCardHtml).join('')}</div>
             </div>
           `).join('')}
         </div>
@@ -3170,6 +3173,10 @@ async function renderCrewActivitiesView(mainView) {
     `;
   }
 
+  // A card's dragstart/dragend fires whether it lives in the Games/Events
+  // lists (a fresh drag onto the board) or already inside a schedule
+  // dropzone (a reorder/move). Only the latter needs to persist an order on
+  // drop — closest('.schedule-dropzone') tells them apart.
   function wireCardDragSources() {
     mainView.querySelectorAll('.activity-card[draggable="true"]').forEach(card => {
       card.addEventListener('dragstart', e => {
@@ -3178,17 +3185,29 @@ async function renderCrewActivitiesView(mainView) {
         // would fight with using those controls normally.
         if (!e.target.closest('summary')) { e.preventDefault(); return; }
         draggingId = card.dataset.activity;
+        card.classList.add('dragging');
       });
-      card.addEventListener('dragend', () => { draggingId = null; });
+      card.addEventListener('dragend', async () => {
+        card.classList.remove('dragging');
+        draggingId = null;
+        const zone = card.closest('.schedule-dropzone');
+        if (!zone) return; // fresh drag from Games/Events — the dropzone's own 'drop' handler persists it
+        const day = zone.dataset.day;
+        const ids = [...zone.querySelectorAll('.activity-card')].map(c => c.dataset.activity);
+        await Promise.all(ids.map((id, schedule_position) =>
+          apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: id === card.dataset.activity ? day : void 0, schedule_position } })
+        ));
+        renderCrewActivitiesView(mainView);
+      });
     });
   }
 
   function wireScheduleColumn() {
-    const scheduleCol = mainView.querySelector('.schedule-column');
+    const scheduleBoard = mainView.querySelector('.schedule-board');
 
     function getDragAfterElement(container, y) {
-      const chips = [...container.querySelectorAll('.schedule-chip:not(.dragging)')];
-      return chips.reduce((closest, child) => {
+      const cards = [...container.querySelectorAll('.activity-card:not(.dragging)')];
+      return cards.reduce((closest, child) => {
         const box = child.getBoundingClientRect();
         const offset = y - box.top - box.height / 2;
         if (offset < 0 && offset > closest.offset) return { offset, element: child };
@@ -3196,42 +3215,30 @@ async function renderCrewActivitiesView(mainView) {
       }, { offset: -Infinity, element: null }).element;
     }
 
-    scheduleCol.querySelectorAll('.schedule-chip').forEach(chip => {
-      chip.addEventListener('dragstart', () => { draggingId = chip.dataset.activity; chip.classList.add('dragging'); });
-      chip.addEventListener('dragend', async () => {
-        chip.classList.remove('dragging');
-        draggingId = null;
-        const zone = chip.closest('.schedule-dropzone');
-        const day = zone.dataset.day;
-        const ids = [...zone.querySelectorAll('.schedule-chip')].map(c => c.dataset.activity);
-        await Promise.all(ids.map((id, schedule_position) =>
-          apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: id === chip.dataset.activity ? day : void 0, schedule_position } })
-        ));
-        renderCrewActivitiesView(mainView);
-      });
-    });
-
-    scheduleCol.querySelectorAll('.schedule-dropzone').forEach(zone => {
+    scheduleBoard.querySelectorAll('.schedule-dropzone').forEach(zone => {
       zone.addEventListener('dragover', e => {
         e.preventDefault();
         zone.classList.add('drag-hover');
-        const draggingChip = scheduleCol.querySelector('.schedule-chip.dragging');
-        if (!draggingChip) return;
+        // Only live-reorder a card that's already on the board (scoped to
+        // scheduleBoard so a fresh drag from the Games/Events lists, which
+        // never enters this subtree, is left alone until it's dropped).
+        const draggingCard = scheduleBoard.querySelector('.activity-card.dragging');
+        if (!draggingCard) return;
         const afterEl = getDragAfterElement(zone, e.clientY);
-        if (afterEl == null) zone.appendChild(draggingChip); else zone.insertBefore(draggingChip, afterEl);
+        if (afterEl == null) zone.appendChild(draggingCard); else zone.insertBefore(draggingCard, afterEl);
       });
       zone.addEventListener('dragleave', () => zone.classList.remove('drag-hover'));
       zone.addEventListener('drop', async e => {
         e.preventDefault();
         zone.classList.remove('drag-hover');
         if (!draggingId) return;
-        // A chip being reordered/moved is already handled by the chip's own
-        // dragend (it was live-moved into place during dragover above). This
-        // branch only fires for a fresh drag straight from a Games/Events
-        // card, which has no chip anywhere yet.
-        if (zone.querySelector(`.schedule-chip[data-activity="${draggingId}"]`)) return;
+        // A card being reordered/moved is already handled by its own dragend
+        // (it was live-moved into place during dragover above). This branch
+        // only fires for a fresh drag straight from a Games/Events card,
+        // which never got moved into this zone's DOM.
+        if (zone.querySelector(`.activity-card[data-activity="${draggingId}"]`)) return;
         const day = zone.dataset.day;
-        const schedule_position = zone.querySelectorAll('.schedule-chip').length;
+        const schedule_position = zone.querySelectorAll('.activity-card').length;
         const id = draggingId;
         draggingId = null;
         await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_position } });
@@ -3242,27 +3249,27 @@ async function renderCrewActivitiesView(mainView) {
 
   // Tap-to-assign — a touch fallback for the drag-and-drop above, since native
   // HTML5 DnD (used everywhere else in this function) never fires on
-  // touchscreens. Tap a card or chip to "pick it up" (highlighted), then tap
-  // a dropzone (or a chip inside one) to send it there; tap the picked item
+  // touchscreens. Tap a card to "pick it up" (highlighted), then tap a
+  // dropzone (or a card inside one) to send it there; tap the picked card
   // again, or anywhere else, to cancel. Coexists with mouse drag untouched.
   function wireTapAssign() {
-    const scheduleCol = mainView.querySelector('.schedule-column');
+    const scheduleBoard = mainView.querySelector('.schedule-board');
 
     function clearPick() {
       tapPickedId = null;
       mainView.querySelectorAll('.tap-picked').forEach(el => el.classList.remove('tap-picked'));
-      scheduleCol.querySelectorAll('.schedule-dropzone').forEach(z => z.classList.remove('tap-target'));
+      scheduleBoard.querySelectorAll('.schedule-dropzone').forEach(z => z.classList.remove('tap-target'));
     }
 
     function pick(id, el) {
       tapPickedId = id;
       el.classList.add('tap-picked');
-      scheduleCol.querySelectorAll('.schedule-dropzone').forEach(z => z.classList.add('tap-target'));
+      scheduleBoard.querySelectorAll('.schedule-dropzone').forEach(z => z.classList.add('tap-target'));
     }
 
     async function assignPickedTo(zone) {
       const day = zone.dataset.day;
-      const schedule_position = zone.querySelectorAll('.schedule-chip').length;
+      const schedule_position = zone.querySelectorAll('.activity-card').length;
       const id = tapPickedId;
       clearPick();
       await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_position } });
@@ -3270,28 +3277,22 @@ async function renderCrewActivitiesView(mainView) {
     }
 
     mainView.querySelectorAll('.activity-card').forEach(card => {
-      card.addEventListener('click', e => {
+      card.addEventListener('click', async e => {
         if (!e.target.closest('summary')) return;
         const id = card.dataset.activity;
         if (tapPickedId === id) { clearPick(); return; }
+        if (tapPickedId) {
+          const zone = card.closest('.schedule-dropzone');
+          if (zone) { await assignPickedTo(zone); return; }
+        }
         clearPick();
         pick(id, card);
       });
     });
 
-    scheduleCol.querySelectorAll('.schedule-chip').forEach(chip => {
-      chip.addEventListener('click', async () => {
-        const id = chip.dataset.activity;
-        if (tapPickedId && tapPickedId !== id) { await assignPickedTo(chip.closest('.schedule-dropzone')); return; }
-        if (tapPickedId === id) { clearPick(); return; }
-        clearPick();
-        pick(id, chip);
-      });
-    });
-
-    scheduleCol.querySelectorAll('.schedule-dropzone').forEach(zone => {
+    scheduleBoard.querySelectorAll('.schedule-dropzone').forEach(zone => {
       zone.addEventListener('click', e => {
-        if (!tapPickedId || e.target.closest('.schedule-chip')) return;
+        if (!tapPickedId || e.target.closest('.activity-card')) return;
         assignPickedTo(zone);
       });
     });
@@ -3300,12 +3301,13 @@ async function renderCrewActivitiesView(mainView) {
     // handler instead of stacking another one on this long-lived container.
     mainView.onclick = e => {
       if (!tapPickedId) return;
-      if (e.target.closest('.activity-card, .schedule-chip, .schedule-dropzone')) return;
+      if (e.target.closest('.activity-card, .schedule-dropzone')) return;
       clearPick();
     };
   }
 
   const listHtml = `
+    ${scheduleBoardHtml()}
     <div class="activities-columns">
       <div class="activities-column">
         <h3 class="section-heading">Games</h3>
@@ -3317,7 +3319,6 @@ async function renderCrewActivitiesView(mainView) {
         ${events.length ? `<div class="activity-list">${events.map(activityCardHtml).join('')}</div>` : '<div class="placeholder-note">No events yet.</div>'}
         ${addFormHtml('event')}
       </div>
-      ${scheduleColumnHtml()}
     </div>
   `;
 
