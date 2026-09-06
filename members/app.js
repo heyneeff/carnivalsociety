@@ -3105,10 +3105,17 @@ async function renderCrewActivitiesView(mainView) {
   `;
   };
 
-  const games = list.filter(a => a.kind === 'game');
+  // Once a game/event has been dragged onto the Schedule board, it lives
+  // there as a chip; drop it from these top lists so there's exactly one
+  // draggable copy of it at a time instead of a stale duplicate up top.
+  // schedule_day is null until the first drop, then either '' (Ongoing) or
+  // a date string — both mean "on the board", so only null means "not yet".
+  const onSchedule = a => a.schedule_day !== null && a.schedule_day !== void 0;
+
+  const games = list.filter(a => a.kind === 'game' && !onSchedule(a));
   games.forEach(a => { a._colorClass = `activity-status-${a.status}`; });
 
-  const events = list.filter(a => a.kind === 'event')
+  const events = list.filter(a => a.kind === 'event' && !onSchedule(a))
     .sort((a, b) => (a.starts_at ? new Date(a.starts_at) : Infinity) - (b.starts_at ? new Date(b.starts_at) : Infinity));
   // Color-coded by calendar day — same day, same color, in first-seen (chronological) order.
   const dayColors = new Map();
@@ -3122,8 +3129,10 @@ async function renderCrewActivitiesView(mainView) {
   // Schedule board — drag a game or event card straight from the columns on
   // the left onto Friday, Saturday, or Sunday, or onto Ongoing for things
   // that run all festival long rather than on one day. schedule_day is a
-  // plain date string (null = Ongoing); ordering within a slot reuses
-  // `position`, same column everything else in this table orders by.
+  // plain date string, '' for Ongoing, or null for "not on the board yet".
+  // Ordering within a slot uses its own `schedule_position` column, kept
+  // separate from `position` so reordering the board doesn't also reshuffle
+  // the Games/Events lists above it (they sort by `position` too).
   const scheduleYear = evt.starts_at ? new Date(evt.starts_at).getFullYear() : new Date().getFullYear();
   const SCHEDULE_DAYS = [
     { day: 11, label: 'Friday' },
@@ -3139,7 +3148,8 @@ async function renderCrewActivitiesView(mainView) {
   const scheduleChipHtml = a => `<div class="schedule-chip" draggable="true" data-activity="${a.id}">${escapeHtml(a.name)}</div>`;
 
   function scheduleColumnHtml() {
-    const byDay = key => list.filter(a => (a.schedule_day || null) === key).sort((a, b) => (a.position || 0) - (b.position || 0));
+    const byDay = key => list.filter(a => onSchedule(a) && a.schedule_day === key)
+      .sort((a, b) => (a.schedule_position || 0) - (b.schedule_position || 0));
     return `
       <div class="activities-column schedule-column">
         <h3 class="section-heading">Schedule</h3>
@@ -3147,7 +3157,7 @@ async function renderCrewActivitiesView(mainView) {
         <div class="schedule-grid">
           <div class="schedule-day" data-day-block="">
             <h4>Ongoing</h4>
-            <div class="schedule-dropzone" data-day="">${byDay(null).map(scheduleChipHtml).join('')}</div>
+            <div class="schedule-dropzone" data-day="">${byDay('').map(scheduleChipHtml).join('')}</div>
           </div>
           ${SCHEDULE_DAYS.map(d => `
             <div class="schedule-day" data-day-block="${d.key}">
@@ -3192,10 +3202,10 @@ async function renderCrewActivitiesView(mainView) {
         chip.classList.remove('dragging');
         draggingId = null;
         const zone = chip.closest('.schedule-dropzone');
-        const day = zone.dataset.day || null;
+        const day = zone.dataset.day;
         const ids = [...zone.querySelectorAll('.schedule-chip')].map(c => c.dataset.activity);
-        await Promise.all(ids.map((id, position) =>
-          apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: id === chip.dataset.activity ? day : void 0, position } })
+        await Promise.all(ids.map((id, schedule_position) =>
+          apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: id === chip.dataset.activity ? day : void 0, schedule_position } })
         ));
         renderCrewActivitiesView(mainView);
       });
@@ -3220,11 +3230,11 @@ async function renderCrewActivitiesView(mainView) {
         // branch only fires for a fresh drag straight from a Games/Events
         // card, which has no chip anywhere yet.
         if (zone.querySelector(`.schedule-chip[data-activity="${draggingId}"]`)) return;
-        const day = zone.dataset.day || null;
-        const position = zone.querySelectorAll('.schedule-chip').length;
+        const day = zone.dataset.day;
+        const schedule_position = zone.querySelectorAll('.schedule-chip').length;
         const id = draggingId;
         draggingId = null;
-        await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, position } });
+        await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_position } });
         renderCrewActivitiesView(mainView);
       });
     });
@@ -3251,11 +3261,11 @@ async function renderCrewActivitiesView(mainView) {
     }
 
     async function assignPickedTo(zone) {
-      const day = zone.dataset.day || null;
-      const position = zone.querySelectorAll('.schedule-chip').length;
+      const day = zone.dataset.day;
+      const schedule_position = zone.querySelectorAll('.schedule-chip').length;
       const id = tapPickedId;
       clearPick();
-      await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, position } });
+      await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_position } });
       renderCrewActivitiesView(mainView);
     }
 
