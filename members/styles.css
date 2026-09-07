@@ -694,9 +694,9 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 
 .schedule-board { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem; max-width: 1800px; }
 .schedule-callout {
-  display: flex; flex-direction: column; gap: 0.15rem;
-  font-weight: 800; color: var(--accent-1);
-  font-size: 1.05rem; letter-spacing: 0.01em; margin-bottom: 0.6rem;
+  display: flex; flex-direction: column; gap: 0.2rem; align-items: center; text-align: center;
+  font-weight: 800; color: var(--cream);
+  font-size: 1.3rem; letter-spacing: 0.01em; margin-bottom: 0.8rem;
 }
 .schedule-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; align-items: start; }
 @media (max-width: 900px) {
