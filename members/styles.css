@@ -712,10 +712,17 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--gold-deep);
   font-size: 0.85rem; margin-bottom: 0.35rem;
 }
+.schedule-slot { margin-top: 0.7rem; }
+.schedule-slot:first-of-type { margin-top: 0; }
+.schedule-slot h5 {
+  font-style: italic; font-weight: 400; color: var(--cream-soft);
+  font-size: 0.72rem; letter-spacing: 0.02em; margin-bottom: 0.25rem;
+}
 .schedule-dropzone {
-  min-height: 6rem; max-width: none; gap: 0.5rem;
+  min-height: 3.2rem; max-width: none; gap: 0.5rem;
   background: var(--bg); border: 1px dashed var(--border); border-radius: 4px; padding: 0.4rem;
 }
+.schedule-day[data-day-block=""] .schedule-dropzone { min-height: 6rem; }
 .schedule-dropzone .activity-card { padding: 0.6rem 0.7rem; }
 .schedule-dropzone.drag-hover { border-color: var(--gold); background: rgba(212, 175, 108, 0.08); }
 .activity-card[draggable="true"] summary { cursor: grab; }

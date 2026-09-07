@@ -3130,9 +3130,11 @@ async function renderCrewActivitiesView(mainView) {
   // the left onto Friday, Saturday, or Sunday, or onto Ongoing for things
   // that run all festival long rather than on one day. schedule_day is a
   // plain date string, '' for Ongoing, or null for "not on the board yet".
-  // Ordering within a slot uses its own `schedule_position` column, kept
-  // separate from `position` so reordering the board doesn't also reshuffle
-  // the Games/Events lists above it (they sort by `position` too).
+  // Each day is further split into time slots (schedule_slot): an 'Anytime'
+  // catch-all ('') plus three fixed 2-hour blocks. Ordering within a
+  // day+slot uses its own `schedule_position` column, kept separate from
+  // `position` so reordering the board doesn't also reshuffle the
+  // Games/Events lists above it (they sort by `position` too).
   const scheduleYear = evt.starts_at ? new Date(evt.starts_at).getFullYear() : new Date().getFullYear();
   const SCHEDULE_DAYS = [
     { day: 11, label: 'Friday' },
@@ -3142,17 +3144,29 @@ async function renderCrewActivitiesView(mainView) {
     key: `${scheduleYear}-09-${String(day).padStart(2, '0')}`,
     label: `${label} (Sept ${day})`,
   }));
+  const SCHEDULE_SLOTS = [
+    { key: '', label: 'Anytime' },
+    { key: '13-15', label: '1:00 – 3:00 PM' },
+    { key: '15-17', label: '3:00 – 5:00 PM' },
+    { key: '0-2', label: '12:00 – 2:00 AM' },
+  ];
   let draggingId = null; // activity id currently mid-drag
   let tapPickedId = null; // activity id "picked up" via tap — touch fallback for browsers with no drag-and-drop
 
   // The Schedule board reuses activityCardHtml — a scheduled game/event is
   // the exact same expandable card as in the Games/Events lists below, just
-  // sitting in a day column instead. Same markup means the same coloring,
-  // the same expand/status/assignee/materials controls, and the same drag
-  // handling, for free.
+  // sitting in a day+slot column instead. Same markup means the same
+  // coloring, the same expand/status/assignee/materials controls, and the
+  // same drag handling, for free.
   function scheduleBoardHtml() {
-    const byDay = key => list.filter(a => onSchedule(a) && a.schedule_day === key)
+    const inSlot = (day, slot) => list.filter(a => onSchedule(a) && a.schedule_day === day && (a.schedule_slot || '') === slot)
       .sort((a, b) => (a.schedule_position || 0) - (b.schedule_position || 0));
+    const slotZoneHtml = (day, slot, label) => `
+      <div class="schedule-slot">
+        <h5>${label}</h5>
+        <div class="schedule-dropzone activity-list" data-day="${day}" data-slot="${slot}">${inSlot(day, slot).map(activityCardHtml).join('')}</div>
+      </div>
+    `;
     return `
       <div class="schedule-board">
         <h3 class="section-heading">Schedule</h3>
@@ -3160,12 +3174,12 @@ async function renderCrewActivitiesView(mainView) {
         <div class="schedule-grid">
           <div class="schedule-day" data-day-block="">
             <h4>Ongoing</h4>
-            <div class="schedule-dropzone activity-list" data-day="">${byDay('').map(activityCardHtml).join('')}</div>
+            <div class="schedule-dropzone activity-list" data-day="" data-slot="">${inSlot('', '').map(activityCardHtml).join('')}</div>
           </div>
           ${SCHEDULE_DAYS.map(d => `
             <div class="schedule-day" data-day-block="${d.key}">
               <h4>${d.label}</h4>
-              <div class="schedule-dropzone activity-list" data-day="${d.key}">${byDay(d.key).map(activityCardHtml).join('')}</div>
+              ${SCHEDULE_SLOTS.map(s => slotZoneHtml(d.key, s.key, s.label)).join('')}
             </div>
           `).join('')}
         </div>
@@ -3193,10 +3207,12 @@ async function renderCrewActivitiesView(mainView) {
         const zone = card.closest('.schedule-dropzone');
         if (!zone) return; // fresh drag from Games/Events — the dropzone's own 'drop' handler persists it
         const day = zone.dataset.day;
+        const slot = zone.dataset.slot;
         const ids = [...zone.querySelectorAll('.activity-card')].map(c => c.dataset.activity);
-        await Promise.all(ids.map((id, schedule_position) =>
-          apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: id === card.dataset.activity ? day : void 0, schedule_position } })
-        ));
+        await Promise.all(ids.map((id, schedule_position) => {
+          const moved = id === card.dataset.activity;
+          return apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: moved ? day : void 0, schedule_slot: moved ? slot : void 0, schedule_position } });
+        }));
         renderCrewActivitiesView(mainView);
       });
     });
@@ -3238,10 +3254,11 @@ async function renderCrewActivitiesView(mainView) {
         // which never got moved into this zone's DOM.
         if (zone.querySelector(`.activity-card[data-activity="${draggingId}"]`)) return;
         const day = zone.dataset.day;
+        const slot = zone.dataset.slot;
         const schedule_position = zone.querySelectorAll('.activity-card').length;
         const id = draggingId;
         draggingId = null;
-        await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_position } });
+        await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_slot: slot, schedule_position } });
         renderCrewActivitiesView(mainView);
       });
     });
@@ -3269,10 +3286,11 @@ async function renderCrewActivitiesView(mainView) {
 
     async function assignPickedTo(zone) {
       const day = zone.dataset.day;
+      const slot = zone.dataset.slot;
       const schedule_position = zone.querySelectorAll('.activity-card').length;
       const id = tapPickedId;
       clearPick();
-      await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_position } });
+      await apiFetch(`/api/events/${evt.id}/activities/${id}`, { method: 'PATCH', body: { schedule_day: day, schedule_slot: slot, schedule_position } });
       renderCrewActivitiesView(mainView);
     }
 

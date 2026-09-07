@@ -596,7 +596,7 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, activityId] = activityMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, description, starts_at, ends_at, location, status, assignee_id, schedule_day, schedule_position, position } = await body(request);
+    const { name, description, starts_at, ends_at, location, status, assignee_id, schedule_day, schedule_slot, schedule_position, position } = await body(request);
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const updates = [];
     const binds = [];
@@ -610,6 +610,7 @@ async function api(request, env, url) {
     // '' means "Ongoing" (on the board, no specific day); keep it distinct
     // from null ("not on the board yet") rather than collapsing both to null.
     if (schedule_day !== void 0) { updates.push("schedule_day = ?"); binds.push(schedule_day); }
+    if (schedule_slot !== void 0) { updates.push("schedule_slot = ?"); binds.push(schedule_slot); }
     if (schedule_position !== void 0) { updates.push("schedule_position = ?"); binds.push(schedule_position); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
     if (!updates.length) return err(400, "Nothing to update.");
