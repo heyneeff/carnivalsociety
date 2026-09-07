@@ -717,11 +717,16 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--gold-deep);
   font-size: 0.85rem; margin-bottom: 0.35rem;
 }
+.schedule-board-toolbar { margin-bottom: 0.7rem; }
 .schedule-slot { margin-top: 0.7rem; }
 .schedule-slot:first-of-type { margin-top: 0; }
+.schedule-slot summary { cursor: pointer; list-style-position: outside; margin-bottom: 0.25rem; }
+.schedule-slot summary::marker { color: var(--gold-deep); }
+.schedule-slot summary h4, .schedule-slot summary h5 { display: inline; margin: 0; }
+.schedule-slot[open] > .schedule-dropzone { margin-top: 0.25rem; }
 .schedule-slot h5 {
   font-style: italic; font-weight: 400; color: var(--cream-soft);
-  font-size: 0.72rem; letter-spacing: 0.02em; margin-bottom: 0.25rem;
+  font-size: 0.72rem; letter-spacing: 0.02em;
 }
 .schedule-dropzone {
   min-height: 3.2rem; max-width: none; gap: 0.5rem;

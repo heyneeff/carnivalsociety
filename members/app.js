@@ -3177,11 +3177,14 @@ async function renderCrewActivitiesView(mainView) {
   function scheduleBoardHtml() {
     const inSlot = (day, slot) => list.filter(a => onSchedule(a) && a.schedule_day === day && (a.schedule_slot || '') === slot)
       .sort((a, b) => (a.schedule_position || 0) - (b.schedule_position || 0));
-    const slotZoneHtml = (day, slot, label) => `
-      <div class="schedule-slot">
-        <h5>${label}</h5>
+    // Each time slot is its own <details> so it can collapse independently —
+    // separate from the per-card <details> inside activityCardHtml, which
+    // "Expand All Slots" below deliberately leaves alone.
+    const slotZoneHtml = (day, slot, label, headingTag) => `
+      <details class="schedule-slot">
+        <summary><${headingTag}>${label}</${headingTag}></summary>
         <div class="schedule-dropzone activity-list" data-day="${day}" data-slot="${slot}">${inSlot(day, slot).map(activityCardHtml).join('')}</div>
-      </div>
+      </details>
     `;
     return `
       <div class="schedule-board">
@@ -3191,15 +3194,15 @@ async function renderCrewActivitiesView(mainView) {
           <span>Monday: All Hands on Deck for deinstall.</span>
         </p>
         <p class="activity-material-add-hint" style="margin-bottom:0.6rem;">Drag a game or event card here.</p>
+        <div class="schedule-board-toolbar"><button class="gm-btn" id="scheduleExpandAllBtn" style="background:var(--surface);color:var(--cream);">Expand All Slots</button></div>
         <div class="schedule-grid">
           <div class="schedule-day" data-day-block="">
-            <h4>Ongoing</h4>
-            <div class="schedule-dropzone activity-list" data-day="" data-slot="">${inSlot('', '').map(activityCardHtml).join('')}</div>
+            ${slotZoneHtml('', '', 'Ongoing', 'h4')}
           </div>
           ${SCHEDULE_DAYS.map(d => `
             <div class="schedule-day" data-day-block="${d.key}">
               <h4>${d.label}</h4>
-              ${SCHEDULE_SLOTS.map(s => slotZoneHtml(d.key, s.key, s.label)).join('')}
+              ${SCHEDULE_SLOTS.map(s => slotZoneHtml(d.key, s.key, s.label, 'h5')).join('')}
             </div>
           `).join('')}
         </div>
@@ -3344,6 +3347,20 @@ async function renderCrewActivitiesView(mainView) {
     };
   }
 
+  // Toggles every time-slot <details> open/closed together — deliberately
+  // untouched: the <details> inside each activity card, which stay however
+  // the user left them.
+  function wireScheduleExpandAll() {
+    const btn = mainView.querySelector('#scheduleExpandAllBtn');
+    const slots = mainView.querySelectorAll('.schedule-board .schedule-slot');
+    btn.textContent = [...slots].every(s => s.open) ? 'Collapse All Slots' : 'Expand All Slots';
+    btn.addEventListener('click', () => {
+      const expand = [...slots].every(s => s.open) ? false : true;
+      slots.forEach(s => { s.open = expand; });
+      btn.textContent = expand ? 'Collapse All Slots' : 'Expand All Slots';
+    });
+  }
+
   const listHtml = `
     ${scheduleBoardHtml()}
     <div class="activities-columns">
@@ -3367,6 +3384,7 @@ async function renderCrewActivitiesView(mainView) {
   wireCardDragSources();
   wireScheduleColumn();
   wireTapAssign();
+  wireScheduleExpandAll();
 
   mainView.querySelectorAll('[data-duplicate-activity]').forEach(btn => {
     btn.addEventListener('click', async () => {
