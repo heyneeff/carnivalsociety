@@ -737,6 +737,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .schedule-dropzone.drag-hover { border-color: var(--gold); background: rgba(212, 175, 108, 0.08); }
 /* Bold, color-coded outline per slot type so the kind of time is legible at a glance. */
 .schedule-dropzone[data-slot=""] { border-color: var(--accent-2); }
+.schedule-dropzone[data-slot="12-13"] { border-color: var(--accent-3); }
 .schedule-dropzone[data-slot="13-15"] { border-color: var(--accent-0); }
 .schedule-dropzone[data-slot="15-17"] { border-color: var(--accent-5); }
 .schedule-dropzone[data-slot="17-24"] { border-color: var(--accent-2); }

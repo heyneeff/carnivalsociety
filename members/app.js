@@ -3161,6 +3161,7 @@ async function renderCrewActivitiesView(mainView) {
   }));
   const SCHEDULE_SLOTS = [
     { key: '', label: 'Free Play' },
+    { key: '12-13', label: 'Stone Soup Lunch (12:00 – 1:00 PM)' },
     { key: '13-15', label: '1:00 – 3:00 PM' },
     { key: '15-17', label: 'Field Day Games (3:00 – 5:00 PM)' },
     { key: '17-24', label: 'Free Play (5:00 PM – 12:00 AM)' },
