@@ -568,11 +568,21 @@ async function api(request, env, url) {
     const eventId = activitiesMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
     const { results } = await env.DB.prepare(
-      `SELECT event_activities.*, users.display_name AS assignee_name FROM event_activities
-       LEFT JOIN users ON users.id = event_activities.assignee_id
-       WHERE event_activities.event_id = ?
-       ORDER BY (event_activities.starts_at IS NULL), event_activities.starts_at ASC, event_activities.position ASC, event_activities.created_at ASC`
+      `SELECT * FROM event_activities
+       WHERE event_id = ?
+       ORDER BY (starts_at IS NULL), starts_at ASC, position ASC, created_at ASC`
     ).bind(eventId).all();
+    if (results.length) {
+      const placeholders = results.map(() => "?").join(",");
+      const { results: assigneeRows } = await env.DB.prepare(
+        `SELECT event_activity_assignees.activity_id AS activity_id, users.id AS id, users.display_name AS display_name
+         FROM event_activity_assignees JOIN users ON users.id = event_activity_assignees.user_id
+         WHERE event_activity_assignees.activity_id IN (${placeholders})`
+      ).bind(...results.map(a => a.id)).all();
+      const byActivity = {};
+      for (const row of assigneeRows) (byActivity[row.activity_id] || (byActivity[row.activity_id] = [])).push({ id: row.id, display_name: row.display_name });
+      for (const a of results) a.assignees = byActivity[a.id] || [];
+    }
     return json({ activities: results });
   }
   if (activitiesMatch && method === "POST") {
@@ -580,14 +590,17 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const eventId = activitiesMatch[1];
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { kind, name, description, starts_at, ends_at, location, status, assignee_id, position } = await body(request);
+    const { kind, name, description, starts_at, ends_at, location, status, assignee_ids, position } = await body(request);
     if (!name) return err(400, "name required.");
     if (!["game", "event"].includes(kind)) return err(400, "kind must be game/event.");
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, assignee_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, status || "proposed", assignee_id || null, position || 0, user.id).run();
+      "INSERT INTO event_activities (id, event_id, kind, name, description, starts_at, ends_at, location, status, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, eventId, kind, name, description || null, starts_at || null, ends_at || null, location || null, status || "proposed", position || 0, user.id).run();
+    for (const uid of (assignee_ids || [])) {
+      await env.DB.prepare("INSERT INTO event_activity_assignees (activity_id, user_id) VALUES (?, ?)").bind(id, uid).run();
+    }
     return json({ id });
   }
   const activityMatch = pathname.match(/^\/api\/events\/([^/]+)\/activities\/([^/]+)$/);
@@ -596,7 +609,7 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const [, eventId, activityId] = activityMatch;
     if (!await isCrew(env, user, eventId)) return err(403, "Crew only.");
-    const { name, description, starts_at, ends_at, location, status, assignee_id, schedule_day, schedule_slot, schedule_position, position } = await body(request);
+    const { name, description, starts_at, ends_at, location, status, assignee_ids, schedule_day, schedule_slot, schedule_position, position } = await body(request);
     if (status !== void 0 && !["proposed", "locked_in"].includes(status)) return err(400, "status must be proposed/locked_in.");
     const updates = [];
     const binds = [];
@@ -606,16 +619,23 @@ async function api(request, env, url) {
     if (ends_at !== void 0) { updates.push("ends_at = ?"); binds.push(ends_at); }
     if (location !== void 0) { updates.push("location = ?"); binds.push(location); }
     if (status !== void 0) { updates.push("status = ?"); binds.push(status); }
-    if (assignee_id !== void 0) { updates.push("assignee_id = ?"); binds.push(assignee_id || null); }
     // '' means "Ongoing" (on the board, no specific day); keep it distinct
     // from null ("not on the board yet") rather than collapsing both to null.
     if (schedule_day !== void 0) { updates.push("schedule_day = ?"); binds.push(schedule_day); }
     if (schedule_slot !== void 0) { updates.push("schedule_slot = ?"); binds.push(schedule_slot); }
     if (schedule_position !== void 0) { updates.push("schedule_position = ?"); binds.push(schedule_position); }
     if (position !== void 0) { updates.push("position = ?"); binds.push(position); }
-    if (!updates.length) return err(400, "Nothing to update.");
-    binds.push(activityId);
-    await env.DB.prepare(`UPDATE event_activities SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    if (!updates.length && assignee_ids === void 0) return err(400, "Nothing to update.");
+    if (updates.length) {
+      binds.push(activityId);
+      await env.DB.prepare(`UPDATE event_activities SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    }
+    if (assignee_ids !== void 0) {
+      await env.DB.prepare("DELETE FROM event_activity_assignees WHERE activity_id = ?").bind(activityId).run();
+      for (const uid of assignee_ids) {
+        await env.DB.prepare("INSERT INTO event_activity_assignees (activity_id, user_id) VALUES (?, ?)").bind(activityId, uid).run();
+      }
+    }
     if (status !== void 0) {
       // Materials tied to this game/event follow its status: locked in ->
       // need, still proposed -> want. Keeps the shared Materials tab in

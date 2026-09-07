@@ -2650,13 +2650,17 @@ async function renderCrewOverviewView(mainView) {
   const activityNames = {};
   (activities || []).forEach(a => { activityNames[a.id] = a.name; });
 
+  // Games/Events carry an `assignees` array (multiple crew); Merch/Signs/
+  // Raffle still carry a single `assignee_id`.
+  const isAssignedToMe = x => x.assignees ? x.assignees.some(p => p.id === profile.id) : x.assignee_id === profile.id;
+
   const myTasks = [
     ...games.map(a => ({ ...a, _type: 'Game' })),
     ...events.map(a => ({ ...a, _type: 'Event' })),
     ...(merch || []).map(m => ({ ...m, _type: 'Merch' })),
     ...(signs || []).map(s => ({ ...s, _type: 'Sign' })),
     ...(raffle || []).map(r => ({ ...r, _type: 'Raffle' })),
-  ].filter(x => x.assignee_id === profile.id);
+  ].filter(isAssignedToMe);
 
   const overviewAssignedList = (items, emptyText) => items.length
     ? `<ul class="hub-todo-list">${items.map(m => `
@@ -2717,11 +2721,11 @@ async function renderCrewOverviewView(mainView) {
           <h3 class="section-heading">Games &amp; Events</h3>
           <h4 class="overview-materials-heading">Games</h4>
           ${games.length ? `<ul class="hub-todo-list">${games.map(a => `
-            <li>${escapeHtml(a.name)} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'}</span></li>
+            <li>${escapeHtml(a.name)} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${(a.assignees && a.assignees.length) ? escapeHtml(a.assignees.map(p => p.display_name).join(', ')) : 'unassigned'}</span></li>
           `).join('')}</ul>` : '<div class="placeholder-note">No games yet.</div>'}
           <h4 class="overview-materials-heading">Events</h4>
           ${events.length ? `<ul class="hub-todo-list">${events.map(a => `
-            <li>${escapeHtml(a.name)}${a.starts_at ? ` <span class="hub-todo-deadline">— ${formatEventDate(a.starts_at)}</span>` : ''} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'}</span></li>
+            <li>${escapeHtml(a.name)}${a.starts_at ? ` <span class="hub-todo-deadline">— ${formatEventDate(a.starts_at)}</span>` : ''} <span class="activity-status-tag ${a.status}">${a.status === 'locked_in' ? 'Locked In' : 'Proposed'}</span> <span class="hub-todo-deadline">— ${(a.assignees && a.assignees.length) ? escapeHtml(a.assignees.map(p => p.display_name).join(', ')) : 'unassigned'}</span></li>
           `).join('')}</ul>` : '<div class="placeholder-note">No events yet.</div>'}
           <div class="post-actions"><a class="action-btn" href="#/crew/activities">View all</a></div>
         </div>
@@ -3008,8 +3012,14 @@ async function renderCrewActivitiesView(mainView) {
     if (!m.activity_id) return;
     (materialsByActivity[m.activity_id] || (materialsByActivity[m.activity_id] = [])).push(m);
   });
-  const assigneeOptions = unassignedLabel =>
-    `<option value="">${unassignedLabel}</option>${(roster || []).map(m => `<option value="${m.id}">${escapeHtml(m.display_name)}</option>`).join('')}`;
+  // Multiple crew can be assigned to a game/event, so this is a checkbox
+  // list rather than the single-select dropdown used elsewhere (Merch,
+  // Signs, Raffle still take one assignee).
+  const assigneeCheckboxesHtml = (namePrefix, selectedIds) => (roster || []).length
+    ? `<div class="assignee-checkbox-list">${roster.map(m => `
+        <label class="assignee-checkbox"><input type="checkbox" name="${namePrefix}" value="${m.id}" ${selectedIds.includes(m.id) ? 'checked' : ''}> ${escapeHtml(m.display_name)}</label>
+      `).join('')}</div>`
+    : '<div class="placeholder-note" style="border:none;padding:0;">No crew on the roster yet.</div>';
 
   const addFormHtml = kind => {
     const label = kind === 'game' ? 'Game' : 'Event';
@@ -3030,7 +3040,7 @@ async function renderCrewActivitiesView(mainView) {
         <div class="field-row"><label>Location</label><input type="text" id="${kind}Location"></div>` : ''}
         <div class="field-row"><label>Details</label><input type="text" id="${kind}Description"></div>
         <div class="field-row"><label>Materials</label><input type="text" id="${kind}Materials" placeholder="Comma-separated, e.g. rope, folding table"></div>
-        <div class="field-row"><label>Assigned to</label><select id="${kind}Assignee">${assigneeOptions('Unassigned')}</select></div>
+        <div class="field-row"><label>Assigned to</label>${assigneeCheckboxesHtml(`${kind}Assignee`, [])}</div>
         <div class="form-actions">
           <button class="composer-submit" id="${kind}CreateBtn">Add</button>
           <button class="gm-btn" id="${kind}CancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
@@ -3059,7 +3069,7 @@ async function renderCrewActivitiesView(mainView) {
           ends_at: ends ? new Date(ends).toISOString() : null,
           location: kind === 'event' ? (document.getElementById(`${kind}Location`).value.trim() || null) : null,
           status: kind === 'game' ? document.getElementById(`${kind}Status`).value : void 0,
-          assignee_id: document.getElementById(`${kind}Assignee`).value || null,
+          assignee_ids: [...document.querySelectorAll(`input[name="${kind}Assignee"]:checked`)].map(el => el.value),
         },
       });
       for (const item of materials) {
@@ -3071,18 +3081,20 @@ async function renderCrewActivitiesView(mainView) {
 
   const activityCardHtml = a => {
     const mats = materialsByActivity[a.id] || [];
+    const assignees = a.assignees || [];
+    const assigneeNames = assignees.length ? assignees.map(p => p.display_name).join(', ') : 'unassigned';
     return `
     <details class="activity-card ${a._colorClass || ''}" data-activity="${a.id}" draggable="true">
       <summary>
         ${escapeHtml(a.name)}
-        <span class="activity-material-count">${a.assignee_name ? escapeHtml(a.assignee_name) : 'unassigned'} · ${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
+        <span class="activity-material-count">${escapeHtml(assigneeNames)} · ${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
       </summary>
       <div class="activity-body">
         <select class="activity-status-select" data-activity="${a.id}">
           <option value="proposed" ${a.status === 'proposed' ? 'selected' : ''}>Proposed</option>
           <option value="locked_in" ${a.status === 'locked_in' ? 'selected' : ''}>Locked In</option>
         </select>
-        <select class="activity-assignee-select" data-activity="${a.id}">${assigneeOptions('Unassigned')}</select>
+        <div class="field-row activity-assignee-field" data-activity="${a.id}"><label>Assigned to</label>${assigneeCheckboxesHtml(`${a.id}-assignee`, assignees.map(p => p.id))}</div>
         ${a.kind === 'event' && (a.starts_at || a.location) ? `<div class="post-meta">${a.starts_at ? formatEventDate(a.starts_at) : 'No time set'}${a.ends_at ? ` – ${formatEventDate(a.ends_at)}` : ''}${a.location ? ` · ${escapeHtml(a.location)}` : ''}</div>` : ''}
         ${a.description ? `<div class="post-snippet">${escapeHtml(a.description)}</div>` : ''}
         <ul class="materials-list">
@@ -3370,7 +3382,7 @@ async function renderCrewActivitiesView(mainView) {
           ends_at: a.ends_at,
           location: a.location,
           status: a.status,
-          assignee_id: a.assignee_id,
+          assignee_ids: (a.assignees || []).map(p => p.id),
         },
       });
       for (const m of (materialsByActivity[id] || [])) {
@@ -3395,12 +3407,13 @@ async function renderCrewActivitiesView(mainView) {
     });
   });
 
-  mainView.querySelectorAll('.activity-assignee-select').forEach(select => {
-    const item = list.find(a => a.id === select.dataset.activity);
-    select.value = item?.assignee_id || '';
-    select.addEventListener('change', async () => {
-      await apiFetch(`/api/events/${evt.id}/activities/${select.dataset.activity}`, { method: 'PATCH', body: { assignee_id: select.value || null } });
-      renderCrewActivitiesView(mainView);
+  mainView.querySelectorAll('.activity-assignee-field').forEach(field => {
+    field.querySelectorAll('input[type="checkbox"]').forEach(box => {
+      box.addEventListener('change', async () => {
+        const assignee_ids = [...field.querySelectorAll('input[type="checkbox"]:checked')].map(el => el.value);
+        await apiFetch(`/api/events/${evt.id}/activities/${field.dataset.activity}`, { method: 'PATCH', body: { assignee_ids } });
+        renderCrewActivitiesView(mainView);
+      });
     });
   });
 

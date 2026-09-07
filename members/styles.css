@@ -735,10 +735,20 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .activity-card.tap-picked { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
 .schedule-dropzone.tap-target { border-style: solid; border-color: var(--gold-bright); background: rgba(212, 175, 108, 0.05); }
 
-.activity-status-select, .activity-assignee-select {
+.activity-status-select {
   background: var(--surface); border: 1px solid var(--border); color: var(--cream-soft);
   border-radius: 3px; padding: 0.3rem 0.5rem; font-family: inherit; font-size: 0.85rem; margin-bottom: 0.5rem;
 }
+.activity-assignee-field { margin-bottom: 0.6rem; }
+.activity-assignee-field > label {
+  display: block; font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--cream-soft); margin-bottom: 0.3rem;
+}
+.assignee-checkbox-list { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; }
+.assignee-checkbox {
+  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; color: var(--cream-soft); cursor: pointer;
+}
+.assignee-checkbox input { accent-color: var(--gold-bright); cursor: pointer; }
 
 .meetup-category-tag {
   font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem;
