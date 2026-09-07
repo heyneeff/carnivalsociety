@@ -3133,7 +3133,7 @@ async function renderCrewActivitiesView(mainView) {
   // the left onto Friday, Saturday, or Sunday, or onto Ongoing for things
   // that run all festival long rather than on one day. schedule_day is a
   // plain date string, '' for Ongoing, or null for "not on the board yet".
-  // Each day is further split into time slots (schedule_slot): an 'Anytime'
+  // Each day is further split into time slots (schedule_slot): a 'Free Play'
   // catch-all ('') plus three fixed 2-hour blocks. Ordering within a
   // day+slot uses its own `schedule_position` column, kept separate from
   // `position` so reordering the board doesn't also reshuffle the
@@ -3148,7 +3148,7 @@ async function renderCrewActivitiesView(mainView) {
     label: `${label} (Sept ${day})`,
   }));
   const SCHEDULE_SLOTS = [
-    { key: '', label: 'Anytime' },
+    { key: '', label: 'Free Play' },
     { key: '13-15', label: '1:00 – 3:00 PM' },
     { key: '15-17', label: 'Field Day Games (3:00 – 5:00 PM)' },
     { key: '0-2', label: '12:00 – 2:00 AM' },
