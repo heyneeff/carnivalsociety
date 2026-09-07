@@ -3146,7 +3146,7 @@ async function renderCrewActivitiesView(mainView) {
   }));
   const SCHEDULE_SLOTS = [
     { key: '', label: 'Anytime' },
-    { key: '13-15', label: '1:00 – 3:00 PM' },
+    { key: '13-15', label: 'Field Day Games (1:00 – 3:00 PM)' },
     { key: '15-17', label: '3:00 – 5:00 PM' },
     { key: '0-2', label: '12:00 – 2:00 AM' },
   ];
