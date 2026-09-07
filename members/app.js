@@ -3181,7 +3181,7 @@ async function renderCrewActivitiesView(mainView) {
     // separate from the per-card <details> inside activityCardHtml, which
     // "Expand All Slots" below deliberately leaves alone.
     const slotZoneHtml = (day, slot, label, headingTag) => `
-      <details class="schedule-slot">
+      <details class="schedule-slot" open>
         <summary><${headingTag}>${label}</${headingTag}></summary>
         <div class="schedule-dropzone activity-list" data-day="${day}" data-slot="${slot}">${inSlot(day, slot).map(activityCardHtml).join('')}</div>
       </details>
