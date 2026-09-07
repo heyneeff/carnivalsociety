@@ -3163,6 +3163,7 @@ async function renderCrewActivitiesView(mainView) {
     { key: '', label: 'Free Play' },
     { key: '13-15', label: '1:00 – 3:00 PM' },
     { key: '15-17', label: 'Field Day Games (3:00 – 5:00 PM)' },
+    { key: '17-24', label: 'Free Play (5:00 PM – 12:00 AM)' },
     { key: '0-2', label: '12:00 – 2:00 AM' },
   ];
   let draggingId = null; // activity id currently mid-drag
