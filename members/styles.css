@@ -725,11 +725,17 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 }
 .schedule-dropzone {
   min-height: 3.2rem; max-width: none; gap: 0.5rem;
-  background: var(--bg); border: 1px dashed var(--border); border-radius: 4px; padding: 0.4rem;
+  background: var(--bg); border: 2px solid var(--border); border-radius: 4px; padding: 0.4rem;
 }
 .schedule-day[data-day-block=""] .schedule-dropzone { min-height: 6rem; }
 .schedule-dropzone .activity-card { padding: 0.6rem 0.7rem; }
 .schedule-dropzone.drag-hover { border-color: var(--gold); background: rgba(212, 175, 108, 0.08); }
+/* Bold, color-coded outline per slot type so the kind of time is legible at a glance. */
+.schedule-dropzone[data-slot=""] { border-color: var(--accent-2); }
+.schedule-dropzone[data-slot="13-15"] { border-color: var(--accent-0); }
+.schedule-dropzone[data-slot="15-17"] { border-color: var(--accent-5); }
+.schedule-dropzone[data-slot="17-24"] { border-color: var(--accent-2); }
+.schedule-dropzone[data-slot="0-2"] { border-color: var(--accent-1); }
 .activity-card[draggable="true"] summary { cursor: grab; }
 .activity-card.dragging { opacity: 0.4; }
 .activity-card.tap-picked { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
