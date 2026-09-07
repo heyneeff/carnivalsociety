@@ -3099,7 +3099,10 @@ async function renderCrewActivitiesView(mainView) {
           <span class="activity-material-add-hint">Adds as ${a.status === 'locked_in' ? 'Need' : 'Want'}</span>
           <button type="submit" class="gm-btn">Add</button>
         </form>
-        <div class="post-actions"><button class="action-btn danger" data-delete-activity="${a.id}">Delete</button></div>
+        <div class="post-actions">
+          <button class="action-btn" data-duplicate-activity="${a.id}">Duplicate</button>
+          <button class="action-btn danger" data-delete-activity="${a.id}">Delete</button>
+        </div>
       </div>
     </details>
   `;
@@ -3351,6 +3354,31 @@ async function renderCrewActivitiesView(mainView) {
   wireCardDragSources();
   wireScheduleColumn();
   wireTapAssign();
+
+  mainView.querySelectorAll('[data-duplicate-activity]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.duplicateActivity;
+      const a = list.find(x => x.id === id);
+      if (!a) return;
+      const { id: newId } = await apiFetch(`/api/events/${evt.id}/activities`, {
+        method: 'POST',
+        body: {
+          kind: a.kind,
+          name: `${a.name} (copy)`,
+          description: a.description,
+          starts_at: a.starts_at,
+          ends_at: a.ends_at,
+          location: a.location,
+          status: a.status,
+          assignee_id: a.assignee_id,
+        },
+      });
+      for (const m of (materialsByActivity[id] || [])) {
+        await apiFetch(`/api/events/${evt.id}/materials`, { method: 'POST', body: { item: m.item, category: m.category, activity_id: newId } });
+      }
+      renderCrewActivitiesView(mainView);
+    });
+  });
 
   mainView.querySelectorAll('[data-delete-activity]').forEach(btn => {
     btn.addEventListener('click', async () => {
