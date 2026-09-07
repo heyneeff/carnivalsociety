@@ -3170,6 +3170,7 @@ async function renderCrewActivitiesView(mainView) {
     return `
       <div class="schedule-board">
         <h3 class="section-heading">Schedule</h3>
+        <p class="schedule-callout">Wednesday: All Hands on Deck for install. Monday: All hands on deck for deinstall.</p>
         <p class="activity-material-add-hint" style="margin-bottom:0.6rem;">Drag a game or event card here.</p>
         <div class="schedule-grid">
           <div class="schedule-day" data-day-block="">
