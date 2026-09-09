@@ -3082,12 +3082,17 @@ async function renderCrewActivitiesView(mainView) {
   const activityCardHtml = a => {
     const mats = materialsByActivity[a.id] || [];
     const assignees = a.assignees || [];
-    const assigneeNames = assignees.length ? assignees.map(p => p.display_name).join(', ') : 'unassigned';
+    // Only show a summary badge when there's something to report — an
+    // unassigned game with no materials yet shouldn't clutter every card
+    // with "unassigned · no materials yet".
+    const badgeParts = [];
+    if (assignees.length) badgeParts.push(escapeHtml(assignees.map(p => p.display_name).join(', ')));
+    if (mats.length) badgeParts.push(`${mats.length} material${mats.length === 1 ? '' : 's'}`);
     return `
     <details class="activity-card ${a._colorClass || ''}" data-activity="${a.id}" draggable="true">
       <summary>
         ${escapeHtml(a.name)}
-        <span class="activity-material-count">${escapeHtml(assigneeNames)} · ${mats.length ? `${mats.length} material${mats.length === 1 ? '' : 's'}` : 'no materials yet'}</span>
+        ${badgeParts.length ? `<span class="activity-material-count">${badgeParts.join(' · ')}</span>` : ''}
       </summary>
       <div class="activity-body">
         <select class="activity-status-select" data-activity="${a.id}">
@@ -3178,13 +3183,24 @@ async function renderCrewActivitiesView(mainView) {
   function scheduleBoardHtml() {
     const inSlot = (day, slot) => list.filter(a => onSchedule(a) && a.schedule_day === day && (a.schedule_slot || '') === slot)
       .sort((a, b) => (a.schedule_position || 0) - (b.schedule_position || 0));
+    const dropzoneHtml = (day, slot) => `<div class="schedule-dropzone activity-list" data-day="${day}" data-slot="${slot}">${inSlot(day, slot).map(activityCardHtml).join('')}</div>`;
     // Each time slot is its own <details> so it can collapse independently —
     // separate from the per-card <details> inside activityCardHtml, which
-    // "Expand All Slots" below deliberately leaves alone.
-    const slotZoneHtml = (day, slot, label, headingTag) => `
+    // "Expand All Slots" below deliberately leaves alone. A slot's <details>
+    // holds one row with a dropzone per day, so the same time lines up
+    // horizontally across Friday/Saturday/Sunday instead of stacking each
+    // day's slots in its own column.
+    const slotRowHtml = (slot, label) => `
       <details class="schedule-slot" open>
-        <summary><${headingTag}>${label}</${headingTag}></summary>
-        <div class="schedule-dropzone activity-list" data-day="${day}" data-slot="${slot}">${inSlot(day, slot).map(activityCardHtml).join('')}</div>
+        <summary><h5>${label}</h5></summary>
+        <div class="schedule-row">
+          ${SCHEDULE_DAYS.map(d => `
+            <div class="schedule-row-cell">
+              <div class="schedule-row-cell-label">${d.label}</div>
+              ${dropzoneHtml(d.key, slot)}
+            </div>
+          `).join('')}
+        </div>
       </details>
     `;
     return `
@@ -3196,16 +3212,12 @@ async function renderCrewActivitiesView(mainView) {
         </p>
         <p class="activity-material-add-hint" style="margin-bottom:0.6rem;">Drag a game or event card here.</p>
         <div class="schedule-board-toolbar"><button class="gm-btn" id="scheduleExpandAllBtn" style="background:var(--surface);color:var(--cream);">Expand All Slots</button></div>
+        <details class="schedule-slot" open>
+          <summary><h4>Ongoing</h4></summary>
+          ${dropzoneHtml('', '')}
+        </details>
         <div class="schedule-grid">
-          <div class="schedule-day" data-day-block="">
-            ${slotZoneHtml('', '', 'Ongoing', 'h4')}
-          </div>
-          ${SCHEDULE_DAYS.map(d => `
-            <div class="schedule-day" data-day-block="${d.key}">
-              <h4>${d.label}</h4>
-              ${SCHEDULE_SLOTS.map(s => slotZoneHtml(d.key, s.key, s.label, 'h5')).join('')}
-            </div>
-          `).join('')}
+          ${SCHEDULE_SLOTS.map(s => slotRowHtml(s.key, s.label)).join('')}
         </div>
       </div>
     `;

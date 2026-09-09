@@ -698,12 +698,15 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   font-weight: 800; color: var(--cream);
   font-size: 1.3rem; letter-spacing: 0.01em; margin-bottom: 0.8rem;
 }
-.schedule-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; align-items: start; }
+/* Rows = time slots, columns = Friday/Saturday/Sunday, so the same time
+   lines up horizontally across days instead of stacking per-day columns. */
+.schedule-grid { display: flex; flex-direction: column; gap: 0.9rem; }
+.schedule-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.9rem; align-items: start; }
 @media (max-width: 900px) {
-  .schedule-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .schedule-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
-  .schedule-grid { grid-template-columns: 1fr; }
+  .schedule-row { grid-template-columns: 1fr; }
   .crew-tabs {
     flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
     scroll-snap-type: x proximity; padding-bottom: 2px;
@@ -712,11 +715,11 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   }
   .crew-tab { flex-shrink: 0; scroll-snap-align: start; }
 }
-.schedule-day { margin-bottom: 0; }
-.schedule-day h4 {
+.schedule-row-cell-label {
   font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--gold-deep);
-  font-size: 0.85rem; margin-bottom: 0.35rem;
+  font-size: 0.8rem; margin-bottom: 0.3rem;
 }
+.schedule-board > .schedule-slot { margin-bottom: 0.9rem; }
 .schedule-board-toolbar { margin-bottom: 0.7rem; }
 .schedule-slot { margin-top: 0.7rem; }
 .schedule-slot:first-of-type { margin-top: 0; }
@@ -732,7 +735,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   min-height: 3.2rem; max-width: none; gap: 0.5rem;
   background: var(--bg); border: 2px solid var(--border); border-radius: 4px; padding: 0.4rem;
 }
-.schedule-day[data-day-block=""] .schedule-dropzone { min-height: 6rem; }
+.schedule-board > .schedule-slot > .schedule-dropzone { min-height: 6rem; }
 .schedule-dropzone .activity-card { padding: 0.6rem 0.7rem; }
 .schedule-dropzone.drag-hover { border-color: var(--gold); background: rgba(212, 175, 108, 0.08); }
 /* Bold, color-coded outline per slot type so the kind of time is legible at a glance. */
