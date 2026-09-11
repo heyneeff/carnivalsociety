@@ -758,6 +758,7 @@ async function renderEventsView(mainView) {
         ${chapters.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
       </select>
       <input type="datetime-local" id="eventStarts" required>
+      <input type="datetime-local" id="eventEnds" placeholder="Ends (optional)">
       <input type="text" id="eventLocation" placeholder="Location">
       <textarea id="eventDescription" placeholder="Details"></textarea>
       <button type="submit" class="composer-submit">Add Event</button>
@@ -767,7 +768,7 @@ async function renderEventsView(mainView) {
   const listHtml = (events || []).length ? events.map(e => `
     <div class="post-card" style="cursor:default;">
       <div class="post-title">${escapeHtml(e.title)}</div>
-      <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+      <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       ${canManage || canEdit ? `<div class="post-actions">
         ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
@@ -790,12 +791,13 @@ async function renderEventsView(mainView) {
       const title = document.getElementById('eventTitle').value.trim();
       const chapterId = document.getElementById('eventChapter').value || null;
       const startsAt = document.getElementById('eventStarts').value;
+      const endsAt = document.getElementById('eventEnds').value;
       const location = document.getElementById('eventLocation').value.trim();
       const description = document.getElementById('eventDescription').value.trim();
       if (!title || !startsAt) return;
       await apiFetch('/api/events', {
         method: 'POST',
-        body: { title, chapter_id: chapterId, starts_at: new Date(startsAt).toISOString(), location: location || null, description: description || null },
+        body: { title, chapter_id: chapterId, starts_at: new Date(startsAt).toISOString(), ends_at: endsAt ? new Date(endsAt).toISOString() : null, location: location || null, description: description || null },
       });
       renderEventsView(mainView);
     });
@@ -827,7 +829,7 @@ async function renderEventsView(mainView) {
     el.innerHTML = (archived || []).length ? `<div class="post-list">${archived.map(e => `
       <div class="post-card archived-event" style="cursor:default;">
         <div class="post-title">${escapeHtml(e.title)}</div>
-        <div class="post-meta">${formatEventDate(e.starts_at)} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+        <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
         ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
         ${canManage || canEdit ? `<div class="post-actions">
           ${canEdit ? `<button class="action-btn" data-edit-archived="${e.id}">Edit</button>` : ''}
@@ -878,6 +880,7 @@ function openEventEditModal(mainView, evt, onSaved) {
           </select>
         </div>
         <div class="field-row"><label>Starts</label><input type="datetime-local" id="eeStarts" value="${toDatetimeLocalValue(evt.starts_at)}"></div>
+        <div class="field-row"><label>Ends</label><input type="datetime-local" id="eeEnds" value="${evt.ends_at ? toDatetimeLocalValue(evt.ends_at) : ''}"></div>
         <div class="field-row"><label>Location</label><input type="text" id="eeLocation" value="${escapeHtml(evt.location || '')}"></div>
         <div class="field-row"><label>Details</label><textarea id="eeDescription">${escapeHtml(evt.description || '')}</textarea></div>
       </div>
@@ -896,11 +899,13 @@ function openEventEditModal(mainView, evt, onSaved) {
   overlay.querySelector('#eeSaveBtn').addEventListener('click', async () => {
     const title = overlay.querySelector('#eeTitle').value.trim();
     const startsAt = overlay.querySelector('#eeStarts').value;
+    const endsAt = overlay.querySelector('#eeEnds').value;
     if (!title || !startsAt) { alert('Title and start time are required.'); return; }
     const body = {
       title,
       chapter_id: overlay.querySelector('#eeChapter').value || null,
       starts_at: new Date(startsAt).toISOString(),
+      ends_at: endsAt ? new Date(endsAt).toISOString() : null,
       location: overlay.querySelector('#eeLocation').value.trim() || null,
       description: overlay.querySelector('#eeDescription').value.trim() || null,
     };

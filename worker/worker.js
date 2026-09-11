@@ -270,10 +270,10 @@ async function api(request, env, url) {
       archived
         ? `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
            LEFT JOIN chapters ON chapters.id = events.chapter_id
-           WHERE events.starts_at < datetime('now') ORDER BY events.starts_at DESC`
+           WHERE COALESCE(events.ends_at, events.starts_at) < datetime('now') ORDER BY events.starts_at DESC`
         : `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
            LEFT JOIN chapters ON chapters.id = events.chapter_id
-           WHERE events.starts_at >= datetime('now') ORDER BY events.starts_at ASC`
+           WHERE COALESCE(events.ends_at, events.starts_at) >= datetime('now') ORDER BY events.starts_at ASC`
     ).all();
     return json({ events: results.map(shapeEvent) }, { headers: { "Access-Control-Allow-Origin": "*" } });
   }
@@ -304,10 +304,10 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!isModerator(user)) return err(403, "Moderators only.");
-    const { title, chapter_id, starts_at, location, description } = await body(request);
+    const { title, chapter_id, starts_at, ends_at, location, description } = await body(request);
     if (!title || !starts_at) return err(400, "title and starts_at required.");
     const id = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO events (id, chapter_id, title, description, location, starts_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, chapter_id || null, title, description || null, location || null, starts_at, user.id).run();
+    await env.DB.prepare("INSERT INTO events (id, chapter_id, title, description, location, starts_at, ends_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, chapter_id || null, title, description || null, location || null, starts_at, ends_at || null, user.id).run();
     return json({ id });
   }
   const eventMatch = pathname.match(/^\/api\/events\/([^/]+)$/);
@@ -323,7 +323,7 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { title, chapter_id, starts_at, location, description } = await body(request);
+    const { title, chapter_id, starts_at, ends_at, location, description } = await body(request);
     const updates = [];
     const binds = [];
     if (title !== void 0) {
@@ -339,6 +339,10 @@ async function api(request, env, url) {
       if (!starts_at) return err(400, "starts_at required.");
       updates.push("starts_at = ?");
       binds.push(starts_at);
+    }
+    if (ends_at !== void 0) {
+      updates.push("ends_at = ?");
+      binds.push(ends_at || null);
     }
     if (location !== void 0) {
       updates.push("location = ?");
@@ -366,12 +370,12 @@ async function api(request, env, url) {
     const stmt = (!CREW_ASSIGNMENT_ENABLED || isModerator(user)) ? env.DB.prepare(
       `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
        LEFT JOIN chapters ON chapters.id = events.chapter_id
-       WHERE events.starts_at >= datetime('now') ORDER BY events.starts_at ASC`
+       WHERE COALESCE(events.ends_at, events.starts_at) >= datetime('now') ORDER BY events.starts_at ASC`
     ) : env.DB.prepare(
       `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM event_crew
        JOIN events ON events.id = event_crew.event_id
        LEFT JOIN chapters ON chapters.id = events.chapter_id
-       WHERE event_crew.user_id = ? AND events.starts_at >= datetime('now')
+       WHERE event_crew.user_id = ? AND COALESCE(events.ends_at, events.starts_at) >= datetime('now')
        ORDER BY events.starts_at ASC`
     ).bind(user.id);
     const { results } = await stmt.all();
@@ -1316,6 +1320,7 @@ function shapeEvent(row) {
     description: row.description,
     location: row.location,
     starts_at: row.starts_at,
+    ends_at: row.ends_at,
     created_by: row.created_by,
     created_at: row.created_at,
     chapter: row.chapter_id ? { name: row.c_name, slug: row.c_slug } : null
