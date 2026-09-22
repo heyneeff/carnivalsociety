@@ -1,229 +1,199 @@
--- Carnival Society International — members app schema
--- Run this once in the Supabase SQL editor (Project → SQL Editor → New query) for the
--- carnivalsociety-members project. Safe to re-run top to bottom on a fresh project.
+-- Carnival Society International — members app schema (Cloudflare D1 / SQLite)
+-- Run via: npx wrangler d1 execute carnivalsociety-members --remote --file=schema.sql
+-- (use --local instead of --remote for local `wrangler dev` testing)
 
 -- ============================================================
 -- CHAPTERS
 -- ============================================================
-create table public.chapters (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  slug text not null unique,
-  created_at timestamptz not null default now()
+CREATE TABLE chapters (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-insert into public.chapters (name, slug) values
-  ('Boulder', 'boulder'),
-  ('Denver', 'denver'),
-  ('Los Angeles', 'los-angeles');
+INSERT INTO chapters (id, name, slug) VALUES
+  (lower(hex(randomblob(16))), 'Boulder', 'boulder'),
+  (lower(hex(randomblob(16))), 'Denver', 'denver'),
+  (lower(hex(randomblob(16))), 'Los Angeles', 'los-angeles');
 
 -- ============================================================
--- PROFILES — one row per auth.users, created on signup
+-- USERS — was `profiles` + Supabase `auth.users`; now holds credentials too
 -- ============================================================
-create type public.guild_rank as enum ('apprentice', 'journeyman', 'master');
-
-create table public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  display_name text not null,
-  home_chapter_id uuid references public.chapters(id),
-  rank public.guild_rank not null default 'apprentice',
-  is_ringleader boolean not null default false,
-  avatar_url text,
-  created_at timestamptz not null default now()
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  home_chapter_id TEXT REFERENCES chapters(id),
+  rank TEXT NOT NULL DEFAULT 'apprentice' CHECK (rank IN ('apprentice', 'journeyman', 'master')),
+  is_ringleader INTEGER NOT NULL DEFAULT 0,
+  avatar_url TEXT,
+  dues_paid INTEGER NOT NULL DEFAULT 0,
+  dues_amount TEXT,
+  dues_date TEXT,
+  steward_role TEXT CHECK (steward_role IN (
+    'founder_steward', 'systems_steward', 'participation_steward', 'archive_steward',
+    'place_living_steward', 'temporal_steward', 'operations_finance_steward', 'carnival_director'
+  )),
+  birthday TEXT,
+  skills TEXT,
+  onboarded INTEGER NOT NULL DEFAULT 0,
+  -- When this user (a Ringleader) last checked the new-signup notification bell.
+  -- NULL means never checked; ringleaders compare users.created_at against this
+  -- to find unseen signups (see /api/admin/new-signups in worker.js). Added via
+  -- migration on 2026-09-22 — not part of the original CREATE TABLE on prod.
+  signups_seen_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- rank and is_ringleader are earned, not self-granted — any update coming from
--- the client is silently reverted unless the requester is already a Ringleader
--- (or it's the dashboard / service role).
-create or replace function public.is_ringleader_user(uid uuid)
-returns boolean as $$
-  select exists (select 1 from public.profiles where id = uid and is_ringleader = true);
-$$ language sql security definer stable;
+-- ============================================================
+-- MEMBER CONNECTIONS — "who knows who," declared at onboarding (or later).
+-- Guild-wide, visible to any Ringleader via /api/network — distinct from
+-- field_data, which is each Ringleader's own private canvas.
+-- ============================================================
+CREATE TABLE member_connections (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  connected_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, connected_user_id)
+);
+CREATE INDEX idx_member_connections_user ON member_connections(user_id);
+CREATE INDEX idx_member_connections_connected ON member_connections(connected_user_id);
 
-create or replace function public.protect_profile_privileged_fields()
-returns trigger as $$
-begin
-  if auth.role() <> 'service_role' and not public.is_ringleader_user(auth.uid()) then
-    new.rank := old.rank;
-    new.is_ringleader := old.is_ringleader;
-  end if;
-  return new;
-end;
-$$ language plpgsql security definer;
+-- ============================================================
+-- FIELD DATA — private per-user "Guild Map" (relational field tool retrofit).
+-- One row per user; each user only ever reads/writes their own row (enforced
+-- in worker.js, not RLS) — this is how "only I have access" is guaranteed,
+-- not just Ringleader-gating. Arrays/objects stored as JSON text, mirroring
+-- the original standalone app's single localStorage blob.
+-- ============================================================
+CREATE TABLE field_data (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  center_name TEXT,
+  communities TEXT NOT NULL DEFAULT '[]',
+  reltypes TEXT NOT NULL DEFAULT '[]',
+  people TEXT NOT NULL DEFAULT '[]',
+  connections TEXT NOT NULL DEFAULT '[]',
+  layouts TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
-create trigger protect_profile_privileged_fields
-before update on public.profiles
-for each row execute function public.protect_profile_privileged_fields();
+-- ============================================================
+-- PROJECTS DATA — private per-user projects + to-do list. Same privacy
+-- model as field_data: one row per user, scoped by session user_id in
+-- worker.js, never cross-readable.
+-- ============================================================
+CREATE TABLE projects_data (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  projects TEXT NOT NULL DEFAULT '[]',
+  todos TEXT NOT NULL DEFAULT '[]',
+  -- Private personal docs for the Leadership Docs column — distinct from the
+  -- static, shared CSI governance docs baked into app.js. Never readable by
+  -- anyone but this user (enforced by user_id scoping in worker.js, same as
+  -- everything else in this table).
+  leadership_docs TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
--- auto-create a profile row when someone signs up
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)));
-  return new;
-end;
-$$ language plpgsql security definer;
-
-create trigger on_auth_user_created
-after insert on auth.users
-for each row execute function public.handle_new_user();
-
--- reusable check: is this user a Master or a Ringleader (moderation rights)
-create or replace function public.is_moderator(uid uuid)
-returns boolean as $$
-  select exists (
-    select 1 from public.profiles
-    where id = uid and (rank = 'master' or is_ringleader = true)
-  );
-$$ language sql security definer stable;
+-- ============================================================
+-- SESSIONS — replaces Supabase Auth's session handling
+-- ============================================================
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- ============================================================
 -- BOARDS — one guild-wide board (chapter_id null) + one per chapter
 -- ============================================================
-create table public.boards (
-  id uuid primary key default gen_random_uuid(),
-  chapter_id uuid references public.chapters(id), -- null = guild-wide
-  name text not null,
-  slug text not null unique,
-  description text,
-  created_at timestamptz not null default now()
+CREATE TABLE boards (
+  id TEXT PRIMARY KEY,
+  chapter_id TEXT REFERENCES chapters(id), -- null = guild-wide
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-insert into public.boards (chapter_id, name, slug, description) values
-  (null, 'Guild Hall', 'guild-hall', 'Guild-wide — open to every member, any chapter.'),
-  ((select id from public.chapters where slug = 'boulder'), 'Boulder', 'boulder', 'Boulder chapter board.'),
-  ((select id from public.chapters where slug = 'denver'), 'Denver', 'denver', 'Denver chapter board.'),
-  ((select id from public.chapters where slug = 'los-angeles'), 'Los Angeles', 'los-angeles', 'Los Angeles chapter board.');
+INSERT INTO boards (id, chapter_id, name, slug, description) VALUES
+  (lower(hex(randomblob(16))), NULL, 'Guild Hall', 'guild-hall', 'Guild-wide — open to every member, any chapter.'),
+  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'boulder'), 'Boulder', 'boulder', 'Boulder chapter board.'),
+  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'denver'), 'Denver', 'denver', 'Denver chapter board.'),
+  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'los-angeles'), 'Los Angeles', 'los-angeles', 'Los Angeles chapter board.');
 
 -- ============================================================
 -- POSTS — top-level posts have title set, replies set parent_id instead
 -- ============================================================
-create table public.posts (
-  id uuid primary key default gen_random_uuid(),
-  board_id uuid not null references public.boards(id) on delete cascade,
-  author_id uuid not null references public.profiles(id),
-  parent_id uuid references public.posts(id) on delete cascade,
-  title text,
-  body text not null,
-  pinned boolean not null default false,
-  created_at timestamptz not null default now()
+CREATE TABLE posts (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  author_id TEXT NOT NULL REFERENCES users(id),
+  parent_id TEXT REFERENCES posts(id) ON DELETE CASCADE,
+  title TEXT,
+  body TEXT NOT NULL,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ============================================================
 -- DIRECT MESSAGES
 -- ============================================================
-create table public.conversations (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz not null default now()
+CREATE TABLE conversations (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-create table public.conversation_participants (
-  conversation_id uuid not null references public.conversations(id) on delete cascade,
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  primary key (conversation_id, user_id)
+CREATE TABLE conversation_participants (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (conversation_id, user_id)
 );
 
-create table public.direct_messages (
-  id uuid primary key default gen_random_uuid(),
-  conversation_id uuid not null references public.conversations(id) on delete cascade,
-  sender_id uuid not null references public.profiles(id),
-  body text not null,
-  created_at timestamptz not null default now()
+CREATE TABLE direct_messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id TEXT NOT NULL REFERENCES users(id),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- security-definer helper to avoid recursive-RLS issues on conversation_participants
-create or replace function public.is_conversation_participant(conv_id uuid, uid uuid)
-returns boolean as $$
-  select exists (
-    select 1 from public.conversation_participants
-    where conversation_id = conv_id and user_id = uid
-  );
-$$ language sql security definer stable;
-
 -- ============================================================
--- ROW LEVEL SECURITY
+-- EVENTS — publicly readable, managed only by Masters and Ringleaders
 -- ============================================================
-alter table public.chapters enable row level security;
-alter table public.profiles enable row level security;
-alter table public.boards enable row level security;
-alter table public.posts enable row level security;
-alter table public.conversations enable row level security;
-alter table public.conversation_participants enable row level security;
-alter table public.direct_messages enable row level security;
-
--- chapters: publicly readable (needed on the sign-up form, before login exists)
-create policy "chapters publicly readable" on public.chapters
-  for select using (true);
-
--- profiles: readable by anyone signed in; editable by the owner (their own
--- display_name/chapter/avatar — rank/is_ringleader are protected by the trigger
--- above) or by a Ringleader editing anyone's row (rank/permissions management)
-create policy "profiles readable by members" on public.profiles
-  for select using (auth.role() = 'authenticated');
-create policy "profiles editable by owner" on public.profiles
-  for update using (id = auth.uid());
-create policy "profiles editable by ringleaders" on public.profiles
-  for update using (public.is_ringleader_user(auth.uid()));
-
--- boards: readable by anyone signed in (chapter is a label, not a wall — welcome
--- anywhere); creating/editing/deleting boards is a moderator action
-create policy "boards readable by members" on public.boards
-  for select using (auth.role() = 'authenticated');
-create policy "boards managed by moderators" on public.boards
-  for all using (public.is_moderator(auth.uid())) with check (public.is_moderator(auth.uid()));
-
--- posts: readable by anyone signed in; anyone can post; authors edit/delete their
--- own posts; moderators (Masters, Ringleaders) can edit/delete (and pin) any post
-create policy "posts readable by members" on public.posts
-  for select using (auth.role() = 'authenticated');
-create policy "posts insertable by author" on public.posts
-  for insert with check (author_id = auth.uid());
-create policy "posts editable by author" on public.posts
-  for update using (author_id = auth.uid());
-create policy "posts deletable by author" on public.posts
-  for delete using (author_id = auth.uid());
-create policy "posts moderatable" on public.posts
-  for all using (public.is_moderator(auth.uid())) with check (public.is_moderator(auth.uid()));
-
--- conversations + participants: visible only to participants
-create policy "conversations visible to participants" on public.conversations
-  for select using (public.is_conversation_participant(id, auth.uid()));
-create policy "conversations insertable by members" on public.conversations
-  for insert with check (auth.role() = 'authenticated');
-
-create policy "participants visible to co-participants" on public.conversation_participants
-  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
-create policy "participants insertable by members" on public.conversation_participants
-  for insert with check (auth.role() = 'authenticated');
-
--- direct messages: only participants can read or send
-create policy "dms visible to participants" on public.direct_messages
-  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
-create policy "dms insertable by participants" on public.direct_messages
-  for insert with check (
-    sender_id = auth.uid()
-    and public.is_conversation_participant(conversation_id, auth.uid())
-  );
-
--- ============================================================
--- EVENTS — publicly readable (shown on the marketing homepage, no login),
--- managed only by Masters and Ringleaders
--- ============================================================
-create table public.events (
-  id uuid primary key default gen_random_uuid(),
-  chapter_id uuid references public.chapters(id), -- null = guild-wide
-  title text not null,
-  description text,
-  location text,
-  starts_at timestamptz not null,
-  created_by uuid not null references public.profiles(id),
-  created_at timestamptz not null default now()
+CREATE TABLE events (
+  id TEXT PRIMARY KEY,
+  chapter_id TEXT REFERENCES chapters(id), -- null = guild-wide
+  title TEXT NOT NULL,
+  description TEXT,
+  location TEXT,
+  starts_at TEXT NOT NULL,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-alter table public.events enable row level security;
+-- ============================================================
+-- INDEXES
+-- ============================================================
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_posts_board ON posts(board_id);
+CREATE INDEX idx_posts_parent ON posts(parent_id);
+CREATE INDEX idx_dm_conversation ON direct_messages(conversation_id);
+CREATE INDEX idx_conv_participants_user ON conversation_participants(user_id);
+CREATE INDEX idx_events_starts ON events(starts_at);
 
-create policy "events publicly readable" on public.events
-  for select using (true);
-create policy "events managed by moderators" on public.events
-  for all using (public.is_moderator(auth.uid())) with check (public.is_moderator(auth.uid()));
+-- Authorization note: Postgres RLS is gone — every rule below is enforced in
+-- worker.js route handlers instead. Kept here as the checklist that was ported:
+--   * users:   self can update display_name/home_chapter_id/avatar_url only;
+--              rank/is_ringleader/dues_* are Ringleader-only writes.
+--   * boards:  readable by any authenticated user; managed by moderators
+--              (rank = 'master' OR is_ringleader) only.
+--   * posts:   readable by any authenticated user; insertable by the author;
+--              editable/deletable by author OR moderator; pin is moderator-only.
+--   * events:  publicly readable (no auth required); managed by moderators only.
+--   * conversations/participants/direct_messages: visible only to participants;
+--              insertable only by an authenticated participant.

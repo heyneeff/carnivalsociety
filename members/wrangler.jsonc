@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "carnivalsociety-members",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-25",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "carnivalsociety-members",
+      "database_id": "2c2774f0-7494-4b4c-a176-6eb8f7230c38"
+    }
+  ],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "members.carnivalsociety.org", "custom_domain": true }
+  ]
+}
