@@ -102,15 +102,15 @@ async function api(request, env, url) {
   const { pathname } = url;
   const method = request.method;
   if (pathname === "/api/auth/signup" && method === "POST") {
-    const { email, password, display_name, home_chapter_id, city, phone, instagram_handle } = await body(request);
+    const { email, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization } = await body(request);
     if (!email || !password || password.length < 6 || !display_name || !city) return err(400, "Missing or invalid fields.");
     const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
     if (existing) return err(400, "That email is already registered.");
     const { hash, salt } = await hashPassword(password);
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city, phone || null, instagram_handle || null).run();
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?)`
+    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city, phone || null, instagram_handle || null, is_organization ? 1 : 0).run();
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
     return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } });
@@ -134,7 +134,7 @@ async function api(request, env, url) {
   if (pathname === "/api/me" && method === "PATCH") {
     const user2 = await getSessionUser(request, env);
     if (!user2) return err(401, "Not signed in.");
-    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded } = await body(request);
+    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us } = await body(request);
     const updates = [];
     const binds = [];
     if (display_name !== void 0) {
@@ -156,6 +156,14 @@ async function api(request, env, url) {
     if (skills !== void 0) {
       updates.push("skills = ?");
       binds.push(skills);
+    }
+    if (knows_who !== void 0) {
+      updates.push("knows_who = ?");
+      binds.push(knows_who || null);
+    }
+    if (heard_about_us !== void 0) {
+      updates.push("heard_about_us = ?");
+      binds.push(heard_about_us || null);
     }
     if (onboarded !== void 0) {
       updates.push("onboarded = ?");
@@ -1032,15 +1040,15 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { display_name, email, password, home_chapter_id, city, phone, instagram_handle } = await body(request);
+    const { display_name, email, password, home_chapter_id, city, phone, instagram_handle, is_organization } = await body(request);
     if (!display_name || !email || !password || password.length < 6) return err(400, "Name, email, and a password of at least 6 characters are required.");
     const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
     if (existing) return err(400, "That email is already registered.");
     const { hash, salt } = await hashPassword(password);
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, onboarded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
-    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city || null, phone || null, instagram_handle || null).run();
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, onboarded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, 1)`
+    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city || null, phone || null, instagram_handle || null, is_organization ? 1 : 0).run();
     const created = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
     return json({ user: publicUser(created) });
   }
@@ -1071,7 +1079,7 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle } = await body(request);
+    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us } = await body(request);
     const updates = [];
     const binds = [];
     if (email !== void 0) {
@@ -1106,6 +1114,14 @@ async function api(request, env, url) {
       updates.push("skills = ?");
       binds.push(skills || null);
     }
+    if (knows_who !== void 0) {
+      updates.push("knows_who = ?");
+      binds.push(knows_who || null);
+    }
+    if (heard_about_us !== void 0) {
+      updates.push("heard_about_us = ?");
+      binds.push(heard_about_us || null);
+    }
     if (city !== void 0) {
       updates.push("city = ?");
       binds.push(city || null);
@@ -1121,6 +1137,10 @@ async function api(request, env, url) {
     if (rank !== void 0) {
       updates.push("rank = ?");
       binds.push(rank);
+    }
+    if (is_organization !== void 0) {
+      updates.push("is_organization = ?");
+      binds.push(is_organization ? 1 : 0);
     }
     if (is_ringleader !== void 0) {
       updates.push("is_ringleader = ?");
@@ -1441,6 +1461,9 @@ function shapeMember(row) {
     skills: row.skills || "",
     city: row.city || null,
     phone: row.phone || null,
-    instagram_handle: row.instagram_handle || null
+    instagram_handle: row.instagram_handle || null,
+    knows_who: row.knows_who || null,
+    heard_about_us: row.heard_about_us || null,
+    is_organization: !!row.is_organization
   };
 }

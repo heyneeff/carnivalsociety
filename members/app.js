@@ -119,7 +119,7 @@ async function ensureChaptersLoaded() {
 
 function renderAuthScreen(mode = 'signin', errorMsg = '') {
   const chapterOptions = chapters.length
-    ? chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+    ? `<option value="">Not listed</option>` + chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
     : '<option value="">Loading chapters…</option>';
 
   app.innerHTML = `
@@ -150,13 +150,17 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
         </div>
         <form class="auth-form" id="authForm">
           ${mode === 'signup' ? `
+          <label class="auth-org-toggle">
+            <input type="checkbox" id="isOrganization">
+            Signing up as an organization, not an individual
+          </label>
           <div class="auth-field">
-            <label for="displayName">Name</label>
+            <label for="displayName" id="displayNameLabel">Name</label>
             <input type="text" id="displayName" required>
           </div>
           <div class="auth-field">
             <label for="homeChapter">Home Chapter</label>
-            <select id="homeChapter" required>${chapterOptions}</select>
+            <select id="homeChapter">${chapterOptions}</select>
           </div>
           <div class="auth-field">
             <label for="city">City</label>
@@ -188,6 +192,12 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
   document.getElementById('tabSignin').onclick = () => renderAuthScreen('signin');
   document.getElementById('tabSignup').onclick = async () => { await ensureChaptersLoaded(); renderAuthScreen('signup'); };
 
+  if (mode === 'signup') {
+    document.getElementById('isOrganization').addEventListener('change', e => {
+      document.getElementById('displayNameLabel').textContent = e.target.checked ? 'Organization Name' : 'Name';
+    });
+  }
+
   document.getElementById('authForm').addEventListener('submit', async e => {
     e.preventDefault();
     const email = document.getElementById('email').value.trim();
@@ -198,10 +208,11 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
       const city = document.getElementById('city').value.trim();
       const phone = document.getElementById('phone').value.trim();
       const instagram = document.getElementById('instagram').value.trim();
+      const isOrganization = document.getElementById('isOrganization').checked;
       try {
         const { user } = await apiFetch('/api/auth/signup', {
           method: 'POST',
-          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId, city, phone, instagram_handle: instagram },
+          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId, city, phone, instagram_handle: instagram, is_organization: isOrganization },
         });
         session = true;
         profile = user;
@@ -226,7 +237,6 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
 
 // ── Onboarding — shown once after signup (or on next sign-in if skipped) ──
 async function renderOnboarding() {
-  const { members } = await apiFetch('/api/members/search');
   app.innerHTML = `
     <div class="auth-screen">
       <div class="auth-panel" style="max-width:600px;">
@@ -242,15 +252,12 @@ async function renderOnboarding() {
             <input id="obBirthday" type="date">
           </div>
           <div class="auth-field">
-            <label>Who do you know here?</label>
-            <div id="obConnections" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:3px;padding:0.5rem 0.75rem;">
-              ${members.length ? members.map(m => `
-                <label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-style:normal;font-size:0.95rem;letter-spacing:normal;text-transform:none;color:var(--cream);cursor:pointer;">
-                  <input type="checkbox" class="obConnCheck" value="${m.id}" style="width:15px;height:15px;">
-                  ${escapeHtml(m.display_name)}${m.home_chapter ? ` <span style="color:var(--cream-soft);font-size:0.82rem;">· ${escapeHtml(m.home_chapter.name)}</span>` : ''}
-                </label>
-              `).join('') : '<div class="placeholder-note" style="border:none;padding:0.5rem 0;">No other members yet — you\'re early.</div>'}
-            </div>
+            <label for="obKnowsWho">Who do you know here? (optional)</label>
+            <input id="obKnowsWho" type="text" placeholder="Names, roles, whatever comes to mind…">
+          </div>
+          <div class="auth-field">
+            <label for="obHeardAbout">How did you hear about us? (optional)</label>
+            <input id="obHeardAbout" type="text" placeholder="e.g. a friend, an event, Instagram…">
           </div>
           <button class="auth-submit" id="obFinishBtn">Finish</button>
           <button class="gm-btn" id="obSkipBtn" style="background:none;border:1px solid var(--border);">Skip for now</button>
@@ -262,9 +269,9 @@ async function renderOnboarding() {
   document.getElementById('obFinishBtn').addEventListener('click', async () => {
     const skills = document.getElementById('obSkills').value.trim();
     const birthday = document.getElementById('obBirthday').value || null;
-    const connectedIds = [...document.querySelectorAll('.obConnCheck:checked')].map(el => el.value);
-    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { skills, birthday, onboarded: true } });
-    await Promise.all(connectedIds.map(id => apiFetch('/api/connections', { method: 'POST', body: { connected_user_id: id } })));
+    const knows_who = document.getElementById('obKnowsWho').value.trim();
+    const heard_about_us = document.getElementById('obHeardAbout').value.trim();
+    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { skills, birthday, knows_who, heard_about_us, onboarded: true } });
     profile = user;
     await loadAppData();
     render();
@@ -440,6 +447,7 @@ const RANK_COLORS = {
   master: 'var(--gold-bright)',
   clown: 'var(--accent-4)',
 };
+const ORGANIZATION_COLOR = 'var(--accent-3)';
 function rankLabel(rank) {
   return rank.charAt(0).toUpperCase() + rank.slice(1);
 }
@@ -971,6 +979,8 @@ function debounce(fn, ms) {
 // ahead of rank when sorting "by rank" -- a Ringleader outranks a non-Ringleader
 // Master regardless of their underlying rank.
 const RANK_ORDER = { master: 2, journeyman: 1, apprentice: 0, clown: -1 };
+function memberDisplayTitle(m) { return m.is_organization ? 'Organization' : rankLabel(m.rank); }
+function memberDisplayColor(m) { return m.is_organization ? ORGANIZATION_COLOR : rankColor(m.rank); }
 function memberWeight(m) {
   return (m.is_ringleader ? 10 : 0) + RANK_ORDER[m.rank];
 }
@@ -1050,9 +1060,9 @@ function renderDirectoryRows() {
     const hasRealEmail = m.email && !m.email.endsWith('@crew.local');
     const igHandle = m.instagram_handle ? m.instagram_handle.replace(/^@/, '') : '';
     return `
-    <div class="admin-row" style="border-left-color: ${rankColor(m.rank)};">
+    <div class="admin-row" style="border-left-color: ${memberDisplayColor(m)};">
       <div class="admin-identity">
-        <div class="admin-name">${escapeHtml(m.display_name)}</div>
+        <div class="admin-name">${escapeHtml(m.display_name)}${m.is_organization ? ` <span class="org-badge">Organization</span>` : ''}</div>
         <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</div>
       </div>
       <div class="dir-contacts">
@@ -1138,6 +1148,10 @@ async function renderAdminView(mainView) {
       <div class="field-row"><label>City</label><input type="text" id="nmCity" placeholder="Optional"></div>
       <div class="field-row"><label>Phone</label><input type="tel" id="nmPhone" placeholder="Optional"></div>
       <div class="field-row"><label>Instagram</label><input type="text" id="nmInstagram" placeholder="@handle — optional"></div>
+      <label class="auth-org-toggle" style="margin-bottom:0;">
+        <input type="checkbox" id="nmIsOrganization">
+        This is an organization, not an individual
+      </label>
       <p class="admin-note">Give them the email and password directly — that's how they'll sign in.</p>
       <div class="form-actions">
         <button class="composer-submit" id="nmCreateBtn">Add</button>
@@ -1173,6 +1187,7 @@ async function renderAdminView(mainView) {
           city: document.getElementById('nmCity').value.trim() || null,
           phone: document.getElementById('nmPhone').value.trim() || null,
           instagram_handle: document.getElementById('nmInstagram').value.trim() || null,
+          is_organization: document.getElementById('nmIsOrganization').checked,
         },
       });
     } catch (e) {
@@ -1196,16 +1211,20 @@ function renderAdminRows(mainView) {
   const sorted = [...filtered].sort(ADMIN_SORTS[adminSortKey].cmp);
 
   list.innerHTML = sorted.map(m => `
-    <div class="admin-row" data-user-id="${m.id}" style="border-left-color: ${rankColor(m.rank)};">
+    <div class="admin-row" data-user-id="${m.id}" style="border-left-color: ${memberDisplayColor(m)};">
       <div class="admin-identity">
         <div class="admin-name">${escapeHtml(m.display_name)}</div>
         <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}</div>
       </div>
-      <select class="admin-rank" data-field="rank" style="color: ${rankColor(m.rank)};">
-        ${RANKS.map(r =>
-          `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${rankLabel(r)}</option>`
-        ).join('')}
-      </select>
+      ${m.is_organization
+        ? `<span class="org-badge">Organization</span>`
+        : `<select class="admin-rank" data-field="rank" style="color: ${rankColor(m.rank)};">
+             ${RANKS.map(r => `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${rankLabel(r)}</option>`).join('')}
+           </select>`}
+      <label class="admin-ringleader-toggle">
+        <input type="checkbox" data-field="is_organization" ${m.is_organization ? 'checked' : ''}>
+        Organization
+      </label>
       <label class="admin-ringleader-toggle">
         <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
         Ringleader
@@ -1238,15 +1257,18 @@ function renderAdminRows(mainView) {
       }
       member[field] = value;
       if (userId === profile.id && (field === 'rank' || field === 'is_ringleader')) { await refreshProfile(); renderShell(); }
-      if (field === 'rank') {
+      if (field === 'rank' && !member.is_organization) {
         row.style.borderLeftColor = rankColor(value);
-        row.querySelector('[data-field="rank"]').style.color = rankColor(value);
+        const rankSelect = row.querySelector('[data-field="rank"]');
+        if (rankSelect) rankSelect.style.color = rankColor(value);
       }
+      if (field === 'is_organization') { renderAdminRows(mainView); return; }
       const affectsSort = (adminSortKey === 'rank' && (field === 'rank' || field === 'is_ringleader')) || (adminSortKey === 'dues' && field === 'dues_paid');
       if (affectsSort) renderAdminRows(mainView);
     };
 
-    row.querySelector('[data-field="rank"]').addEventListener('change', e => patchField('rank', e.target.value));
+    row.querySelector('[data-field="rank"]')?.addEventListener('change', e => patchField('rank', e.target.value));
+    row.querySelector('[data-field="is_organization"]').addEventListener('change', e => patchField('is_organization', e.target.checked));
     row.querySelector('[data-field="is_ringleader"]').addEventListener('change', e => patchField('is_ringleader', e.target.checked));
     row.querySelector('[data-field="dues_paid"]').addEventListener('change', e => patchField('dues_paid', e.target.checked));
     row.querySelector('[data-field="dues_amount"]').addEventListener('change', e => patchField('dues_amount', e.target.value));
@@ -1285,6 +1307,8 @@ function openAdminEditModal(mainView, userId) {
         <div class="field-row"><label>City</label><input type="text" id="aeCity" value="${escapeHtml(member.city || '')}"></div>
         <div class="field-row"><label>Phone</label><input type="tel" id="aePhone" value="${escapeHtml(member.phone || '')}"></div>
         <div class="field-row"><label>Instagram</label><input type="text" id="aeInstagram" placeholder="@handle" value="${escapeHtml(member.instagram_handle || '')}"></div>
+        <div class="field-row"><label>Who they know</label><input type="text" id="aeKnowsWho" value="${escapeHtml(member.knows_who || '')}"></div>
+        <div class="field-row"><label>Heard about us via</label><input type="text" id="aeHeardAbout" value="${escapeHtml(member.heard_about_us || '')}"></div>
         <div class="field-row"><label>Email</label><input type="email" id="aeEmail" value="${escapeHtml(member.email && !member.email.endsWith('@crew.local') ? member.email : '')}" placeholder="${member.email && member.email.endsWith('@crew.local') ? 'No real email on file yet — add one' : ''}"></div>
         <div class="field-row"><label>Set New Password</label><input type="password" id="aePassword" minlength="6" placeholder="Leave blank to keep current"></div>
       </div>
@@ -1312,6 +1336,8 @@ function openAdminEditModal(mainView, userId) {
       city: overlay.querySelector('#aeCity').value.trim() || null,
       phone: overlay.querySelector('#aePhone').value.trim() || null,
       instagram_handle: overlay.querySelector('#aeInstagram').value.trim() || null,
+      knows_who: overlay.querySelector('#aeKnowsWho').value.trim() || null,
+      heard_about_us: overlay.querySelector('#aeHeardAbout').value.trim() || null,
     };
     const newEmail = overlay.querySelector('#aeEmail').value.trim();
     if (newEmail) body.email = newEmail;

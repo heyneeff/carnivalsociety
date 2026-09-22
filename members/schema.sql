@@ -27,7 +27,13 @@ CREATE TABLE users (
   salt TEXT NOT NULL,
   display_name TEXT NOT NULL,
   home_chapter_id TEXT REFERENCES chapters(id),
-  rank TEXT NOT NULL DEFAULT 'apprentice' CHECK (rank IN ('apprentice', 'journeyman', 'master')),
+  -- Default was 'apprentice' originally; new signups are given 'clown'
+  -- explicitly in worker.js as of 2026-09-22 (column default below is
+  -- stale/unused — changing it would require a CHECK-constraint table
+  -- rebuild, which D1 blocks via mandatory foreign-key enforcement; not
+  -- worth 8 other tables' worth of risk for a default that's set at the
+  -- application layer anyway).
+  rank TEXT NOT NULL DEFAULT 'apprentice' CHECK (rank IN ('apprentice', 'journeyman', 'master', 'clown')),
   is_ringleader INTEGER NOT NULL DEFAULT 0,
   avatar_url TEXT,
   dues_paid INTEGER NOT NULL DEFAULT 0,
@@ -51,6 +57,16 @@ CREATE TABLE users (
   city TEXT,
   phone TEXT,
   instagram_handle TEXT,
+  -- Free-text onboarding fields (replaced a checkbox multi-select against
+  -- member_connections, which is still used elsewhere e.g. the Member
+  -- Network view — this just stopped being how onboarding populates it).
+  -- Added via migration 2026-09-22.
+  knows_who TEXT,
+  heard_about_us TEXT,
+  -- True for organization signups (a checkbox at signup / Members Hub, not
+  -- a rank tier) — display code shows "Organization" as their title instead
+  -- of their (otherwise-unused) rank. Added via migration 2026-09-22.
+  is_organization INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

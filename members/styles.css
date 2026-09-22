@@ -116,6 +116,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 }
 .auth-tab.active { background: var(--burgundy-red); border-color: var(--burgundy-red); color: var(--cream); }
 .auth-form { display: flex; flex-direction: column; gap: 1.1rem; }
+.auth-org-toggle {
+  display: flex; align-items: center; gap: 0.5rem; font-style: italic; font-size: 0.9rem;
+  color: var(--cream-soft); cursor: pointer; margin-bottom: 0.4rem;
+}
 .auth-field { display: flex; flex-direction: column; gap: 0.4rem; }
 .auth-field label {
   font-style: italic; font-size: 0.75rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold-deep);
@@ -316,6 +320,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   padding: 0.4rem 0.6rem; color: var(--cream); outline: none;
 }
 .admin-rank { font-weight: 600; }
+.org-badge {
+  font-style: italic; font-weight: 600; font-size: 0.85rem; color: var(--accent-3);
+  border: 1px solid var(--accent-3); border-radius: 3px; padding: 0.35rem 0.6rem;
+}
 .admin-dues-amount { width: 90px; }
 .admin-ringleader-toggle {
   display: flex; align-items: center; gap: 0.4rem; font-style: italic;
