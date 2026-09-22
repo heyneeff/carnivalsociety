@@ -62,12 +62,44 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   background-size: 110px 110px; background-repeat: repeat;
   opacity: 0.22;
 }
+.auth-edge-trumpet {
+  position: fixed; bottom: -6px; z-index: 2; pointer-events: none;
+  width: clamp(140px, 18vw, 260px);
+  filter: drop-shadow(0 4px 16px rgba(90,30,36,0.3));
+}
+.auth-edge-trumpet img { width: 100%; height: auto; display: block; }
+.trumpet-notes { position: absolute; top: 2%; width: 1px; height: 1px; }
+.trumpet-notes-left { left: auto; right: -20px; }
+.trumpet-notes-right { right: auto; left: -20px; }
+.tnote {
+  position: absolute; top: 0; left: 0; font-size: 1.1rem; color: var(--gold-bright);
+  opacity: 0; animation: tnoteFall 2.1s ease-in infinite;
+}
+@keyframes tnoteFall {
+  0%   { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.6); }
+  12%  { opacity: 1; transform: translate(calc(var(--dx) * 0.3), -6px) rotate(0deg) scale(0.9); }
+  100% { opacity: 0; transform: translate(var(--dx), 60px) rotate(var(--rot)) scale(1); }
+}
+@media (max-width: 720px) { .trumpet-notes { display: none; } }
+.auth-edge-trumpet.left { left: 6vw; transform-origin: 15% 100%; animation: authTrumpetPlayLeft 1.1s ease-in-out infinite; }
+.auth-edge-trumpet.right { right: 6vw; transform-origin: 85% 100%; animation: authTrumpetPlayRight 1.1s ease-in-out infinite 0.35s; }
+@keyframes authTrumpetPlayLeft {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  30%      { transform: rotate(-3deg) translateY(-4px); }
+  55%      { transform: rotate(2deg) translateY(1px); }
+}
+@keyframes authTrumpetPlayRight {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  30%      { transform: rotate(3deg) translateY(-4px); }
+  55%      { transform: rotate(-2deg) translateY(1px); }
+}
+@media (max-width: 720px) { .auth-edge-trumpet { display: none; } }
 .auth-panel {
   position: relative; z-index: 1;
   width: 100%; max-width: 420px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 4px; padding: 2.5rem 2.25rem;
 }
-.auth-logo { display: block; height: 90px; width: auto; margin: 0 auto 1rem; }
+.auth-logo { display: block; height: 160px; width: auto; max-width: 100%; margin: 0 auto 1rem; }
 .auth-panel h1 {
   font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600;
   font-size: 1.6rem; color: var(--gold-bright); text-align: center; margin-bottom: 0.4rem;
@@ -113,7 +145,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .hamburger-btn { display: none; }
 .nav-scrim { display: none; }
 .sidebar-mark { font-size: 1.15rem; text-align: center; }
-.sidebar-logo { display: block; height: 60px; width: auto; margin: 0 auto; }
+.sidebar-logo { display: block; height: 140px; width: auto; max-width: 100%; margin: 0 auto; }
 .sidebar-mark .crest-sub {
   display: block; font-family: 'Cormorant Garamond', serif; font-style: italic;
   font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold);
@@ -290,6 +322,15 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   font-size: 0.9rem; color: var(--gold); white-space: nowrap; cursor: pointer;
 }
 .admin-edit-btn { font-style: italic; font-size: 0.85rem; padding: 0.4rem 0.8rem; }
+
+/* Directory */
+.dir-contacts { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-left: auto; align-items: center; }
+.dir-contact-link {
+  font-style: italic; font-size: 0.9rem; color: var(--gold); text-decoration: none;
+  border-bottom: 1px solid transparent; transition: border-color 0.15s;
+}
+.dir-contact-link:hover { border-bottom-color: var(--gold); }
+.dir-contact-empty { font-style: italic; font-size: 0.85rem; color: var(--cream-soft); opacity: 0.7; }
 
 /* Members Hub edit modal */
 .admin-edit-overlay {

@@ -124,6 +124,22 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
 
   app.innerHTML = `
     <div class="auth-screen">
+      <div class="auth-edge-trumpet left" aria-hidden="true">
+        <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/Left%20trumpet.png" alt="">
+        <div class="trumpet-notes trumpet-notes-left">
+          <span class="tnote" style="--dx:18px; --rot:20deg; animation-delay:0s;">&#9834;</span>
+          <span class="tnote" style="--dx:-6px; --rot:-15deg; animation-delay:0.7s;">&#9835;</span>
+          <span class="tnote" style="--dx:12px; --rot:30deg; animation-delay:1.4s;">&#9834;</span>
+        </div>
+      </div>
+      <div class="auth-edge-trumpet right" aria-hidden="true">
+        <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/Right%20trumpet.png" alt="">
+        <div class="trumpet-notes trumpet-notes-right">
+          <span class="tnote" style="--dx:-18px; --rot:-20deg; animation-delay:0.35s;">&#9834;</span>
+          <span class="tnote" style="--dx:6px; --rot:15deg; animation-delay:1.05s;">&#9835;</span>
+          <span class="tnote" style="--dx:-12px; --rot:-30deg; animation-delay:1.75s;">&#9834;</span>
+        </div>
+      </div>
       <div class="auth-panel">
         <img class="auth-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
         <h1>Guild Hall</h1>
@@ -141,6 +157,18 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
           <div class="auth-field">
             <label for="homeChapter">Home Chapter</label>
             <select id="homeChapter" required>${chapterOptions}</select>
+          </div>
+          <div class="auth-field">
+            <label for="city">City</label>
+            <input type="text" id="city" required>
+          </div>
+          <div class="auth-field">
+            <label for="phone">Phone (optional)</label>
+            <input type="tel" id="phone">
+          </div>
+          <div class="auth-field">
+            <label for="instagram">Instagram (optional)</label>
+            <input type="text" id="instagram" placeholder="@handle">
           </div>` : ''}
           <div class="auth-field">
             <label for="email">Email</label>
@@ -167,10 +195,13 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
     if (mode === 'signup') {
       const displayName = document.getElementById('displayName').value.trim();
       const homeChapterId = document.getElementById('homeChapter').value;
+      const city = document.getElementById('city').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const instagram = document.getElementById('instagram').value.trim();
       try {
         const { user } = await apiFetch('/api/auth/signup', {
           method: 'POST',
-          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId },
+          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId, city, phone, instagram_handle: instagram },
         });
         session = true;
         profile = user;
@@ -304,6 +335,7 @@ function renderShell() {
           <div class="nav-group-label">Ringleader</div>
           <ul class="nav-list">
             <li><a class="nav-link ${route === 'new-signups' ? 'active' : ''}" href="#/new-signups">New Members${newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : ''}</a></li>
+            <li><a class="nav-link ${route === 'directory' ? 'active' : ''}" href="#/directory">Directory</a></li>
             <li><a class="nav-link ${route === 'admin' ? 'active' : ''}" href="#/admin">Members Hub</a></li>
             <li><a class="nav-link ${route === 'field' ? 'active' : ''}" href="#/field">Guild Map</a></li>
             <li><a class="nav-link ${route === 'projects' ? 'active' : ''}" href="#/projects">Projects</a></li>
@@ -352,6 +384,7 @@ function renderMainView(route) {
   if (route === 'events') { renderEventsView(mainView); return; }
   if (route === 'admin') { renderAdminView(mainView); return; }
   if (route === 'new-signups') { renderNewSignupsView(mainView); return; }
+  if (route === 'directory') { renderDirectoryView(mainView); return; }
   if (route === 'field') { renderFieldView(mainView); return; }
   if (route === 'projects') { renderProjectsView(mainView); return; }
   if (route === 'network') { renderNetworkView(mainView); return; }
@@ -957,8 +990,81 @@ const STEWARD_ROLES = [
   ['operations_finance_steward', 'Operations & Finance Steward'],
   ['carnival_director', 'Carnival Director'],
 ];
-let adminSortKey = 'name';
-let adminSearchQuery = '';
+const DIRECTORY_SORTS = {
+  name: { label: 'Name', cmp: (a, b) => a.display_name.localeCompare(b.display_name) },
+  chapter: { label: 'Chapter', cmp: (a, b) => (a.home_chapter?.name || '￿').localeCompare(b.home_chapter?.name || '￿') || a.display_name.localeCompare(b.display_name) },
+  city: { label: 'City', cmp: (a, b) => (a.city || '￿').localeCompare(b.city || '￿') || a.display_name.localeCompare(b.display_name) },
+};
+let directoryMembersCache = [];
+let directorySortKey = 'name';
+let directorySearchQuery = '';
+
+// ── Directory — Ringleader-only, read-only contact list ────────────────
+async function renderDirectoryView(mainView) {
+  if (!profile?.is_ringleader) {
+    mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
+    return;
+  }
+  mainView.innerHTML = `<h2>Directory</h2><div class="placeholder-note">Loading…</div>`;
+
+  const { members } = await apiFetch('/api/members');
+  directoryMembersCache = members || [];
+
+  mainView.innerHTML = `
+    <h2>Directory</h2>
+    <p class="admin-note">Every member's contact info, at a glance.</p>
+    <div class="admin-toolbar">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search name, city, chapter…" value="${escapeHtml(directorySearchQuery)}">
+      <label class="admin-sort-control">Sort by
+        <select id="dirSortSelect">
+          ${Object.entries(DIRECTORY_SORTS).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+    <div class="admin-list" id="directoryList"></div>
+  `;
+
+  document.getElementById('dirSortSelect').addEventListener('change', e => {
+    directorySortKey = e.target.value;
+    renderDirectoryRows();
+  });
+  document.getElementById('dirSearchInput').addEventListener('input', e => {
+    directorySearchQuery = e.target.value;
+    renderDirectoryRows();
+  });
+
+  renderDirectoryRows();
+}
+
+function renderDirectoryRows() {
+  const list = document.getElementById('directoryList');
+  if (!list) return;
+
+  const q = directorySearchQuery.trim().toLowerCase();
+  const filtered = directoryMembersCache.filter(m =>
+    !q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q)
+  );
+  const sorted = [...filtered].sort(DIRECTORY_SORTS[directorySortKey].cmp);
+
+  list.innerHTML = sorted.map(m => {
+    const hasRealEmail = m.email && !m.email.endsWith('@crew.local');
+    const igHandle = m.instagram_handle ? m.instagram_handle.replace(/^@/, '') : '';
+    return `
+    <div class="admin-row" style="border-left-color: ${rankColor(m.rank)};">
+      <div class="admin-identity">
+        <div class="admin-name">${escapeHtml(m.display_name)}</div>
+        <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</div>
+      </div>
+      <div class="dir-contacts">
+        ${hasRealEmail ? `<a class="dir-contact-link" href="mailto:${escapeHtml(m.email)}">${escapeHtml(m.email)}</a>` : '<span class="dir-contact-empty">No email on file</span>'}
+        ${m.phone ? `<a class="dir-contact-link" href="tel:${escapeHtml(m.phone)}">${escapeHtml(m.phone)}</a>` : ''}
+        ${igHandle ? `<a class="dir-contact-link" href="https://instagram.com/${encodeURIComponent(igHandle)}" target="_blank" rel="noopener">@${escapeHtml(igHandle)}</a>` : ''}
+      </div>
+    </div>
+  `; }).join('') || '<div class="placeholder-note">No members match.</div>';
+}
+
+
 let adminMembersCache = [];
 
 // ── New Members — signup notifications, Ringleaders only ───────────────
@@ -1029,6 +1135,9 @@ async function renderAdminView(mainView) {
           ${chapters.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
         </select>
       </div>
+      <div class="field-row"><label>City</label><input type="text" id="nmCity" placeholder="Optional"></div>
+      <div class="field-row"><label>Phone</label><input type="tel" id="nmPhone" placeholder="Optional"></div>
+      <div class="field-row"><label>Instagram</label><input type="text" id="nmInstagram" placeholder="@handle — optional"></div>
       <p class="admin-note">Give them the email and password directly — that's how they'll sign in.</p>
       <div class="form-actions">
         <button class="composer-submit" id="nmCreateBtn">Add</button>
@@ -1058,7 +1167,13 @@ async function renderAdminView(mainView) {
     try {
       await apiFetch('/api/members', {
         method: 'POST',
-        body: { display_name, email, password, home_chapter_id: document.getElementById('nmChapter').value || null },
+        body: {
+          display_name, email, password,
+          home_chapter_id: document.getElementById('nmChapter').value || null,
+          city: document.getElementById('nmCity').value.trim() || null,
+          phone: document.getElementById('nmPhone').value.trim() || null,
+          instagram_handle: document.getElementById('nmInstagram').value.trim() || null,
+        },
       });
     } catch (e) {
       alert(`Couldn't add member: ${e.message}`);
@@ -1167,6 +1282,9 @@ function openAdminEditModal(mainView, userId) {
         </div>
         <div class="field-row"><label>Birthday</label><input type="date" id="aeBirthday" value="${escapeHtml(member.birthday || '')}"></div>
         <div class="field-row"><label>Skills</label><input type="text" id="aeSkills" placeholder="e.g. rigging, sound, first aid" value="${escapeHtml(member.skills || '')}"></div>
+        <div class="field-row"><label>City</label><input type="text" id="aeCity" value="${escapeHtml(member.city || '')}"></div>
+        <div class="field-row"><label>Phone</label><input type="tel" id="aePhone" value="${escapeHtml(member.phone || '')}"></div>
+        <div class="field-row"><label>Instagram</label><input type="text" id="aeInstagram" placeholder="@handle" value="${escapeHtml(member.instagram_handle || '')}"></div>
         <div class="field-row"><label>Email</label><input type="email" id="aeEmail" value="${escapeHtml(member.email && !member.email.endsWith('@crew.local') ? member.email : '')}" placeholder="${member.email && member.email.endsWith('@crew.local') ? 'No real email on file yet — add one' : ''}"></div>
         <div class="field-row"><label>Set New Password</label><input type="password" id="aePassword" minlength="6" placeholder="Leave blank to keep current"></div>
       </div>
@@ -1191,6 +1309,9 @@ function openAdminEditModal(mainView, userId) {
       steward_role: overlay.querySelector('#aeSteward').value || null,
       birthday: overlay.querySelector('#aeBirthday').value || null,
       skills: overlay.querySelector('#aeSkills').value.trim() || null,
+      city: overlay.querySelector('#aeCity').value.trim() || null,
+      phone: overlay.querySelector('#aePhone').value.trim() || null,
+      instagram_handle: overlay.querySelector('#aeInstagram').value.trim() || null,
     };
     const newEmail = overlay.querySelector('#aeEmail').value.trim();
     if (newEmail) body.email = newEmail;

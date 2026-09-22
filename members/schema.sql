@@ -45,6 +45,12 @@ CREATE TABLE users (
   -- to find unseen signups (see /api/admin/new-signups in worker.js). Added via
   -- migration on 2026-09-22 — not part of the original CREATE TABLE on prod.
   signups_seen_at TEXT,
+  -- Directory contact fields, added via migration on 2026-09-22. city is
+  -- required at signup (enforced in worker.js, not here); phone and
+  -- instagram_handle are always optional.
+  city TEXT,
+  phone TEXT,
+  instagram_handle TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
