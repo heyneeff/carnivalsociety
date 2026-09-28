@@ -1086,6 +1086,8 @@ function renderDirectoryRows() {
 
 
 let adminMembersCache = [];
+let adminSortKey = 'name';
+let adminSearchQuery = '';
 
 // ── New Members — signup notifications, Ringleaders only ───────────────
 async function renderNewSignupsView(mainView) {
