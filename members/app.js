@@ -1052,23 +1052,33 @@ function renderDirectoryRows() {
 
   const q = directorySearchQuery.trim().toLowerCase();
   const filtered = directoryMembersCache.filter(m =>
-    !q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q)
+    !q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q) || (m.skills || '').toLowerCase().includes(q)
   );
   const sorted = [...filtered].sort(DIRECTORY_SORTS[directorySortKey].cmp);
 
   list.innerHTML = sorted.map(m => {
     const hasRealEmail = m.email && !m.email.endsWith('@crew.local');
     const igHandle = m.instagram_handle ? m.instagram_handle.replace(/^@/, '') : '';
+    const metaRows = [
+      m.skills ? ['Skills', m.skills] : null,
+      m.birthday ? ['Birthday', m.birthday] : null,
+      m.knows_who ? ['Knows', m.knows_who] : null,
+      m.heard_about_us ? ['Heard about us via', m.heard_about_us] : null,
+    ].filter(Boolean);
     return `
-    <div class="admin-row" style="border-left-color: ${memberDisplayColor(m)};">
+    <div class="admin-row dir-row" style="border-left-color: ${memberDisplayColor(m)};">
       <div class="admin-identity">
-        <div class="admin-name">${escapeHtml(m.display_name)}${m.is_organization ? ` <span class="org-badge">Organization</span>` : ''}</div>
+        <div class="admin-name">
+          ${escapeHtml(m.display_name)}
+          ${m.is_organization ? `<span class="org-badge">Organization</span>` : `<span class="dir-rank-tag" style="color:${rankColor(m.rank)};border-color:${rankColor(m.rank)};">${rankLabel(m.rank)}</span>`}
+        </div>
         <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</div>
-      </div>
-      <div class="dir-contacts">
-        ${hasRealEmail ? `<a class="dir-contact-link" href="mailto:${escapeHtml(m.email)}">${escapeHtml(m.email)}</a>` : '<span class="dir-contact-empty">No email on file</span>'}
-        ${m.phone ? `<a class="dir-contact-link" href="tel:${escapeHtml(m.phone)}">${escapeHtml(m.phone)}</a>` : ''}
-        ${igHandle ? `<a class="dir-contact-link" href="https://instagram.com/${encodeURIComponent(igHandle)}" target="_blank" rel="noopener">@${escapeHtml(igHandle)}</a>` : ''}
+        <div class="dir-contacts">
+          ${hasRealEmail ? `<a class="dir-contact-link" href="mailto:${escapeHtml(m.email)}">${escapeHtml(m.email)}</a>` : '<span class="dir-contact-empty">No email on file</span>'}
+          ${m.phone ? `<a class="dir-contact-link" href="tel:${escapeHtml(m.phone)}">${escapeHtml(m.phone)}</a>` : ''}
+          ${igHandle ? `<a class="dir-contact-link" href="https://instagram.com/${encodeURIComponent(igHandle)}" target="_blank" rel="noopener">@${escapeHtml(igHandle)}</a>` : ''}
+        </div>
+        ${metaRows.length ? `<div class="dir-meta">${metaRows.map(([label, value]) => `<div class="dir-meta-row"><span class="dir-meta-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`).join('')}</div>` : ''}
       </div>
     </div>
   `; }).join('') || '<div class="placeholder-note">No members match.</div>';

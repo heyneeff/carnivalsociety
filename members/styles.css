@@ -313,7 +313,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
   transition: border-left-color 0.15s;
 }
 .admin-identity { flex: 1; min-width: 140px; }
-.admin-name { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--cream); }
+.admin-name { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--cream); display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
 .admin-chapter { font-style: italic; font-size: 0.85rem; color: var(--cream-soft); }
 .admin-rank, .admin-dues-amount, .admin-dues-date {
   background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
@@ -332,13 +332,21 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .admin-edit-btn { font-style: italic; font-size: 0.85rem; padding: 0.4rem 0.8rem; }
 
 /* Directory */
-.dir-contacts { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-left: auto; align-items: center; }
+.admin-row.dir-row { align-items: flex-start; }
+.dir-rank-tag {
+  font-style: italic; font-size: 0.72rem; padding: 0.15rem 0.5rem; border: 1px solid;
+  border-radius: 3px; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.dir-contacts { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: center; margin-top: 0.35rem; }
 .dir-contact-link {
   font-style: italic; font-size: 0.9rem; color: var(--gold); text-decoration: none;
   border-bottom: 1px solid transparent; transition: border-color 0.15s;
 }
 .dir-contact-link:hover { border-bottom-color: var(--gold); }
 .dir-contact-empty { font-style: italic; font-size: 0.85rem; color: var(--cream-soft); opacity: 0.7; }
+.dir-meta { display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.dir-meta-row { font-size: 0.85rem; color: var(--cream-soft); line-height: 1.4; }
+.dir-meta-label { color: var(--gold-deep); font-style: italic; }
 
 /* Members Hub edit modal */
 .admin-edit-overlay {
