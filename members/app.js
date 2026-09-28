@@ -341,9 +341,7 @@ function renderShell() {
         <div>
           <div class="nav-group-label">Ringleader</div>
           <ul class="nav-list">
-            <li><a class="nav-link ${route === 'new-signups' ? 'active' : ''}" href="#/new-signups">New Members${newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : ''}</a></li>
-            <li><a class="nav-link ${route === 'directory' ? 'active' : ''}" href="#/directory">Directory</a></li>
-            <li><a class="nav-link ${route === 'admin' ? 'active' : ''}" href="#/admin">Members Hub</a></li>
+            <li><a class="nav-link ${route === 'directory' ? 'active' : ''}" href="#/directory">Directory${newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : ''}</a></li>
             <li><a class="nav-link ${route === 'field' ? 'active' : ''}" href="#/field">Guild Map</a></li>
             <li><a class="nav-link ${route === 'projects' ? 'active' : ''}" href="#/projects">Projects</a></li>
             <li><a class="nav-link ${route === 'network' ? 'active' : ''}" href="#/network">Member Network</a></li>
@@ -389,8 +387,6 @@ function renderMainView(route) {
   if (route === 'dm') { renderDMListView(mainView); return; }
   if (route.startsWith('dm/')) { renderDMThreadView(mainView, route.slice(3)); return; }
   if (route === 'events') { renderEventsView(mainView); return; }
-  if (route === 'admin') { renderAdminView(mainView); return; }
-  if (route === 'new-signups') { renderNewSignupsView(mainView); return; }
   if (route === 'directory') { renderDirectoryView(mainView); return; }
   if (route === 'field') { renderFieldView(mainView); return; }
   if (route === 'projects') { renderProjectsView(mainView); return; }
@@ -984,12 +980,6 @@ function memberDisplayColor(m) { return m.is_organization ? ORGANIZATION_COLOR :
 function memberWeight(m) {
   return (m.is_ringleader ? 10 : 0) + RANK_ORDER[m.rank];
 }
-const ADMIN_SORTS = {
-  name: { label: 'Name', cmp: (a, b) => a.display_name.localeCompare(b.display_name) },
-  rank: { label: 'Rank', cmp: (a, b) => memberWeight(b) - memberWeight(a) || a.display_name.localeCompare(b.display_name) },
-  chapter: { label: 'Chapter', cmp: (a, b) => (a.home_chapter?.name || '￿').localeCompare(b.home_chapter?.name || '￿') || a.display_name.localeCompare(b.display_name) },
-  dues: { label: 'Dues status', cmp: (a, b) => (b.dues_paid - a.dues_paid) || a.display_name.localeCompare(b.display_name) },
-};
 const STEWARD_ROLES = [
   ['founder_steward', 'Founder Steward'],
   ['systems_steward', 'Systems Steward'],
@@ -1002,14 +992,22 @@ const STEWARD_ROLES = [
 ];
 const DIRECTORY_SORTS = {
   name: { label: 'Name', cmp: (a, b) => a.display_name.localeCompare(b.display_name) },
+  rank: { label: 'Rank', cmp: (a, b) => memberWeight(b) - memberWeight(a) || a.display_name.localeCompare(b.display_name) },
   chapter: { label: 'Chapter', cmp: (a, b) => (a.home_chapter?.name || '￿').localeCompare(b.home_chapter?.name || '￿') || a.display_name.localeCompare(b.display_name) },
   city: { label: 'City', cmp: (a, b) => (a.city || '￿').localeCompare(b.city || '￿') || a.display_name.localeCompare(b.display_name) },
+  dues: { label: 'Dues status', cmp: (a, b) => (b.dues_paid - a.dues_paid) || a.display_name.localeCompare(b.display_name) },
 };
 let directoryMembersCache = [];
 let directorySortKey = 'name';
 let directorySearchQuery = '';
+let directoryNewIds = new Set();
 
-// ── Directory — Ringleader-only, read-only contact list ────────────────
+// ── Directory — Ringleader-only member directory + management ──────────
+// Folds together what used to be three separate pages: contact info (was
+// a read-only "Directory"), rank/dues/edit management (was "Members Hub"),
+// and new-signup notifications (was "New Members" — recent signups per
+// /api/admin/new-signups get a "New" tag here, and viewing the Directory
+// is what clears that notification bell).
 async function renderDirectoryView(mainView) {
   if (!profile?.is_ringleader) {
     mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
@@ -1017,132 +1015,21 @@ async function renderDirectoryView(mainView) {
   }
   mainView.innerHTML = `<h2>Directory</h2><div class="placeholder-note">Loading…</div>`;
 
-  const { members } = await apiFetch('/api/members');
+  const [{ members }, { members: newSignups }] = await Promise.all([
+    apiFetch('/api/members'),
+    apiFetch('/api/admin/new-signups'),
+  ]);
   directoryMembersCache = members || [];
+  directoryNewIds = new Set((newSignups || []).map(m => m.id));
 
   mainView.innerHTML = `
     <h2>Directory</h2>
-    <p class="admin-note">Every member's contact info, at a glance.</p>
+    <p class="admin-note">Every member of the guild — contact info and management, in one place. Changes save immediately.${directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
     <div class="admin-toolbar">
-      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search name, city, chapter…" value="${escapeHtml(directorySearchQuery)}">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search name, city, chapter, skills…" value="${escapeHtml(directorySearchQuery)}">
       <label class="admin-sort-control">Sort by
         <select id="dirSortSelect">
           ${Object.entries(DIRECTORY_SORTS).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
-        </select>
-      </label>
-    </div>
-    <div class="admin-list" id="directoryList"></div>
-  `;
-
-  document.getElementById('dirSortSelect').addEventListener('change', e => {
-    directorySortKey = e.target.value;
-    renderDirectoryRows();
-  });
-  document.getElementById('dirSearchInput').addEventListener('input', e => {
-    directorySearchQuery = e.target.value;
-    renderDirectoryRows();
-  });
-
-  renderDirectoryRows();
-}
-
-function renderDirectoryRows() {
-  const list = document.getElementById('directoryList');
-  if (!list) return;
-
-  const q = directorySearchQuery.trim().toLowerCase();
-  const filtered = directoryMembersCache.filter(m =>
-    !q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q) || (m.skills || '').toLowerCase().includes(q)
-  );
-  const sorted = [...filtered].sort(DIRECTORY_SORTS[directorySortKey].cmp);
-
-  list.innerHTML = sorted.map(m => {
-    const hasRealEmail = m.email && !m.email.endsWith('@crew.local');
-    const igHandle = m.instagram_handle ? m.instagram_handle.replace(/^@/, '') : '';
-    const metaRows = [
-      m.skills ? ['Skills', m.skills] : null,
-      m.birthday ? ['Birthday', m.birthday] : null,
-      m.knows_who ? ['Knows', m.knows_who] : null,
-      m.heard_about_us ? ['Heard about us via', m.heard_about_us] : null,
-    ].filter(Boolean);
-    return `
-    <div class="admin-row dir-row" style="border-left-color: ${memberDisplayColor(m)};">
-      <div class="admin-identity">
-        <div class="admin-name">
-          ${escapeHtml(m.display_name)}
-          ${m.is_organization ? `<span class="org-badge">Organization</span>` : `<span class="dir-rank-tag" style="color:${rankColor(m.rank)};border-color:${rankColor(m.rank)};">${rankLabel(m.rank)}</span>`}
-        </div>
-        <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</div>
-        <div class="dir-contacts">
-          ${hasRealEmail ? `<a class="dir-contact-link" href="mailto:${escapeHtml(m.email)}">${escapeHtml(m.email)}</a>` : '<span class="dir-contact-empty">No email on file</span>'}
-          ${m.phone ? `<a class="dir-contact-link" href="tel:${escapeHtml(m.phone)}">${escapeHtml(m.phone)}</a>` : ''}
-          ${igHandle ? `<a class="dir-contact-link" href="https://instagram.com/${encodeURIComponent(igHandle)}" target="_blank" rel="noopener">@${escapeHtml(igHandle)}</a>` : ''}
-        </div>
-        ${metaRows.length ? `<div class="dir-meta">${metaRows.map(([label, value]) => `<div class="dir-meta-row"><span class="dir-meta-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`).join('')}</div>` : ''}
-      </div>
-    </div>
-  `; }).join('') || '<div class="placeholder-note">No members match.</div>';
-}
-
-
-let adminMembersCache = [];
-let adminSortKey = 'name';
-let adminSearchQuery = '';
-
-// ── New Members — signup notifications, Ringleaders only ───────────────
-async function renderNewSignupsView(mainView) {
-  if (!profile?.is_ringleader) {
-    mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
-    return;
-  }
-  mainView.innerHTML = `<h2>New Members</h2><div class="placeholder-note">Loading…</div>`;
-
-  const { members } = await apiFetch('/api/admin/new-signups');
-
-  mainView.innerHTML = `
-    <h2>New Members</h2>
-    <p class="admin-note">Everyone who's joined the guild since you last checked.</p>
-    <div class="admin-list">
-      ${(members || []).map(m => `
-        <div class="admin-row">
-          <div class="admin-identity">
-            <div class="admin-name">${escapeHtml(m.display_name)}</div>
-            <div class="admin-chapter">${escapeHtml(m.email)}${m.home_chapter ? ` · ${escapeHtml(m.home_chapter.name)}` : ''} · ${timeAgo(m.created_at)}</div>
-          </div>
-        </div>
-      `).join('') || '<div class="placeholder-note">No new signups since you last checked.</div>'}
-    </div>
-  `;
-
-  // Viewing this page is what clears the bell — mark seen now that it's rendered.
-  if ((members || []).length) {
-    try {
-      await apiFetch('/api/admin/new-signups/seen', { method: 'POST' });
-      newSignupsCount = 0;
-      const badge = document.querySelector('.nav-badge');
-      if (badge) badge.remove();
-    } catch (e) { /* badge just won't clear until next load */ }
-  }
-}
-
-async function renderAdminView(mainView) {
-  if (!profile?.is_ringleader) {
-    mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
-    return;
-  }
-  mainView.innerHTML = `<h2>Members Hub</h2><div class="placeholder-note">Loading…</div>`;
-
-  const { members } = await apiFetch('/api/members');
-  adminMembersCache = members || [];
-
-  mainView.innerHTML = `
-    <h2>Members Hub</h2>
-    <p class="admin-note">Every member of the guild. Changes save immediately.</p>
-    <div class="admin-toolbar">
-      <input type="text" id="adminSearchInput" class="admin-search" placeholder="Search members…" value="${escapeHtml(adminSearchQuery)}">
-      <label class="admin-sort-control">Sort by
-        <select id="adminSortSelect">
-          ${Object.entries(ADMIN_SORTS).map(([key, s]) => `<option value="${key}" ${key === adminSortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
         </select>
       </label>
       <button class="gm-btn" id="newMemberToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add Member</button>
@@ -1170,17 +1057,16 @@ async function renderAdminView(mainView) {
         <button class="gm-btn" id="nmCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
       </div>
     </div>
-    <div class="admin-list" id="adminList"></div>
+    <div class="admin-list" id="directoryList"></div>
   `;
 
-  document.getElementById('adminSortSelect').addEventListener('change', e => {
-    adminSortKey = e.target.value;
-    renderAdminRows(mainView);
+  document.getElementById('dirSortSelect').addEventListener('change', e => {
+    directorySortKey = e.target.value;
+    renderDirectoryRows();
   });
-
-  document.getElementById('adminSearchInput').addEventListener('input', e => {
-    adminSearchQuery = e.target.value;
-    renderAdminRows(mainView);
+  document.getElementById('dirSearchInput').addEventListener('input', e => {
+    directorySearchQuery = e.target.value;
+    renderDirectoryRows();
   });
 
   document.getElementById('newMemberToggleBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.toggle('open'));
@@ -1206,65 +1092,96 @@ async function renderAdminView(mainView) {
       alert(`Couldn't add member: ${e.message}`);
       return;
     }
-    renderAdminView(mainView);
+    renderDirectoryView(mainView);
   });
 
-  renderAdminRows(mainView);
+  renderDirectoryRows();
+
+  // Viewing the Directory is what clears the bell — mark seen now that it's rendered.
+  if (directoryNewIds.size) {
+    try {
+      await apiFetch('/api/admin/new-signups/seen', { method: 'POST' });
+      newSignupsCount = 0;
+      const badge = document.querySelector('.nav-badge');
+      if (badge) badge.remove();
+    } catch (e) { /* badge just won't clear until next load */ }
+  }
 }
 
-function renderAdminRows(mainView) {
-  const list = document.getElementById('adminList');
+function renderDirectoryRows() {
+  const list = document.getElementById('directoryList');
   if (!list) return;
 
-  const q = adminSearchQuery.trim().toLowerCase();
-  const filtered = adminMembersCache.filter(m =>
-    !q || m.display_name.toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q)
+  const q = directorySearchQuery.trim().toLowerCase();
+  const filtered = directoryMembersCache.filter(m =>
+    !q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q) || (m.skills || '').toLowerCase().includes(q)
   );
-  const sorted = [...filtered].sort(ADMIN_SORTS[adminSortKey].cmp);
+  const sorted = [...filtered].sort(DIRECTORY_SORTS[directorySortKey].cmp);
 
-  list.innerHTML = sorted.map(m => `
-    <div class="admin-row" data-user-id="${m.id}" style="border-left-color: ${memberDisplayColor(m)};">
+  list.innerHTML = sorted.map(m => {
+    const hasRealEmail = m.email && !m.email.endsWith('@crew.local');
+    const igHandle = m.instagram_handle ? m.instagram_handle.replace(/^@/, '') : '';
+    const metaRows = [
+      m.skills ? ['Skills', m.skills] : null,
+      m.birthday ? ['Birthday', m.birthday] : null,
+      m.knows_who ? ['Knows', m.knows_who] : null,
+      m.heard_about_us ? ['Heard about us via', m.heard_about_us] : null,
+    ].filter(Boolean);
+    return `
+    <div class="admin-row dir-row" data-user-id="${m.id}" style="border-left-color: ${memberDisplayColor(m)};">
       <div class="admin-identity">
-        <div class="admin-name">${escapeHtml(m.display_name)}</div>
-        <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}</div>
+        <div class="admin-name">
+          ${escapeHtml(m.display_name)}
+          ${m.is_organization ? `<span class="org-badge">Organization</span>` : `<span class="dir-rank-tag" style="color:${rankColor(m.rank)};border-color:${rankColor(m.rank)};">${rankLabel(m.rank)}</span>`}
+          ${directoryNewIds.has(m.id) ? `<span class="dir-new-tag">New</span>` : ''}
+        </div>
+        <div class="admin-chapter">${m.home_chapter ? escapeHtml(m.home_chapter.name) : 'No chapter'}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</div>
+        <div class="dir-contacts">
+          ${hasRealEmail ? `<a class="dir-contact-link" href="mailto:${escapeHtml(m.email)}">${escapeHtml(m.email)}</a>` : '<span class="dir-contact-empty">No email on file</span>'}
+          ${m.phone ? `<a class="dir-contact-link" href="tel:${escapeHtml(m.phone)}">${escapeHtml(m.phone)}</a>` : ''}
+          ${igHandle ? `<a class="dir-contact-link" href="https://instagram.com/${encodeURIComponent(igHandle)}" target="_blank" rel="noopener">@${escapeHtml(igHandle)}</a>` : ''}
+        </div>
+        ${metaRows.length ? `<div class="dir-meta">${metaRows.map(([label, value]) => `<div class="dir-meta-row"><span class="dir-meta-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`).join('')}</div>` : ''}
       </div>
-      ${m.is_organization
-        ? `<span class="org-badge">Organization</span>`
-        : `<select class="admin-rank" data-field="rank" style="color: ${rankColor(m.rank)};">
-             ${RANKS.map(r => `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${rankLabel(r)}</option>`).join('')}
-           </select>`}
-      <label class="admin-ringleader-toggle">
-        <input type="checkbox" data-field="is_organization" ${m.is_organization ? 'checked' : ''}>
-        Organization
-      </label>
-      <label class="admin-ringleader-toggle">
-        <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
-        Ringleader
-      </label>
-      <label class="admin-ringleader-toggle">
-        <input type="checkbox" data-field="dues_paid" ${m.dues_paid ? 'checked' : ''}>
-        Dues Paid
-      </label>
-      <input type="text" class="admin-dues-amount" data-field="dues_amount" placeholder="Amount" value="${escapeHtml(m.dues_amount || '')}">
-      <input type="date" class="admin-dues-date" data-field="dues_date" value="${escapeHtml(m.dues_date || '')}">
-      <button class="gm-btn admin-edit-btn" data-edit="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
+      <div class="dir-manage">
+        ${m.is_organization
+          ? `<span class="org-badge">Organization</span>`
+          : `<select class="admin-rank" data-field="rank" style="color: ${rankColor(m.rank)};">
+               ${RANKS.map(r => `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${rankLabel(r)}</option>`).join('')}
+             </select>`}
+        <label class="admin-ringleader-toggle">
+          <input type="checkbox" data-field="is_organization" ${m.is_organization ? 'checked' : ''}>
+          Organization
+        </label>
+        <label class="admin-ringleader-toggle">
+          <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
+          Ringleader
+        </label>
+        <label class="admin-ringleader-toggle">
+          <input type="checkbox" data-field="dues_paid" ${m.dues_paid ? 'checked' : ''}>
+          Dues Paid
+        </label>
+        <input type="text" class="admin-dues-amount" data-field="dues_amount" placeholder="Amount" value="${escapeHtml(m.dues_amount || '')}">
+        <input type="date" class="admin-dues-date" data-field="dues_date" value="${escapeHtml(m.dues_date || '')}">
+        <button class="gm-btn admin-edit-btn" data-edit="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
+      </div>
     </div>
-  `).join('') || '<div class="placeholder-note">No members match.</div>';
+  `; }).join('') || '<div class="placeholder-note">No members match.</div>';
 
   list.querySelectorAll('.admin-edit-btn').forEach(btn => {
-    btn.addEventListener('click', () => openAdminEditModal(mainView, btn.dataset.edit));
+    btn.addEventListener('click', () => openMemberEditModal(btn.dataset.edit));
   });
 
-  list.querySelectorAll('.admin-row').forEach(row => {
+  list.querySelectorAll('.dir-row').forEach(row => {
     const userId = row.dataset.userId;
-    const member = adminMembersCache.find(m => m.id === userId);
+    const member = directoryMembersCache.find(m => m.id === userId);
 
     const patchField = async (field, value) => {
       try {
         await apiFetch(`/api/members/${userId}`, { method: 'PATCH', body: { [field]: value } });
       } catch (e) {
         alert(`Couldn't save: ${e.message}`);
-        renderAdminRows(mainView);
+        renderDirectoryRows();
         return;
       }
       member[field] = value;
@@ -1274,9 +1191,9 @@ function renderAdminRows(mainView) {
         const rankSelect = row.querySelector('[data-field="rank"]');
         if (rankSelect) rankSelect.style.color = rankColor(value);
       }
-      if (field === 'is_organization') { renderAdminRows(mainView); return; }
-      const affectsSort = (adminSortKey === 'rank' && (field === 'rank' || field === 'is_ringleader')) || (adminSortKey === 'dues' && field === 'dues_paid');
-      if (affectsSort) renderAdminRows(mainView);
+      if (field === 'is_organization') { renderDirectoryRows(); return; }
+      const affectsSort = (directorySortKey === 'rank' && (field === 'rank' || field === 'is_ringleader')) || (directorySortKey === 'dues' && field === 'dues_paid');
+      if (affectsSort) renderDirectoryRows();
     };
 
     row.querySelector('[data-field="rank"]')?.addEventListener('change', e => patchField('rank', e.target.value));
@@ -1288,8 +1205,9 @@ function renderAdminRows(mainView) {
   });
 }
 
-function openAdminEditModal(mainView, userId) {
-  const member = adminMembersCache.find(m => m.id === userId);
+
+function openMemberEditModal(userId) {
+  const member = directoryMembersCache.find(m => m.id === userId);
   if (!member) return;
 
   const overlay = document.createElement('div');
@@ -1365,7 +1283,7 @@ function openAdminEditModal(mainView, userId) {
     member.home_chapter = body.home_chapter_id ? { name: chapters.find(c => c.id === body.home_chapter_id)?.name } : null;
     if (userId === profile.id) { await refreshProfile(); renderShell(); }
     close();
-    renderAdminRows(mainView);
+    renderDirectoryRows();
   });
 }
 
@@ -2137,7 +2055,7 @@ Local roster for the guild. Full role definitions (function, authority, limits) 
 | Operations & Finance Steward | *(open)* |
 | Carnival Director | *(open)* |
 
-Live member roster and dues status: see **Members Hub**.` },
+Live member roster and dues status: see **Directory**.` },
 ];
 
 // Small markdown → HTML renderer — headers, bold/italic, lists, simple pipe
