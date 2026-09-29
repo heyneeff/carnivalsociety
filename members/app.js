@@ -1026,7 +1026,7 @@ async function renderDirectoryView(mainView) {
     <h2>Directory</h2>
     <p class="admin-note">Every member of the guild — contact info and management, in one place. Changes save immediately.${directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
     <div class="admin-toolbar">
-      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search name, city, chapter, skills…" value="${escapeHtml(directorySearchQuery)}">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search name, city, chapter, skills…" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="dir-search-${Date.now()}">
       <label class="admin-sort-control">Sort by
         <select id="dirSortSelect">
           ${Object.entries(DIRECTORY_SORTS).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
