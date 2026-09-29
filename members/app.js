@@ -2445,6 +2445,101 @@ Local roster for the guild. Full role definitions (function, authority, limits) 
 | Carnival Director | *(open)* |
 
 Live member roster and dues status: see **Directory**.` },
+
+  { id: 'bcorp-legal', title: 'Legal Structure', content: `# CSI Legal Structure
+
+*(Draft — decision pending, not yet acted on)*
+
+## Why This Exists Now
+
+The Charter closes with "Carnival Society International is a Guerrilla Concerto institution," but that line doesn't tell a venue who signs a contract, who carries insurance, or who gets paid. With Baker House (Oct 31) and Junkyard Social Club (Dec 26) both becoming real bookings, this stops being theoretical.
+
+## The Two Things People Mean by "B Corp"
+
+**Certified B Corporation** — a certification from B Lab, layered on top of *any* existing legal structure (LLC, standard corporation, nonprofit). Requires an online impact assessment and integrating stakeholder commitments into governing documents. Doesn't change what entity CSI is — it's a badge on top of one.
+
+**Benefit Corporation** — an actual legal entity type, available under Colorado law. Requires filing Articles of Incorporation stating a general public benefit, a Colorado registered agent, a board and bylaws, and ongoing operation toward that stated purpose alongside profit.
+
+A corporation can be both — neither requires the other.
+
+## Decision Made (2026-09-29)
+
+Lewis Neeff owns the B Corp outright. See **B Corp Roadmap** for the ordered path this leads to.
+
+## Open Question
+
+Is Guerrilla Concerto already a formal legal entity, or just a name? If incorporated, some roadmap steps shrink to "add a d/b/a." If not, CSI currently has no legal entity behind any booking.` },
+
+  { id: 'bcorp-roadmap', title: 'B Corp Roadmap', content: `# CSI B Corp Roadmap
+
+Decision made 2026-09-29: Lewis Neeff owns the B Corp outright. Ordered path from no legal entity to certified B Corp.
+
+## Phase 1 — Stand up the legal entity
+- Confirm Guerrilla Concerto's legal status (entity, sole prop, or name only)
+- Choose entity type: LLC or corporation
+- Pick and retain a Colorado registered agent (physical CO address, no PO box)
+- File formation documents with the Colorado Secretary of State
+- Get an EIN from the IRS
+- Open a real business bank account — this becomes the actual Carnival Operating Fund
+- Draft and adopt bylaws / operating agreement
+- Decide now whether to elect Colorado's benefit-corporation status at formation (cheap now, costly to amend later)
+
+## Phase 2 — Get certification-ready
+B Lab retired the old 200-point/80-point system. New submissions since March 2026 go on **V2 standards** — mandatory minimum requirements across 7 Impact Topics, sized to the company. Full breakdown: see **B Corp Assessment Prep**.
+- Run the B Impact Assessment on V2
+- Work through the Assessment Prep doc topic by topic
+- Amend governing documents to legally require considering stakeholder impact, not just profit — required at any size
+
+## Phase 3 — Certify
+- Submit for B Lab audit/review
+- Complete document review + disclosure questionnaire
+- Pay the certification fee (tiered by revenue)
+- Get certified; publish the badge
+- Note the Year 3 / Year 5 improvement milestones now — certification isn't one-and-done
+
+## Phase 4 — Operational cleanup (parallel, not blocking)
+- Reissue venue-facing contracts (Baker House, Junkyard) under the entity, not Lewis personally
+- Confirm general liability / event insurance under the entity
+- Update the Charter's closing line once the entity is real
+
+## Fork — The Long Game Reserve
+
+The Charter's Long Game fund builds toward land, water, and a permanent site "held in common." Once CSI is a company Lewis owns outright, that reserve legally belongs to the company, and the company belongs to him — "held in common" becomes a cultural promise, not a legal fact. Not a blocker now. Revisit once the reserve holds real money: either leave it inside the B Corp (held in trust by intent and reputation), or split it into a separate vehicle — a land trust or an actual chartered cooperative — that owns the land independent of who owns the operating company.` },
+
+  { id: 'bcorp-prep', title: 'B Corp Assessment Prep', content: `# CSI B Corp Assessment Prep
+
+B Lab replaced the old point-scored assessment with **V2 standards**: no point score, mandatory minimum requirements across 7 Impact Topics, sized to the company. CSI certifies on V2.
+
+## How V2 Works
+- Requirements tailored to company size and sector — a tiny live-events guild gets far fewer sub-requirements than a manufacturer (range across all companies: 20-124)
+- Year 0 to certify, then Year 3 and Year 5 requirements tighten over time — not one-and-done
+- One Legal Requirement applies regardless of size: governing documents must legally require considering stakeholder impact, not just shareholder profit
+
+## The 7 Topics, and Where CSI Stands
+
+**1. Purpose & Stakeholder Governance** — already close to a model answer. The Charter's Long Game section measures success by community capacity and land progress, explicitly not revenue. Needs: an explicit annual-review cadence stated in the Charter, and this language carried into real bylaws once the entity exists.
+
+**2. Fair Work** — Compensation & Support already reads like a real policy: explicit pay priority order, nothing owed unless agreed in advance. Needs: a paid-roster log once any money moves; an employee handbook only once anyone resembles an employee.
+
+**3. Justice, Equity, Diversity & Inclusion (JEDI)** — genuinely strong without being labeled as such: free membership, door-registration-as-membership, Allied Orgs bringing in whole communities. Needs: writing this down explicitly as a JEDI policy, and capturing any demographic data on who's actually attending.
+
+**4. Human Rights** — lightest lift. A one-line statement that partnerships won't proceed with orgs engaged in exploitative labor practices, plus citing the Participation Steward's existing halt authority.
+
+**5. Climate Action** — weakest documented area currently. Fix: start logging build/event travel now (see Event Impact Log).
+
+**6. Environmental Stewardship & Circularity** — partial. The Place & Living Systems Steward role exists on paper, unfilled. Fix: log material sourcing/reuse as it happens; fill the steward seat.
+
+**7. Government Affairs & Collective Action** — nearly free. No lobbying; the Allied Organization network itself counts as collective action once named as such.
+
+## Documents to Gather Before Submitting
+- Payroll register / roster of anyone paid, once money moves
+- Employee handbook (only once there's anyone resembling an employee)
+- List of significant suppliers/partners (venues, Allied Orgs)
+- The entity's actual bylaws
+
+## The Honest Summary
+
+CSI's existing governance writing already covers Purpose & Stakeholder Governance, Fair Work, and JEDI better than most companies starting from zero — a guild's worth of internal policy got written before certification was ever the goal. The real gaps are Climate Action and Environmental Stewardship, which need a small amount of new tracking, not new philosophy. Human Rights and Government Affairs are nearly free at this size.` },
 ];
 
 // Small markdown → HTML renderer — headers, bold/italic, lists, simple pipe
