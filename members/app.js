@@ -347,6 +347,7 @@ function renderShell() {
           <div class="nav-group-label">Ringleader</div>
           <ul class="nav-list">
             <li><a class="nav-link ${route === 'directory' ? 'active' : ''}" href="#/directory">Directory${newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : ''}</a></li>
+            <li><a class="nav-link ${route === 'impact' ? 'active' : ''}" href="#/impact">Impact Log</a></li>
             <li><a class="nav-link ${route === 'field' ? 'active' : ''}" href="#/field">Guild Map</a></li>
             <li><a class="nav-link ${route === 'projects' ? 'active' : ''}" href="#/projects">Projects</a></li>
             <li><a class="nav-link ${route === 'network' ? 'active' : ''}" href="#/network">Member Network</a></li>
@@ -393,6 +394,7 @@ function renderMainView(route) {
   if (route.startsWith('dm/')) { renderDMThreadView(mainView, route.slice(3)); return; }
   if (route === 'events') { renderEventsView(mainView); return; }
   if (route === 'directory') { renderDirectoryView(mainView); return; }
+  if (route === 'impact') { renderImpactView(mainView); return; }
   if (route === 'field') { renderFieldView(mainView); return; }
   if (route === 'projects') { renderProjectsView(mainView); return; }
   if (route === 'network') { renderNetworkView(mainView); return; }
@@ -1012,8 +1014,8 @@ const IMPACT_SORTS = {
 };
 let directoryMembersCache = [];
 let directoryVenuesCache = [];
-let directoryImpactCache = [];
-let directoryTab = 'individuals'; // 'individuals' | 'organizations' | 'venues' | 'impact'
+let directoryImpactCache = []; // shared with the standalone Impact Log page (renderImpactView)
+let directoryTab = 'individuals'; // 'individuals' | 'organizations' | 'venues'
 let directorySortKey = 'name';
 let directorySearchQuery = '';
 let directoryNewIds = new Set();
@@ -1033,16 +1035,14 @@ async function renderDirectoryView(mainView) {
   }
   mainView.innerHTML = `<h2>Directory</h2><div class="placeholder-note">Loading…</div>`;
 
-  const [{ members }, { members: newSignups }, { venues }, { logs }] = await Promise.all([
+  const [{ members }, { members: newSignups }, { venues }] = await Promise.all([
     apiFetch('/api/members'),
     apiFetch('/api/admin/new-signups'),
     apiFetch('/api/venues'),
-    apiFetch('/api/impact-logs'),
   ]);
   directoryMembersCache = members || [];
   directoryNewIds = new Set((newSignups || []).map(m => m.id));
   directoryVenuesCache = venues || [];
-  directoryImpactCache = logs || [];
 
   renderDirectoryBody(mainView);
 
@@ -1061,7 +1061,6 @@ const DIRECTORY_TABS = [
   ['individuals', 'Individuals'],
   ['organizations', 'Organizations'],
   ['venues', 'Venues'],
-  ['impact', 'Impact Log'],
 ];
 
 function switchDirectoryTab(mainView, tab) {
@@ -1073,18 +1072,15 @@ function switchDirectoryTab(mainView, tab) {
 
 function renderDirectoryBody(mainView) {
   const isVenues = directoryTab === 'venues';
-  const isImpact = directoryTab === 'impact';
-  const sorts = isVenues ? VENUE_SORTS : isImpact ? IMPACT_SORTS : DIRECTORY_SORTS;
-  const searchPlaceholder = isVenues ? 'Search name, city…' : isImpact ? 'Search event, venue…' : 'Search name, city, chapter, skills…';
-  const addLabel = isVenues ? '+ Add Venue' : isImpact ? '+ Log an Event' : '+ Add Member';
-  const noteText = isVenues ? 'Event spaces the guild works with.' : isImpact ? 'Travel, materials, and waste data per event — feeds the B Corp Climate Action and Environmental Stewardship topics.' : 'Every member of the guild — contact info and management, in one place.';
+  const sorts = isVenues ? VENUE_SORTS : DIRECTORY_SORTS;
+  const searchPlaceholder = isVenues ? 'Search name, city…' : 'Search name, city, chapter, skills…';
 
   mainView.innerHTML = `
     <h2>Directory</h2>
     <div class="crew-tabs">
       ${DIRECTORY_TABS.map(([key, label]) => `<button class="crew-tab tab-btn ${directoryTab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`).join('')}
     </div>
-    <p class="admin-note">${noteText} Changes save immediately.${!isVenues && !isImpact && directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
+    <p class="admin-note">${isVenues ? 'Event spaces the guild works with.' : 'Every member of the guild — contact info and management, in one place.'} Changes save immediately.${!isVenues && directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
     <div class="admin-toolbar">
       <input type="text" id="dirSearchInput" class="admin-search" placeholder="${searchPlaceholder}" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="dir-search-${Date.now()}">
       <label class="admin-sort-control">Sort by
@@ -1092,7 +1088,7 @@ function renderDirectoryBody(mainView) {
           ${Object.entries(sorts).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
         </select>
       </label>
-      <button class="gm-btn" id="dirAddToggleBtn" style="background:var(--surface);color:var(--cream);">${addLabel}</button>
+      <button class="gm-btn" id="dirAddToggleBtn" style="background:var(--surface);color:var(--cream);">${isVenues ? '+ Add Venue' : '+ Add Member'}</button>
     </div>
     ${isVenues ? `
     <div class="card new-project-form" id="dirAddForm">
@@ -1104,26 +1100,6 @@ function renderDirectoryBody(mainView) {
       <div class="field-row"><label>Contact Phone</label><input type="tel" id="vContactPhone" placeholder="Optional"></div>
       <div class="field-row"><label>Website</label><input type="text" id="vWebsite" placeholder="Optional"></div>
       <div class="field-row"><label>Notes</label><input type="text" id="vNotes" placeholder="Optional"></div>
-      <div class="form-actions">
-        <button class="composer-submit" id="dirAddCreateBtn">Add</button>
-        <button class="gm-btn" id="dirAddCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
-      </div>
-    </div>` : isImpact ? `
-    <div class="card new-project-form" id="dirAddForm">
-      <div class="field-row"><label>Date</label><input type="date" id="ilDate"></div>
-      <div class="field-row"><label>Event Name</label><input type="text" id="ilName" placeholder="e.g. Halloween Carnival"></div>
-      <div class="field-row"><label>Venue</label>
-        <select id="ilVenue">
-          <option value="">No venue on file</option>
-          ${directoryVenuesCache.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field-row"><label>Round-trip Travel (miles)</label><input type="number" step="0.1" id="ilMiles" placeholder="Optional"></div>
-      <div class="field-row"><label>Travel Mode</label><input type="text" id="ilMode" placeholder="e.g. van, personal cars — optional"></div>
-      <div class="field-row"><label>Material Sourcing</label><input type="text" id="ilMaterials" placeholder="e.g. donated wood + upcycled electronics"></div>
-      <div class="field-row"><label>Waste Generated</label><input type="text" id="ilWasteGen" placeholder="e.g. 2 bags — optional"></div>
-      <div class="field-row"><label>Waste Diverted</label><input type="text" id="ilWasteDiv" placeholder="e.g. all materials returned to storage for reuse"></div>
-      <div class="field-row"><label>Notes</label><input type="text" id="ilNotes" placeholder="Optional"></div>
       <div class="form-actions">
         <button class="composer-submit" id="dirAddCreateBtn">Add</button>
         <button class="gm-btn" id="dirAddCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
@@ -1197,34 +1173,6 @@ function renderDirectoryBody(mainView) {
       directoryVenuesCache = venues || [];
       renderDirectoryBody(mainView);
     });
-  } else if (isImpact) {
-    document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
-      const event_date = document.getElementById('ilDate').value;
-      const event_name = document.getElementById('ilName').value.trim();
-      if (!event_date || !event_name) { alert('Date and event name are required.'); return; }
-      try {
-        await apiFetch('/api/impact-logs', {
-          method: 'POST',
-          body: {
-            event_date,
-            event_name,
-            venue_id: document.getElementById('ilVenue').value || null,
-            travel_miles: document.getElementById('ilMiles').value ? Number(document.getElementById('ilMiles').value) : null,
-            travel_mode: document.getElementById('ilMode').value.trim() || null,
-            material_sourcing: document.getElementById('ilMaterials').value.trim() || null,
-            waste_generated: document.getElementById('ilWasteGen').value.trim() || null,
-            waste_diverted: document.getElementById('ilWasteDiv').value.trim() || null,
-            notes: document.getElementById('ilNotes').value.trim() || null,
-          },
-        });
-      } catch (e) {
-        alert(`Couldn't add log: ${e.message}`);
-        return;
-      }
-      const { logs } = await apiFetch('/api/impact-logs');
-      directoryImpactCache = logs || [];
-      renderDirectoryBody(mainView);
-    });
   } else {
     document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
       const display_name = document.getElementById('nmName').value.trim();
@@ -1258,7 +1206,6 @@ function renderDirectoryBody(mainView) {
 
 function renderDirectoryRows() {
   if (directoryTab === 'venues') { renderVenueRows(); return; }
-  if (directoryTab === 'impact') { renderImpactRows(); return; }
   renderMemberRows();
 }
 
@@ -1557,6 +1504,106 @@ function openVenueEditModal(venueId) {
     close();
     renderVenueRows();
   });
+}
+
+// ── Impact Log — own top-level Ringleader page (not a Directory tab).
+// Shares directoryVenuesCache/directoryImpactCache/directorySortKey/
+// directorySearchQuery and the directoryList/dirAdd* element ids with
+// Directory purely for code reuse — the two views never render at once.
+async function renderImpactView(mainView) {
+  if (!profile?.is_ringleader) {
+    mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
+    return;
+  }
+  mainView.innerHTML = `<h2>Impact Log</h2><div class="placeholder-note">Loading…</div>`;
+
+  const [{ venues }, { logs }] = await Promise.all([
+    apiFetch('/api/venues'),
+    apiFetch('/api/impact-logs'),
+  ]);
+  directoryVenuesCache = venues || [];
+  directoryImpactCache = logs || [];
+  directorySortKey = 'date';
+  directorySearchQuery = '';
+
+  renderImpactBody(mainView);
+}
+
+function renderImpactBody(mainView) {
+  mainView.innerHTML = `
+    <h2>Impact Log</h2>
+    <p class="admin-note">Travel, materials, and waste data per event — feeds the B Corp Climate Action and Environmental Stewardship topics. Changes save immediately.</p>
+    <div class="admin-toolbar">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search event, venue…" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="impact-search-${Date.now()}">
+      <label class="admin-sort-control">Sort by
+        <select id="dirSortSelect">
+          ${Object.entries(IMPACT_SORTS).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+      </label>
+      <button class="gm-btn" id="dirAddToggleBtn" style="background:var(--surface);color:var(--cream);">+ Log an Event</button>
+    </div>
+    <div class="card new-project-form" id="dirAddForm">
+      <div class="field-row"><label>Date</label><input type="date" id="ilDate"></div>
+      <div class="field-row"><label>Event Name</label><input type="text" id="ilName" placeholder="e.g. Halloween Carnival"></div>
+      <div class="field-row"><label>Venue</label>
+        <select id="ilVenue">
+          <option value="">No venue on file</option>
+          ${directoryVenuesCache.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field-row"><label>Round-trip Travel (miles)</label><input type="number" step="0.1" id="ilMiles" placeholder="Optional"></div>
+      <div class="field-row"><label>Travel Mode</label><input type="text" id="ilMode" placeholder="e.g. van, personal cars — optional"></div>
+      <div class="field-row"><label>Material Sourcing</label><input type="text" id="ilMaterials" placeholder="e.g. donated wood + upcycled electronics"></div>
+      <div class="field-row"><label>Waste Generated</label><input type="text" id="ilWasteGen" placeholder="e.g. 2 bags — optional"></div>
+      <div class="field-row"><label>Waste Diverted</label><input type="text" id="ilWasteDiv" placeholder="e.g. all materials returned to storage for reuse"></div>
+      <div class="field-row"><label>Notes</label><input type="text" id="ilNotes" placeholder="Optional"></div>
+      <div class="form-actions">
+        <button class="composer-submit" id="dirAddCreateBtn">Add</button>
+        <button class="gm-btn" id="dirAddCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>
+    <div class="admin-list" id="directoryList"></div>
+  `;
+
+  document.getElementById('dirSortSelect').addEventListener('change', e => {
+    directorySortKey = e.target.value;
+    renderImpactRows();
+  });
+  document.getElementById('dirSearchInput').addEventListener('input', e => {
+    directorySearchQuery = e.target.value;
+    renderImpactRows();
+  });
+  document.getElementById('dirAddToggleBtn').addEventListener('click', () => document.getElementById('dirAddForm').classList.toggle('open'));
+  document.getElementById('dirAddCancelBtn').addEventListener('click', () => document.getElementById('dirAddForm').classList.remove('open'));
+  document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
+    const event_date = document.getElementById('ilDate').value;
+    const event_name = document.getElementById('ilName').value.trim();
+    if (!event_date || !event_name) { alert('Date and event name are required.'); return; }
+    try {
+      await apiFetch('/api/impact-logs', {
+        method: 'POST',
+        body: {
+          event_date,
+          event_name,
+          venue_id: document.getElementById('ilVenue').value || null,
+          travel_miles: document.getElementById('ilMiles').value ? Number(document.getElementById('ilMiles').value) : null,
+          travel_mode: document.getElementById('ilMode').value.trim() || null,
+          material_sourcing: document.getElementById('ilMaterials').value.trim() || null,
+          waste_generated: document.getElementById('ilWasteGen').value.trim() || null,
+          waste_diverted: document.getElementById('ilWasteDiv').value.trim() || null,
+          notes: document.getElementById('ilNotes').value.trim() || null,
+        },
+      });
+    } catch (e) {
+      alert(`Couldn't add log: ${e.message}`);
+      return;
+    }
+    const { logs } = await apiFetch('/api/impact-logs');
+    directoryImpactCache = logs || [];
+    renderImpactBody(mainView);
+  });
+
+  renderImpactRows();
 }
 
 function renderImpactRows() {
