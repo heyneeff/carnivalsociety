@@ -67,6 +67,12 @@ CREATE TABLE users (
   -- a rank tier) — display code shows "Organization" as their title instead
   -- of their (otherwise-unused) rank. Added via migration 2026-09-22.
   is_organization INTEGER NOT NULL DEFAULT 0,
+  -- Free-text description of materials a member/org can donate (electronics,
+  -- wood, building supplies, etc.) — CSI builds exclusively from donated and
+  -- upcycled material, so this turns that pipeline into something searchable
+  -- instead of word-of-mouth. Optional, collected at signup or onboarding.
+  -- Added via migration 2026-09-29.
+  materials_to_donate TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -199,6 +205,48 @@ CREATE TABLE events (
 );
 
 -- ============================================================
+-- VENUES — Ringleader-managed list of event spaces; not user accounts,
+-- so no auth/rank fields, just a place + who to contact there. Added via
+-- migration 2026-09-29, shown as a Directory tab alongside Individuals
+-- and Organizations.
+-- ============================================================
+CREATE TABLE venues (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  city TEXT,
+  address TEXT,
+  contact_name TEXT,
+  contact_email TEXT,
+  contact_phone TEXT,
+  website TEXT,
+  notes TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================
+-- IMPACT LOGS — per-event travel/materials/waste data, feeding the B Corp
+-- Climate Action and Environmental Stewardship & Circularity topics. Filled
+-- in by a Ringleader after each event; not a user account, same pattern as
+-- venues. See CSI Event Impact Log.md in the vault for the "why". Added via
+-- migration 2026-09-29.
+-- ============================================================
+CREATE TABLE impact_logs (
+  id TEXT PRIMARY KEY,
+  event_date TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  venue_id TEXT REFERENCES venues(id),
+  travel_miles REAL,
+  travel_mode TEXT,
+  material_sourcing TEXT, -- category + source, e.g. "electronics, donated by X"
+  waste_generated TEXT,   -- free text, e.g. "2 bags" — not everything is weighable
+  waste_diverted TEXT,    -- what got recycled/reused/composted instead of landfill
+  notes TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 CREATE INDEX idx_sessions_user ON sessions(user_id);
@@ -207,6 +255,7 @@ CREATE INDEX idx_posts_parent ON posts(parent_id);
 CREATE INDEX idx_dm_conversation ON direct_messages(conversation_id);
 CREATE INDEX idx_conv_participants_user ON conversation_participants(user_id);
 CREATE INDEX idx_events_starts ON events(starts_at);
+CREATE INDEX idx_impact_logs_date ON impact_logs(event_date);
 
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:

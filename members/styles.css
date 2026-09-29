@@ -893,6 +893,7 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .crew-tab:hover { color: var(--cream); }
 .crew-tab.active { color: var(--gold-bright); border-bottom-color: var(--gold-bright); }
 .crew-tab.locked { color: var(--cream-soft); opacity: 0.45; cursor: not-allowed; }
+.crew-tab.tab-btn { background: none; border: 0; border-bottom: 2px solid transparent; font: inherit; font-style: italic; cursor: pointer; }
 
 .materials-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; max-width: 900px; }
 .materials-column .materials-list { max-width: none; }

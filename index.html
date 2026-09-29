@@ -671,7 +671,7 @@ nav { padding: 0.75rem 1rem; }
       Tell us where you are &mdash; we'll be in touch.
     </p>
    <div class="form-panel reveal">
-  <form action="https://formspree.io/f/xkoewnnw" method="POST" id="petitionForm">
+  <form id="petitionForm">
     <div class="field">
       <label for="name">Name</label>
       <input type="text" id="name" name="name" required>
@@ -685,6 +685,20 @@ nav { padding: 0.75rem 1rem; }
       <input type="email" id="email" name="email" required>
     </div>
     <div class="field">
+      <label for="password">Choose a Password</label>
+      <input type="password" id="password" name="password" minlength="6" required>
+    </div>
+    <div class="field">
+      <label for="chapter">Chapter</label>
+      <select id="chapter" name="chapter">
+        <option value="">Not sure yet</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="materials">Got Materials to Donate?</label>
+      <input type="text" id="materials" name="materials" placeholder="e.g. scrap wood, old electronics — optional">
+    </div>
+    <div class="field">
       <label for="about">A Little About You</label>
       <textarea id="about" name="about" placeholder="Tell us something dumb about yourself." rows="4"></textarea>
     </div>
@@ -692,8 +706,9 @@ nav { padding: 0.75rem 1rem; }
   </form>
   <div class="confirmation">
     <strong>Got it.</strong>
-    We'll write back soon.
+    You're in the guild &mdash; head to <a href="https://members.carnivalsociety.org">members.carnivalsociety.org</a> to sign in.
   </div>
+  <div class="form-error" id="petitionError" style="display:none;color:#c0392b;margin-top:1rem;"></div>
 </div>
 
     <img class="smile" id="smileEl" aria-hidden="true"
@@ -915,8 +930,48 @@ nav { padding: 0.75rem 1rem; }
   const csiForm=document.getElementById('petitionForm');
   const cleanForm=csiForm.cloneNode(true);
   csiForm.parentNode.replaceChild(cleanForm,csiForm);
-  cleanForm.addEventListener('submit',e=>{
+  const MEMBERS_API = 'https://members.carnivalsociety.org';
+  // Populate the chapter select live from the members app — same three
+  // chapters seeded in schema.sql (Boulder/Denver/Los Angeles). Falls back
+  // to "Not sure yet" only if the request fails.
+  fetch(`${MEMBERS_API}/api/chapters`).then(r => r.json()).then(({ chapters }) => {
+    const sel = cleanForm.querySelector('#chapter');
+    (chapters || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+  }).catch(() => {});
+  cleanForm.addEventListener('submit', async e => {
     e.preventDefault();
+    const errEl = document.getElementById('petitionError');
+    errEl.style.display = 'none';
+    const submitBtn = cleanForm.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`${MEMBERS_API}/api/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name: cleanForm.querySelector('#name').value.trim(),
+          city: cleanForm.querySelector('#city').value.trim(),
+          email: cleanForm.querySelector('#email').value.trim(),
+          password: cleanForm.querySelector('#password').value,
+          home_chapter_id: cleanForm.querySelector('#chapter').value || null,
+          materials_to_donate: cleanForm.querySelector('#materials').value.trim() || null,
+          heard_about_us: cleanForm.querySelector('#about').value.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    } catch (err) {
+      errEl.textContent = err.message || "Couldn't sign you up — try again in a moment.";
+      errEl.style.display = 'block';
+      submitBtn.disabled = false;
+      return;
+    }
+    submitBtn.disabled = false;
     fanfareStage.classList.add('go');
     playTrumpet();
     setTimeout(()=>cleanForm.classList.add('sent'),2200);

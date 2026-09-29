@@ -259,6 +259,10 @@ async function renderOnboarding() {
             <label for="obHeardAbout">How did you hear about us? (optional)</label>
             <input id="obHeardAbout" type="text" placeholder="e.g. a friend, an event, Instagram…">
           </div>
+          <div class="auth-field">
+            <label for="obMaterials">Got materials to donate? (optional)</label>
+            <input id="obMaterials" type="text" placeholder="e.g. scrap wood, old electronics, hardware…">
+          </div>
           <button class="auth-submit" id="obFinishBtn">Finish</button>
           <button class="gm-btn" id="obSkipBtn" style="background:none;border:1px solid var(--border);">Skip for now</button>
         </div>
@@ -271,7 +275,8 @@ async function renderOnboarding() {
     const birthday = document.getElementById('obBirthday').value || null;
     const knows_who = document.getElementById('obKnowsWho').value.trim();
     const heard_about_us = document.getElementById('obHeardAbout').value.trim();
-    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { skills, birthday, knows_who, heard_about_us, onboarded: true } });
+    const materials_to_donate = document.getElementById('obMaterials').value.trim();
+    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { skills, birthday, knows_who, heard_about_us, materials_to_donate, onboarded: true } });
     profile = user;
     await loadAppData();
     render();
@@ -997,17 +1002,30 @@ const DIRECTORY_SORTS = {
   city: { label: 'City', cmp: (a, b) => (a.city || '￿').localeCompare(b.city || '￿') || a.display_name.localeCompare(b.display_name) },
   dues: { label: 'Dues status', cmp: (a, b) => (b.dues_paid - a.dues_paid) || a.display_name.localeCompare(b.display_name) },
 };
+const VENUE_SORTS = {
+  name: { label: 'Name', cmp: (a, b) => a.name.localeCompare(b.name) },
+  city: { label: 'City', cmp: (a, b) => (a.city || '￿').localeCompare(b.city || '￿') || a.name.localeCompare(b.name) },
+};
+const IMPACT_SORTS = {
+  date: { label: 'Date', cmp: (a, b) => (b.event_date || '').localeCompare(a.event_date || '') },
+  name: { label: 'Event', cmp: (a, b) => a.event_name.localeCompare(b.event_name) },
+};
 let directoryMembersCache = [];
+let directoryVenuesCache = [];
+let directoryImpactCache = [];
+let directoryTab = 'individuals'; // 'individuals' | 'organizations' | 'venues' | 'impact'
 let directorySortKey = 'name';
 let directorySearchQuery = '';
 let directoryNewIds = new Set();
 
-// ── Directory — Ringleader-only member directory + management ──────────
+// ── Directory — Ringleader-only member/venue directory + management ────
 // Folds together what used to be three separate pages: contact info (was
 // a read-only "Directory"), rank/dues/edit management (was "Members Hub"),
 // and new-signup notifications (was "New Members" — recent signups per
 // /api/admin/new-signups get a "New" tag here, and viewing the Directory
-// is what clears that notification bell).
+// is what clears that notification bell). Individuals/Organizations tabs
+// both read from directoryMembersCache, filtered by is_organization;
+// Venues is a separate, non-account entity (see /api/venues).
 async function renderDirectoryView(mainView) {
   if (!profile?.is_ringleader) {
     mainView.innerHTML = `<h2>Not authorized</h2><div class="placeholder-note">Ringleaders only.</div>`;
@@ -1015,26 +1033,103 @@ async function renderDirectoryView(mainView) {
   }
   mainView.innerHTML = `<h2>Directory</h2><div class="placeholder-note">Loading…</div>`;
 
-  const [{ members }, { members: newSignups }] = await Promise.all([
+  const [{ members }, { members: newSignups }, { venues }, { logs }] = await Promise.all([
     apiFetch('/api/members'),
     apiFetch('/api/admin/new-signups'),
+    apiFetch('/api/venues'),
+    apiFetch('/api/impact-logs'),
   ]);
   directoryMembersCache = members || [];
   directoryNewIds = new Set((newSignups || []).map(m => m.id));
+  directoryVenuesCache = venues || [];
+  directoryImpactCache = logs || [];
+
+  renderDirectoryBody(mainView);
+
+  // Viewing the Directory is what clears the bell — mark seen now that it's rendered.
+  if (directoryNewIds.size) {
+    try {
+      await apiFetch('/api/admin/new-signups/seen', { method: 'POST' });
+      newSignupsCount = 0;
+      const badge = document.querySelector('.nav-badge');
+      if (badge) badge.remove();
+    } catch (e) { /* badge just won't clear until next load */ }
+  }
+}
+
+const DIRECTORY_TABS = [
+  ['individuals', 'Individuals'],
+  ['organizations', 'Organizations'],
+  ['venues', 'Venues'],
+  ['impact', 'Impact Log'],
+];
+
+function switchDirectoryTab(mainView, tab) {
+  directoryTab = tab;
+  directorySortKey = 'name';
+  directorySearchQuery = '';
+  renderDirectoryBody(mainView);
+}
+
+function renderDirectoryBody(mainView) {
+  const isVenues = directoryTab === 'venues';
+  const isImpact = directoryTab === 'impact';
+  const sorts = isVenues ? VENUE_SORTS : isImpact ? IMPACT_SORTS : DIRECTORY_SORTS;
+  const searchPlaceholder = isVenues ? 'Search name, city…' : isImpact ? 'Search event, venue…' : 'Search name, city, chapter, skills…';
+  const addLabel = isVenues ? '+ Add Venue' : isImpact ? '+ Log an Event' : '+ Add Member';
+  const noteText = isVenues ? 'Event spaces the guild works with.' : isImpact ? 'Travel, materials, and waste data per event — feeds the B Corp Climate Action and Environmental Stewardship topics.' : 'Every member of the guild — contact info and management, in one place.';
 
   mainView.innerHTML = `
     <h2>Directory</h2>
-    <p class="admin-note">Every member of the guild — contact info and management, in one place. Changes save immediately.${directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
+    <div class="crew-tabs">
+      ${DIRECTORY_TABS.map(([key, label]) => `<button class="crew-tab tab-btn ${directoryTab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`).join('')}
+    </div>
+    <p class="admin-note">${noteText} Changes save immediately.${!isVenues && !isImpact && directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
     <div class="admin-toolbar">
-      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search name, city, chapter, skills…" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="dir-search-${Date.now()}">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="${searchPlaceholder}" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="dir-search-${Date.now()}">
       <label class="admin-sort-control">Sort by
         <select id="dirSortSelect">
-          ${Object.entries(DIRECTORY_SORTS).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
+          ${Object.entries(sorts).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
         </select>
       </label>
-      <button class="gm-btn" id="newMemberToggleBtn" style="background:var(--surface);color:var(--cream);">+ Add Member</button>
+      <button class="gm-btn" id="dirAddToggleBtn" style="background:var(--surface);color:var(--cream);">${addLabel}</button>
     </div>
-    <div class="card new-project-form" id="newMemberForm">
+    ${isVenues ? `
+    <div class="card new-project-form" id="dirAddForm">
+      <div class="field-row"><label>Name</label><input type="text" id="vName" placeholder="e.g. The Junkyard"></div>
+      <div class="field-row"><label>City</label><input type="text" id="vCity" placeholder="Optional"></div>
+      <div class="field-row"><label>Address</label><input type="text" id="vAddress" placeholder="Optional"></div>
+      <div class="field-row"><label>Contact Name</label><input type="text" id="vContactName" placeholder="Optional"></div>
+      <div class="field-row"><label>Contact Email</label><input type="email" id="vContactEmail" placeholder="Optional"></div>
+      <div class="field-row"><label>Contact Phone</label><input type="tel" id="vContactPhone" placeholder="Optional"></div>
+      <div class="field-row"><label>Website</label><input type="text" id="vWebsite" placeholder="Optional"></div>
+      <div class="field-row"><label>Notes</label><input type="text" id="vNotes" placeholder="Optional"></div>
+      <div class="form-actions">
+        <button class="composer-submit" id="dirAddCreateBtn">Add</button>
+        <button class="gm-btn" id="dirAddCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>` : isImpact ? `
+    <div class="card new-project-form" id="dirAddForm">
+      <div class="field-row"><label>Date</label><input type="date" id="ilDate"></div>
+      <div class="field-row"><label>Event Name</label><input type="text" id="ilName" placeholder="e.g. Halloween Carnival"></div>
+      <div class="field-row"><label>Venue</label>
+        <select id="ilVenue">
+          <option value="">No venue on file</option>
+          ${directoryVenuesCache.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field-row"><label>Round-trip Travel (miles)</label><input type="number" step="0.1" id="ilMiles" placeholder="Optional"></div>
+      <div class="field-row"><label>Travel Mode</label><input type="text" id="ilMode" placeholder="e.g. van, personal cars — optional"></div>
+      <div class="field-row"><label>Material Sourcing</label><input type="text" id="ilMaterials" placeholder="e.g. donated wood + upcycled electronics"></div>
+      <div class="field-row"><label>Waste Generated</label><input type="text" id="ilWasteGen" placeholder="e.g. 2 bags — optional"></div>
+      <div class="field-row"><label>Waste Diverted</label><input type="text" id="ilWasteDiv" placeholder="e.g. all materials returned to storage for reuse"></div>
+      <div class="field-row"><label>Notes</label><input type="text" id="ilNotes" placeholder="Optional"></div>
+      <div class="form-actions">
+        <button class="composer-submit" id="dirAddCreateBtn">Add</button>
+        <button class="gm-btn" id="dirAddCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>` : `
+    <div class="card new-project-form" id="dirAddForm">
       <div class="field-row"><label>Name</label><input type="text" id="nmName" placeholder="e.g. Amelia"></div>
       <div class="field-row"><label>Email</label><input type="email" id="nmEmail" placeholder="e.g. amelia@example.com"></div>
       <div class="field-row"><label>Password</label><input type="password" id="nmPassword" minlength="6" placeholder="At least 6 characters"></div>
@@ -1048,17 +1143,21 @@ async function renderDirectoryView(mainView) {
       <div class="field-row"><label>Phone</label><input type="tel" id="nmPhone" placeholder="Optional"></div>
       <div class="field-row"><label>Instagram</label><input type="text" id="nmInstagram" placeholder="@handle — optional"></div>
       <label class="auth-org-toggle" style="margin-bottom:0;">
-        <input type="checkbox" id="nmIsOrganization">
+        <input type="checkbox" id="nmIsOrganization" ${directoryTab === 'organizations' ? 'checked' : ''}>
         This is an organization, not an individual
       </label>
       <p class="admin-note">Give them the email and password directly — that's how they'll sign in.</p>
       <div class="form-actions">
-        <button class="composer-submit" id="nmCreateBtn">Add</button>
-        <button class="gm-btn" id="nmCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+        <button class="composer-submit" id="dirAddCreateBtn">Add</button>
+        <button class="gm-btn" id="dirAddCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
       </div>
-    </div>
+    </div>`}
     <div class="admin-list" id="directoryList"></div>
   `;
+
+  mainView.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchDirectoryTab(mainView, btn.dataset.tab));
+  });
 
   document.getElementById('dirSortSelect').addEventListener('change', e => {
     directorySortKey = e.target.value;
@@ -1069,52 +1168,109 @@ async function renderDirectoryView(mainView) {
     renderDirectoryRows();
   });
 
-  document.getElementById('newMemberToggleBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.toggle('open'));
-  document.getElementById('nmCancelBtn').addEventListener('click', () => document.getElementById('newMemberForm').classList.remove('open'));
-  document.getElementById('nmCreateBtn').addEventListener('click', async () => {
-    const display_name = document.getElementById('nmName').value.trim();
-    const email = document.getElementById('nmEmail').value.trim();
-    const password = document.getElementById('nmPassword').value;
-    if (!display_name || !email || !password) { alert('Name, email, and password are all required.'); return; }
-    try {
-      await apiFetch('/api/members', {
-        method: 'POST',
-        body: {
-          display_name, email, password,
-          home_chapter_id: document.getElementById('nmChapter').value || null,
-          city: document.getElementById('nmCity').value.trim() || null,
-          phone: document.getElementById('nmPhone').value.trim() || null,
-          instagram_handle: document.getElementById('nmInstagram').value.trim() || null,
-          is_organization: document.getElementById('nmIsOrganization').checked,
-        },
-      });
-    } catch (e) {
-      alert(`Couldn't add member: ${e.message}`);
-      return;
-    }
-    renderDirectoryView(mainView);
-  });
+  document.getElementById('dirAddToggleBtn').addEventListener('click', () => document.getElementById('dirAddForm').classList.toggle('open'));
+  document.getElementById('dirAddCancelBtn').addEventListener('click', () => document.getElementById('dirAddForm').classList.remove('open'));
+
+  if (isVenues) {
+    document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
+      const name = document.getElementById('vName').value.trim();
+      if (!name) { alert('Venue name is required.'); return; }
+      try {
+        await apiFetch('/api/venues', {
+          method: 'POST',
+          body: {
+            name,
+            city: document.getElementById('vCity').value.trim() || null,
+            address: document.getElementById('vAddress').value.trim() || null,
+            contact_name: document.getElementById('vContactName').value.trim() || null,
+            contact_email: document.getElementById('vContactEmail').value.trim() || null,
+            contact_phone: document.getElementById('vContactPhone').value.trim() || null,
+            website: document.getElementById('vWebsite').value.trim() || null,
+            notes: document.getElementById('vNotes').value.trim() || null,
+          },
+        });
+      } catch (e) {
+        alert(`Couldn't add venue: ${e.message}`);
+        return;
+      }
+      const { venues } = await apiFetch('/api/venues');
+      directoryVenuesCache = venues || [];
+      renderDirectoryBody(mainView);
+    });
+  } else if (isImpact) {
+    document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
+      const event_date = document.getElementById('ilDate').value;
+      const event_name = document.getElementById('ilName').value.trim();
+      if (!event_date || !event_name) { alert('Date and event name are required.'); return; }
+      try {
+        await apiFetch('/api/impact-logs', {
+          method: 'POST',
+          body: {
+            event_date,
+            event_name,
+            venue_id: document.getElementById('ilVenue').value || null,
+            travel_miles: document.getElementById('ilMiles').value ? Number(document.getElementById('ilMiles').value) : null,
+            travel_mode: document.getElementById('ilMode').value.trim() || null,
+            material_sourcing: document.getElementById('ilMaterials').value.trim() || null,
+            waste_generated: document.getElementById('ilWasteGen').value.trim() || null,
+            waste_diverted: document.getElementById('ilWasteDiv').value.trim() || null,
+            notes: document.getElementById('ilNotes').value.trim() || null,
+          },
+        });
+      } catch (e) {
+        alert(`Couldn't add log: ${e.message}`);
+        return;
+      }
+      const { logs } = await apiFetch('/api/impact-logs');
+      directoryImpactCache = logs || [];
+      renderDirectoryBody(mainView);
+    });
+  } else {
+    document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
+      const display_name = document.getElementById('nmName').value.trim();
+      const email = document.getElementById('nmEmail').value.trim();
+      const password = document.getElementById('nmPassword').value;
+      if (!display_name || !email || !password) { alert('Name, email, and password are all required.'); return; }
+      try {
+        await apiFetch('/api/members', {
+          method: 'POST',
+          body: {
+            display_name, email, password,
+            home_chapter_id: document.getElementById('nmChapter').value || null,
+            city: document.getElementById('nmCity').value.trim() || null,
+            phone: document.getElementById('nmPhone').value.trim() || null,
+            instagram_handle: document.getElementById('nmInstagram').value.trim() || null,
+            is_organization: document.getElementById('nmIsOrganization').checked,
+          },
+        });
+      } catch (e) {
+        alert(`Couldn't add member: ${e.message}`);
+        return;
+      }
+      const { members } = await apiFetch('/api/members');
+      directoryMembersCache = members || [];
+      renderDirectoryBody(mainView);
+    });
+  }
 
   renderDirectoryRows();
-
-  // Viewing the Directory is what clears the bell — mark seen now that it's rendered.
-  if (directoryNewIds.size) {
-    try {
-      await apiFetch('/api/admin/new-signups/seen', { method: 'POST' });
-      newSignupsCount = 0;
-      const badge = document.querySelector('.nav-badge');
-      if (badge) badge.remove();
-    } catch (e) { /* badge just won't clear until next load */ }
-  }
 }
 
 function renderDirectoryRows() {
+  if (directoryTab === 'venues') { renderVenueRows(); return; }
+  if (directoryTab === 'impact') { renderImpactRows(); return; }
+  renderMemberRows();
+}
+
+function renderMemberRows() {
   const list = document.getElementById('directoryList');
   if (!list) return;
 
   const q = directorySearchQuery.trim().toLowerCase();
+  const wantOrg = directoryTab === 'organizations';
   const filtered = directoryMembersCache.filter(m =>
-    !q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q) || (m.skills || '').toLowerCase().includes(q)
+    !!m.is_organization === wantOrg &&
+    (!q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q) || (m.skills || '').toLowerCase().includes(q))
   );
   const sorted = [...filtered].sort(DIRECTORY_SORTS[directorySortKey].cmp);
 
@@ -1126,6 +1282,7 @@ function renderDirectoryRows() {
       m.birthday ? ['Birthday', m.birthday] : null,
       m.knows_who ? ['Knows', m.knows_who] : null,
       m.heard_about_us ? ['Heard about us via', m.heard_about_us] : null,
+      m.materials_to_donate ? ['Materials to donate', m.materials_to_donate] : null,
     ].filter(Boolean);
     return `
     <div class="admin-row dir-row" data-user-id="${m.id}" style="border-left-color: ${memberDisplayColor(m)};">
@@ -1239,6 +1396,7 @@ function openMemberEditModal(userId) {
         <div class="field-row"><label>Instagram</label><input type="text" id="aeInstagram" placeholder="@handle" value="${escapeHtml(member.instagram_handle || '')}"></div>
         <div class="field-row"><label>Who they know</label><input type="text" id="aeKnowsWho" value="${escapeHtml(member.knows_who || '')}"></div>
         <div class="field-row"><label>Heard about us via</label><input type="text" id="aeHeardAbout" value="${escapeHtml(member.heard_about_us || '')}"></div>
+        <div class="field-row"><label>Materials to donate</label><input type="text" id="aeMaterials" value="${escapeHtml(member.materials_to_donate || '')}"></div>
         <div class="field-row"><label>Email</label><input type="email" id="aeEmail" value="${escapeHtml(member.email && !member.email.endsWith('@crew.local') ? member.email : '')}" placeholder="${member.email && member.email.endsWith('@crew.local') ? 'No real email on file yet — add one' : ''}"></div>
         <div class="field-row"><label>Set New Password</label><input type="password" id="aePassword" minlength="6" placeholder="Leave blank to keep current"></div>
       </div>
@@ -1268,6 +1426,7 @@ function openMemberEditModal(userId) {
       instagram_handle: overlay.querySelector('#aeInstagram').value.trim() || null,
       knows_who: overlay.querySelector('#aeKnowsWho').value.trim() || null,
       heard_about_us: overlay.querySelector('#aeHeardAbout').value.trim() || null,
+      materials_to_donate: overlay.querySelector('#aeMaterials').value.trim() || null,
     };
     const newEmail = overlay.querySelector('#aeEmail').value.trim();
     if (newEmail) body.email = newEmail;
@@ -1284,6 +1443,236 @@ function openMemberEditModal(userId) {
     if (userId === profile.id) { await refreshProfile(); renderShell(); }
     close();
     renderDirectoryRows();
+  });
+}
+
+function renderVenueRows() {
+  const list = document.getElementById('directoryList');
+  if (!list) return;
+
+  const q = directorySearchQuery.trim().toLowerCase();
+  const filtered = directoryVenuesCache.filter(v =>
+    !q || v.name.toLowerCase().includes(q) || (v.city || '').toLowerCase().includes(q)
+  );
+  const sorted = [...filtered].sort(VENUE_SORTS[directorySortKey].cmp);
+
+  list.innerHTML = sorted.map(v => {
+    const metaRows = [
+      v.address ? ['Address', v.address] : null,
+      v.notes ? ['Notes', v.notes] : null,
+    ].filter(Boolean);
+    return `
+    <div class="admin-row dir-row" data-venue-id="${v.id}" style="border-left-color: var(--gold);">
+      <div class="admin-identity">
+        <div class="admin-name">${escapeHtml(v.name)}</div>
+        <div class="admin-chapter">${v.city ? escapeHtml(v.city) : 'No city on file'}</div>
+        <div class="dir-contacts">
+          ${v.contact_name ? `<span class="dir-contact-empty">${escapeHtml(v.contact_name)}</span>` : ''}
+          ${v.contact_email ? `<a class="dir-contact-link" href="mailto:${escapeHtml(v.contact_email)}">${escapeHtml(v.contact_email)}</a>` : ''}
+          ${v.contact_phone ? `<a class="dir-contact-link" href="tel:${escapeHtml(v.contact_phone)}">${escapeHtml(v.contact_phone)}</a>` : ''}
+          ${v.website ? `<a class="dir-contact-link" href="${escapeHtml(/^https?:\/\//.test(v.website) ? v.website : 'https://' + v.website)}" target="_blank" rel="noopener">${escapeHtml(v.website)}</a>` : ''}
+        </div>
+        ${metaRows.length ? `<div class="dir-meta">${metaRows.map(([label, value]) => `<div class="dir-meta-row"><span class="dir-meta-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`).join('')}</div>` : ''}
+      </div>
+      <div class="dir-manage">
+        <button class="gm-btn venue-edit-btn" data-edit="${v.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
+        <button class="gm-btn venue-delete-btn" data-delete="${v.id}" style="background:var(--surface-2);color:#E08A8A;">Delete</button>
+      </div>
+    </div>
+  `; }).join('') || '<div class="placeholder-note">No venues match.</div>';
+
+  list.querySelectorAll('.venue-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openVenueEditModal(btn.dataset.edit));
+  });
+  list.querySelectorAll('.venue-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const venue = directoryVenuesCache.find(v => v.id === btn.dataset.delete);
+      if (!venue || !confirm(`Remove "${venue.name}" from venues?`)) return;
+      try {
+        await apiFetch(`/api/venues/${btn.dataset.delete}`, { method: 'DELETE' });
+      } catch (e) {
+        alert(`Couldn't remove venue: ${e.message}`);
+        return;
+      }
+      directoryVenuesCache = directoryVenuesCache.filter(v => v.id !== btn.dataset.delete);
+      renderVenueRows();
+    });
+  });
+}
+
+function openVenueEditModal(venueId) {
+  const venue = directoryVenuesCache.find(v => v.id === venueId);
+  if (!venue) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-edit-overlay open';
+  overlay.innerHTML = `
+    <div class="admin-edit-modal">
+      <div class="admin-edit-modal-header">
+        <h3>Edit ${escapeHtml(venue.name)}</h3>
+        <button id="veEditClose">&times;</button>
+      </div>
+      <div class="admin-edit-modal-body">
+        <div class="field-row"><label>Name</label><input type="text" id="veName" value="${escapeHtml(venue.name)}"></div>
+        <div class="field-row"><label>City</label><input type="text" id="veCity" value="${escapeHtml(venue.city || '')}"></div>
+        <div class="field-row"><label>Address</label><input type="text" id="veAddress" value="${escapeHtml(venue.address || '')}"></div>
+        <div class="field-row"><label>Contact Name</label><input type="text" id="veContactName" value="${escapeHtml(venue.contact_name || '')}"></div>
+        <div class="field-row"><label>Contact Email</label><input type="email" id="veContactEmail" value="${escapeHtml(venue.contact_email || '')}"></div>
+        <div class="field-row"><label>Contact Phone</label><input type="tel" id="veContactPhone" value="${escapeHtml(venue.contact_phone || '')}"></div>
+        <div class="field-row"><label>Website</label><input type="text" id="veWebsite" value="${escapeHtml(venue.website || '')}"></div>
+        <div class="field-row"><label>Notes</label><input type="text" id="veNotes" value="${escapeHtml(venue.notes || '')}"></div>
+      </div>
+      <div class="admin-edit-modal-footer">
+        <button class="composer-submit" id="veSaveBtn">Save</button>
+        <button class="gm-btn" id="veCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#veEditClose').addEventListener('click', close);
+  overlay.querySelector('#veCancelBtn').addEventListener('click', close);
+  overlay.querySelector('#veSaveBtn').addEventListener('click', async () => {
+    const name = overlay.querySelector('#veName').value.trim();
+    if (!name) { alert('Venue name is required.'); return; }
+    const body = {
+      name,
+      city: overlay.querySelector('#veCity').value.trim() || null,
+      address: overlay.querySelector('#veAddress').value.trim() || null,
+      contact_name: overlay.querySelector('#veContactName').value.trim() || null,
+      contact_email: overlay.querySelector('#veContactEmail').value.trim() || null,
+      contact_phone: overlay.querySelector('#veContactPhone').value.trim() || null,
+      website: overlay.querySelector('#veWebsite').value.trim() || null,
+      notes: overlay.querySelector('#veNotes').value.trim() || null,
+    };
+    try {
+      await apiFetch(`/api/venues/${venueId}`, { method: 'PATCH', body });
+    } catch (e) {
+      alert(`Couldn't save: ${e.message}`);
+      return;
+    }
+    Object.assign(venue, body);
+    close();
+    renderVenueRows();
+  });
+}
+
+function renderImpactRows() {
+  const list = document.getElementById('directoryList');
+  const q = directorySearchQuery.trim().toLowerCase();
+  const filtered = directoryImpactCache.filter(l =>
+    !q || l.event_name.toLowerCase().includes(q) || (l.venue_name || '').toLowerCase().includes(q)
+  );
+  const sorted = [...filtered].sort(IMPACT_SORTS[directorySortKey].cmp);
+
+  list.innerHTML = sorted.map(l => {
+    const metaRows = [
+      l.travel_miles != null ? ['Travel', `${l.travel_miles} mi${l.travel_mode ? ` (${l.travel_mode})` : ''}`] : null,
+      l.material_sourcing ? ['Materials', l.material_sourcing] : null,
+      l.waste_generated ? ['Waste generated', l.waste_generated] : null,
+      l.waste_diverted ? ['Waste diverted', l.waste_diverted] : null,
+      l.notes ? ['Notes', l.notes] : null,
+    ].filter(Boolean);
+    return `
+    <div class="admin-row dir-row" data-log-id="${l.id}" style="border-left-color: var(--gold);">
+      <div class="admin-identity">
+        <div class="admin-name">${escapeHtml(l.event_name)}</div>
+        <div class="admin-chapter">${l.event_date}${l.venue_name ? ` — ${escapeHtml(l.venue_name)}` : ''}</div>
+        ${metaRows.length ? `<div class="dir-meta">${metaRows.map(([label, value]) => `<div class="dir-meta-row"><span class="dir-meta-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`).join('')}</div>` : '<div class="placeholder-note">No data logged yet — edit to fill in.</div>'}
+      </div>
+      <div class="dir-manage">
+        <button class="gm-btn impact-edit-btn" data-edit="${l.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
+        <button class="gm-btn impact-delete-btn" data-delete="${l.id}" style="background:var(--surface-2);color:#E08A8A;">Delete</button>
+      </div>
+    </div>
+  `; }).join('') || '<div class="placeholder-note">No events logged yet.</div>';
+
+  list.querySelectorAll('.impact-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openImpactEditModal(btn.dataset.edit));
+  });
+  list.querySelectorAll('.impact-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const log = directoryImpactCache.find(l => l.id === btn.dataset.delete);
+      if (!log || !confirm(`Remove the log for "${log.event_name}"?`)) return;
+      try {
+        await apiFetch(`/api/impact-logs/${btn.dataset.delete}`, { method: 'DELETE' });
+      } catch (e) {
+        alert(`Couldn't remove log: ${e.message}`);
+        return;
+      }
+      directoryImpactCache = directoryImpactCache.filter(l => l.id !== btn.dataset.delete);
+      renderImpactRows();
+    });
+  });
+}
+
+function openImpactEditModal(logId) {
+  const log = directoryImpactCache.find(l => l.id === logId);
+  if (!log) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-edit-overlay open';
+  overlay.innerHTML = `
+    <div class="admin-edit-modal">
+      <div class="admin-edit-modal-header">
+        <h3>Edit ${escapeHtml(log.event_name)}</h3>
+        <button id="ieEditClose">&times;</button>
+      </div>
+      <div class="admin-edit-modal-body">
+        <div class="field-row"><label>Date</label><input type="date" id="ieDate" value="${escapeHtml(log.event_date || '')}"></div>
+        <div class="field-row"><label>Event Name</label><input type="text" id="ieName" value="${escapeHtml(log.event_name)}"></div>
+        <div class="field-row"><label>Venue</label>
+          <select id="ieVenue">
+            <option value="">No venue on file</option>
+            ${directoryVenuesCache.map(v => `<option value="${v.id}" ${log.venue_id === v.id ? 'selected' : ''}>${escapeHtml(v.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row"><label>Round-trip Travel (miles)</label><input type="number" step="0.1" id="ieMiles" value="${log.travel_miles ?? ''}"></div>
+        <div class="field-row"><label>Travel Mode</label><input type="text" id="ieMode" value="${escapeHtml(log.travel_mode || '')}"></div>
+        <div class="field-row"><label>Material Sourcing</label><input type="text" id="ieMaterials" value="${escapeHtml(log.material_sourcing || '')}"></div>
+        <div class="field-row"><label>Waste Generated</label><input type="text" id="ieWasteGen" value="${escapeHtml(log.waste_generated || '')}"></div>
+        <div class="field-row"><label>Waste Diverted</label><input type="text" id="ieWasteDiv" value="${escapeHtml(log.waste_diverted || '')}"></div>
+        <div class="field-row"><label>Notes</label><input type="text" id="ieNotes" value="${escapeHtml(log.notes || '')}"></div>
+      </div>
+      <div class="admin-edit-modal-footer">
+        <button class="composer-submit" id="ieSaveBtn">Save</button>
+        <button class="gm-btn" id="ieCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#ieEditClose').addEventListener('click', close);
+  overlay.querySelector('#ieCancelBtn').addEventListener('click', close);
+  overlay.querySelector('#ieSaveBtn').addEventListener('click', async () => {
+    const event_date = overlay.querySelector('#ieDate').value;
+    const event_name = overlay.querySelector('#ieName').value.trim();
+    if (!event_date || !event_name) { alert('Date and event name are required.'); return; }
+    const milesVal = overlay.querySelector('#ieMiles').value;
+    const body = {
+      event_date,
+      event_name,
+      venue_id: overlay.querySelector('#ieVenue').value || null,
+      travel_miles: milesVal ? Number(milesVal) : null,
+      travel_mode: overlay.querySelector('#ieMode').value.trim() || null,
+      material_sourcing: overlay.querySelector('#ieMaterials').value.trim() || null,
+      waste_generated: overlay.querySelector('#ieWasteGen').value.trim() || null,
+      waste_diverted: overlay.querySelector('#ieWasteDiv').value.trim() || null,
+      notes: overlay.querySelector('#ieNotes').value.trim() || null,
+    };
+    try {
+      const { log: updated } = await apiFetch(`/api/impact-logs/${logId}`, { method: 'PATCH', body });
+      Object.assign(log, updated);
+    } catch (e) {
+      alert(`Couldn't save: ${e.message}`);
+      return;
+    }
+    close();
+    renderImpactRows();
   });
 }
 

@@ -68,6 +68,18 @@ function json(data, init = {}) {
 function err(status, message) {
   return json({ error: message }, { status });
 }
+// CORS: the public marketing site (carnivalsociety.org, a separate origin
+// from members.carnivalsociety.org) hosts a real intake form that signs
+// people up directly against this API. Only the specific routes that form
+// needs (chapters list, signup) get cross-origin headers — everything else
+// stays same-origin-only, since it's all session-cookie-gated anyway and a
+// cookie set for one origin isn't usable from the other regardless.
+const PUBLIC_SITE_ORIGIN = "https://carnivalsociety.org";
+function withCors(response) {
+  response.headers.set("Access-Control-Allow-Origin", PUBLIC_SITE_ORIGIN);
+  response.headers.set("Vary", "Origin");
+  return response;
+}
 function publicUser(u) {
   if (!u) return null;
   const { password_hash, salt, ...rest } = u;
@@ -88,6 +100,9 @@ export default {
       return Response.redirect(url.toString(), 301);
     }
     if (url.pathname.startsWith("/api/")) {
+      if (request.method === "OPTIONS" && (url.pathname === "/api/auth/signup" || url.pathname === "/api/chapters")) {
+        return withCors(new Response(null, { status: 204, headers: { "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" } }));
+      }
       try {
         return await api(request, env, url);
       } catch (e) {
@@ -102,18 +117,22 @@ async function api(request, env, url) {
   const { pathname } = url;
   const method = request.method;
   if (pathname === "/api/auth/signup" && method === "POST") {
-    const { email, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization } = await body(request);
-    if (!email || !password || password.length < 6 || !display_name || !city) return err(400, "Missing or invalid fields.");
+    const { email, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization, materials_to_donate, heard_about_us } = await body(request);
+    if (!email || !password || password.length < 6 || !display_name || !city) return withCors(err(400, "Missing or invalid fields."));
     const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
-    if (existing) return err(400, "That email is already registered.");
+    if (existing) return withCors(err(400, "That email is already registered."));
     const { hash, salt } = await hashPassword(password);
     const id = crypto.randomUUID();
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?)`
-    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city, phone || null, instagram_handle || null, is_organization ? 1 : 0).run();
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?)`
+    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
-    return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } });
+    // Signup from the public site (a different origin) can't use this cookie
+    // anyway — cookies aren't shared cross-domain — so the CORS header is
+    // what matters there; same-origin members-app signup still gets its
+    // session normally via the Set-Cookie below.
+    return withCors(json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } }));
   }
   if (pathname === "/api/auth/signin" && method === "POST") {
     const { email, password } = await body(request);
@@ -134,7 +153,7 @@ async function api(request, env, url) {
   if (pathname === "/api/me" && method === "PATCH") {
     const user2 = await getSessionUser(request, env);
     if (!user2) return err(401, "Not signed in.");
-    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us } = await body(request);
+    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate } = await body(request);
     const updates = [];
     const binds = [];
     if (display_name !== void 0) {
@@ -165,6 +184,10 @@ async function api(request, env, url) {
       updates.push("heard_about_us = ?");
       binds.push(heard_about_us || null);
     }
+    if (materials_to_donate !== void 0) {
+      updates.push("materials_to_donate = ?");
+      binds.push(materials_to_donate || null);
+    }
     if (onboarded !== void 0) {
       updates.push("onboarded = ?");
       binds.push(onboarded ? 1 : 0);
@@ -180,7 +203,7 @@ async function api(request, env, url) {
   const requireAuth = () => user ? null : err(401, "Sign in required.");
   if (pathname === "/api/chapters" && method === "GET") {
     const { results } = await env.DB.prepare("SELECT * FROM chapters ORDER BY name").all();
-    return json({ chapters: results });
+    return withCors(json({ chapters: results }));
   }
   if (pathname === "/api/boards" && method === "GET") {
     const authErr = requireAuth();
@@ -1052,6 +1075,133 @@ async function api(request, env, url) {
     const created = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
     return json({ user: publicUser(created) });
   }
+  if (pathname === "/api/venues" && method === "GET") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { results } = await env.DB.prepare("SELECT * FROM venues ORDER BY name").all();
+    return json({ venues: results });
+  }
+  if (pathname === "/api/venues" && method === "POST") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { name, city, address, contact_name, contact_email, contact_phone, website, notes } = await body(request);
+    if (!name) return err(400, "Venue name is required.");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO venues (id, name, city, address, contact_name, contact_email, contact_phone, website, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, name, city || null, address || null, contact_name || null, contact_email || null, contact_phone || null, website || null, notes || null, user.id).run();
+    const created = await env.DB.prepare("SELECT * FROM venues WHERE id = ?").bind(id).first();
+    return json({ venue: created });
+  }
+  const venueMatch = pathname.match(/^\/api\/venues\/([^/]+)$/);
+  if (venueMatch && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { name, city, address, contact_name, contact_email, contact_phone, website, notes } = await body(request);
+    const updates = [];
+    const binds = [];
+    if (name !== void 0) {
+      if (!name) return err(400, "Venue name is required.");
+      updates.push("name = ?");
+      binds.push(name);
+    }
+    if (city !== void 0) { updates.push("city = ?"); binds.push(city || null); }
+    if (address !== void 0) { updates.push("address = ?"); binds.push(address || null); }
+    if (contact_name !== void 0) { updates.push("contact_name = ?"); binds.push(contact_name || null); }
+    if (contact_email !== void 0) { updates.push("contact_email = ?"); binds.push(contact_email || null); }
+    if (contact_phone !== void 0) { updates.push("contact_phone = ?"); binds.push(contact_phone || null); }
+    if (website !== void 0) { updates.push("website = ?"); binds.push(website || null); }
+    if (notes !== void 0) { updates.push("notes = ?"); binds.push(notes || null); }
+    if (updates.length) {
+      binds.push(venueMatch[1]);
+      await env.DB.prepare(`UPDATE venues SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    }
+    const updated = await env.DB.prepare("SELECT * FROM venues WHERE id = ?").bind(venueMatch[1]).first();
+    if (!updated) return err(404, "Venue not found.");
+    return json({ venue: updated });
+  }
+  if (venueMatch && method === "DELETE") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    await env.DB.prepare("DELETE FROM venues WHERE id = ?").bind(venueMatch[1]).run();
+    return json({ ok: true });
+  }
+  // ── Impact Logs — per-event travel/materials/waste data, Ringleader-only,
+  // same shape as venues above. Feeds the B Corp Climate Action and
+  // Environmental Stewardship & Circularity topics (see CSI B Corp Assessment
+  // Prep and CSI Event Impact Log in the vault).
+  if (pathname === "/api/impact-logs" && method === "GET") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { results } = await env.DB.prepare(
+      `SELECT impact_logs.*, venues.name AS venue_name FROM impact_logs
+       LEFT JOIN venues ON venues.id = impact_logs.venue_id
+       ORDER BY event_date DESC`
+    ).all();
+    return json({ logs: results });
+  }
+  if (pathname === "/api/impact-logs" && method === "POST") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { event_date, event_name, venue_id, travel_miles, travel_mode, material_sourcing, waste_generated, waste_diverted, notes } = await body(request);
+    if (!event_date || !event_name) return err(400, "Event date and name are required.");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO impact_logs (id, event_date, event_name, venue_id, travel_miles, travel_mode, material_sourcing, waste_generated, waste_diverted, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, event_date, event_name, venue_id || null, travel_miles ?? null, travel_mode || null, material_sourcing || null, waste_generated || null, waste_diverted || null, notes || null, user.id).run();
+    const created = await env.DB.prepare(
+      `SELECT impact_logs.*, venues.name AS venue_name FROM impact_logs LEFT JOIN venues ON venues.id = impact_logs.venue_id WHERE impact_logs.id = ?`
+    ).bind(id).first();
+    return json({ log: created });
+  }
+  const impactMatch = pathname.match(/^\/api\/impact-logs\/([^/]+)$/);
+  if (impactMatch && method === "PATCH") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    const { event_date, event_name, venue_id, travel_miles, travel_mode, material_sourcing, waste_generated, waste_diverted, notes } = await body(request);
+    const updates = [];
+    const binds = [];
+    if (event_date !== void 0) {
+      if (!event_date) return err(400, "Event date is required.");
+      updates.push("event_date = ?");
+      binds.push(event_date);
+    }
+    if (event_name !== void 0) {
+      if (!event_name) return err(400, "Event name is required.");
+      updates.push("event_name = ?");
+      binds.push(event_name);
+    }
+    if (venue_id !== void 0) { updates.push("venue_id = ?"); binds.push(venue_id || null); }
+    if (travel_miles !== void 0) { updates.push("travel_miles = ?"); binds.push(travel_miles ?? null); }
+    if (travel_mode !== void 0) { updates.push("travel_mode = ?"); binds.push(travel_mode || null); }
+    if (material_sourcing !== void 0) { updates.push("material_sourcing = ?"); binds.push(material_sourcing || null); }
+    if (waste_generated !== void 0) { updates.push("waste_generated = ?"); binds.push(waste_generated || null); }
+    if (waste_diverted !== void 0) { updates.push("waste_diverted = ?"); binds.push(waste_diverted || null); }
+    if (notes !== void 0) { updates.push("notes = ?"); binds.push(notes || null); }
+    if (updates.length) {
+      binds.push(impactMatch[1]);
+      await env.DB.prepare(`UPDATE impact_logs SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
+    }
+    const updated = await env.DB.prepare(
+      `SELECT impact_logs.*, venues.name AS venue_name FROM impact_logs LEFT JOIN venues ON venues.id = impact_logs.venue_id WHERE impact_logs.id = ?`
+    ).bind(impactMatch[1]).first();
+    if (!updated) return err(404, "Log not found.");
+    return json({ log: updated });
+  }
+  if (impactMatch && method === "DELETE") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    await env.DB.prepare("DELETE FROM impact_logs WHERE id = ?").bind(impactMatch[1]).run();
+    return json({ ok: true });
+  }
   if (pathname === "/api/admin/new-signups" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;
@@ -1079,7 +1229,7 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us } = await body(request);
+    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us, materials_to_donate } = await body(request);
     const updates = [];
     const binds = [];
     if (email !== void 0) {
@@ -1121,6 +1271,10 @@ async function api(request, env, url) {
     if (heard_about_us !== void 0) {
       updates.push("heard_about_us = ?");
       binds.push(heard_about_us || null);
+    }
+    if (materials_to_donate !== void 0) {
+      updates.push("materials_to_donate = ?");
+      binds.push(materials_to_donate || null);
     }
     if (city !== void 0) {
       updates.push("city = ?");
@@ -1464,6 +1618,7 @@ function shapeMember(row) {
     instagram_handle: row.instagram_handle || null,
     knows_who: row.knows_who || null,
     heard_about_us: row.heard_about_us || null,
+    materials_to_donate: row.materials_to_donate || null,
     is_organization: !!row.is_organization
   };
 }
