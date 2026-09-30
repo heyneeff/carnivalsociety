@@ -1324,6 +1324,21 @@ async function api(request, env, url) {
     await env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).bind(...binds).run();
     return json({ ok: true });
   }
+  if (memberMatch && method === "DELETE") {
+    const authErr = requireAuth();
+    if (authErr) return authErr;
+    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    if (memberMatch[1] === user.id) return err(400, "You can't delete your own account from here.");
+    try {
+      await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(memberMatch[1]).run();
+    } catch (e) {
+      // D1 enforces foreign keys — a member who authored posts, events,
+      // venues, or impact logs can't be hard-deleted without orphaning
+      // those rows. Surface that plainly rather than a generic 500.
+      return err(400, "Couldn't delete — this member has authored content (posts, events, venues, or impact logs) referencing their account. Reassign or remove that first.");
+    }
+    return json({ ok: true });
+  }
   if (pathname === "/api/members/search" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;

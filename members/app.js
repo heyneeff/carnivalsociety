@@ -1082,7 +1082,7 @@ function renderDirectoryBody(mainView) {
     </div>
     <p class="admin-note">${isVenues ? 'Event spaces the guild works with.' : 'Every member of the guild — contact info and management, in one place.'} Changes save immediately.${!isVenues && directoryNewIds.size ? ` ${directoryNewIds.size} new since you last checked, tagged below.` : ''}</p>
     <div class="admin-toolbar">
-      <input type="text" id="dirSearchInput" class="admin-search" placeholder="${searchPlaceholder}" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="dir-search-${Date.now()}">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="${searchPlaceholder}" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="dir-search-${Date.now()}" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other">
       <label class="admin-sort-control">Sort by
         <select id="dirSortSelect">
           ${Object.entries(sorts).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
@@ -1350,6 +1350,7 @@ function openMemberEditModal(userId) {
       <div class="admin-edit-modal-footer">
         <button class="composer-submit" id="aeSaveBtn">Save</button>
         <button class="gm-btn" id="aeCancelBtn" style="background:var(--surface);color:var(--cream);">Cancel</button>
+        ${userId !== profile.id ? `<button class="gm-btn" id="aeDeleteBtn" style="background:var(--surface-2);color:#E08A8A;margin-left:auto;">Delete Member</button>` : ''}
       </div>
     </div>
   `;
@@ -1357,6 +1358,18 @@ function openMemberEditModal(userId) {
 
   const close = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#aeDeleteBtn')?.addEventListener('click', async () => {
+    if (!confirm(`Permanently delete ${member.display_name}? This can't be undone.`)) return;
+    try {
+      await apiFetch(`/api/members/${userId}`, { method: 'DELETE' });
+    } catch (e) {
+      alert(`Couldn't delete: ${e.message}`);
+      return;
+    }
+    directoryMembersCache = directoryMembersCache.filter(m => m.id !== userId);
+    close();
+    renderDirectoryRows();
+  });
   overlay.querySelector('#adminEditClose').addEventListener('click', close);
   overlay.querySelector('#aeCancelBtn').addEventListener('click', close);
   overlay.querySelector('#aeSaveBtn').addEventListener('click', async () => {
@@ -1534,7 +1547,7 @@ function renderImpactBody(mainView) {
     <h2>Impact Log</h2>
     <p class="admin-note">Travel, materials, and waste data per event — feeds the B Corp Climate Action and Environmental Stewardship topics. Changes save immediately.</p>
     <div class="admin-toolbar">
-      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search event, venue…" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="impact-search-${Date.now()}">
+      <input type="text" id="dirSearchInput" class="admin-search" placeholder="Search event, venue…" value="${escapeHtml(directorySearchQuery)}" autocomplete="off" name="impact-search-${Date.now()}" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other">
       <label class="admin-sort-control">Sort by
         <select id="dirSortSelect">
           ${Object.entries(IMPACT_SORTS).map(([key, s]) => `<option value="${key}" ${key === directorySortKey ? 'selected' : ''}>${s.label}</option>`).join('')}
