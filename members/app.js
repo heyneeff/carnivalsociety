@@ -70,6 +70,12 @@ async function boot() {
 }
 
 async function loadAppData() {
+  if (!isInnerMember()) {
+    const { chapters: chapterData } = await apiFetch('/api/chapters');
+    chapters = chapterData || [];
+    boards = []; crewEvents = []; activeCrewEventId = null;
+    return;
+  }
   const [{ chapters: chapterData }, { boards: boardData }, { events: crewData }] = await Promise.all([
     apiFetch('/api/chapters'),
     apiFetch('/api/boards'),
@@ -297,7 +303,7 @@ async function renderOnboarding() {
 const CREW_ASSIGNMENT_ENABLED = false;
 
 function currentRoute() {
-  return window.location.hash.replace(/^#\/?/, '') || 'hub';
+  return window.location.hash.replace(/^#\/?/, '') || (isInnerMember() ? 'hub' : 'events');
 }
 
 let mobileNavOpen = false; // off-canvas sidebar drawer, ≤800px only (see .sidebar.open in styles.css)
@@ -319,6 +325,14 @@ function renderShell() {
           <img class="sidebar-logo" src="assets/logo-wordmark.png" alt="Carnival Society">
           <span class="crest-sub">Guild Hall</span>
         </div>
+        ${!isInnerMember() ? `
+        <div>
+          <div class="nav-group-label">Courtyard</div>
+          <ul class="nav-list">
+            <li><a class="nav-link ${route === 'events' ? 'active' : ''}" href="#/events">Events</a></li>
+            <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
+          </ul>
+        </div>` : `
         <div>
           <ul class="nav-list nav-list-hub">
             <li><a class="nav-link ${route === 'hub' || route.startsWith('crew/') ? 'active' : ''}" href="#/hub">Hub</a></li>
@@ -342,6 +356,11 @@ function renderShell() {
             <li><a class="nav-link ${route === 'dm' || route.startsWith('dm/') ? 'active' : ''}" href="#/dm">Messages</a></li>
           </ul>
         </div>
+        <div>
+          <ul class="nav-list">
+            <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
+          </ul>
+        </div>`}
         ${profile?.is_ringleader ? `
         <div>
           <div class="nav-group-label">Ringleader</div>
@@ -352,6 +371,7 @@ function renderShell() {
             <li><a class="nav-link ${route === 'projects' ? 'active' : ''}" href="#/projects">Projects</a></li>
             <li><a class="nav-link ${route === 'network' ? 'active' : ''}" href="#/network">Member Network</a></li>
             <li><a class="nav-link ${route === 'meetings' ? 'active' : ''}" href="#/meetings">Meetings</a></li>
+            <li><a class="nav-link ${route.startsWith('checkin') ? 'active' : ''}" href="#/checkin">Door Check-in</a></li>
           </ul>
         </div>` : ''}
         <div class="sidebar-footer">
@@ -388,6 +408,12 @@ function renderShell() {
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
   stopDMPolling();
+  if (route === 'membership-success') { renderMembershipSuccess(mainView); return; }
+  if (route === 'ticket-success') { renderTicketSuccess(mainView); return; }
+  if (route === 'cancelled') { location.hash = '#/events'; return; }
+  if (route === 'tickets') { renderMyTicketsView(mainView); return; }
+  if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
+  if (!isInnerMember() && route !== 'events') { location.hash = '#/events'; return; }
   if (route === 'hub') { renderCrewTabs(mainView, 'overview'); return; }
   if (route.startsWith('crew/')) { renderCrewTabs(mainView, route.slice(5)); return; }
   if (route === 'dm') { renderDMListView(mainView); return; }
@@ -772,6 +798,7 @@ async function renderEventsView(mainView) {
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
+      <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       ${canManage || canEdit ? `<div class="post-actions">
         ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
         ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}
@@ -786,6 +813,8 @@ async function renderEventsView(mainView) {
     <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show Past Events</button></div>
     <div id="archivedEvents"></div>
   `;
+
+  (events || []).forEach(e => renderTicketPanel(e.id));
 
   if (canManage) {
     document.getElementById('eventComposer').addEventListener('submit', async e => {
@@ -4523,6 +4552,202 @@ async function renderCrewLoreView(mainView) {
   }
 
   draw();
+}
+
+// ── Tiers + tickets ───────────────────────────────────────────────────
+// Courtyard = free account (info only). Inner = paid the one-time $5 (or was
+// already in the network). Server enforces this; the UI just mirrors it.
+function isInnerMember() {
+  return !!profile && (profile.tier === 'inner' || !!profile.is_ringleader);
+}
+function money(cents) {
+  return cents === 0 ? 'Free' : '$' + (cents / 100).toFixed(cents % 100 ? 2 : 0);
+}
+function qrSvg(text) {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+}
+
+async function startMembershipCheckout(btn) {
+  btn.disabled = true;
+  try {
+    const { url } = await apiFetch('/api/membership/checkout', { method: 'POST' });
+    window.location.href = url;
+  } catch (err) {
+    btn.disabled = false;
+    alert(err.message);
+  }
+}
+
+async function renderTicketPanel(eventId) {
+  const el = document.getElementById('ticketPanel-' + eventId);
+  if (!el) return;
+  const canManage = !!profile?.is_ringleader;
+  const { tiers } = await apiFetch(`/api/events/${eventId}/ticket-tiers`);
+  if (!tiers.length && !canManage) { el.innerHTML = ''; return; }
+
+  const inner = isInnerMember();
+  const tierRows = tiers.map(t => {
+    const soldOut = t.remaining === 0;
+    return `<div class="ticket-tier">
+      <div>
+        <strong>${escapeHtml(t.name)}</strong> · ${money(t.price_cents)}
+        ${t.remaining != null ? `<span class="ticket-remaining">${soldOut ? 'sold out' : t.remaining + ' left'}</span>` : ''}
+        ${t.description ? `<div class="post-meta">${escapeHtml(t.description)}</div>` : ''}
+      </div>
+      ${inner ? `<button class="action-btn" data-buy-tier="${t.id}" ${soldOut ? 'disabled' : ''}>${t.price_cents === 0 ? 'Claim' : 'Buy'}</button>` : ''}
+    </div>`;
+  }).join('');
+
+  const joinCta = !inner && tiers.length ? `
+    <div class="ticket-join">
+      <div>Tickets are for inner members. Join once for $5 and you're in for good.</div>
+      <button class="composer-submit" data-join>Become an inner member — $5</button>
+    </div>` : '';
+
+  const manage = canManage ? `
+    <details class="ticket-manage"><summary>Add ticket tier</summary>
+      <form class="ticket-tier-form">
+        <input type="text" name="name" placeholder="Tier name (e.g. General, VIP)" required>
+        <input type="number" name="price" min="0" step="0.01" placeholder="Price in dollars (0 = free)" required>
+        <input type="number" name="capacity" min="1" placeholder="Capacity (blank = unlimited)">
+        <input type="text" name="description" placeholder="Description (optional)">
+        <button type="submit" class="composer-submit">Add Tier</button>
+      </form>
+    </details>
+    <a class="action-btn" href="#/checkin/${eventId}">Door check-in</a>` : '';
+
+  el.innerHTML = `<div class="ticket-box">${tierRows}${joinCta}${manage}</div>`;
+
+  el.querySelectorAll('[data-buy-tier]').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await apiFetch(`/api/events/${eventId}/tickets`, { method: 'POST', body: { tier_id: btn.dataset.buyTier } });
+      if (res.url) window.location.href = res.url; else location.hash = '#/tickets';
+    } catch (err) { btn.disabled = false; alert(err.message); }
+  }));
+  const join = el.querySelector('[data-join]');
+  if (join) join.addEventListener('click', () => startMembershipCheckout(join));
+  const form = el.querySelector('.ticket-tier-form');
+  if (form) form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = new FormData(form);
+    await apiFetch(`/api/events/${eventId}/ticket-tiers`, { method: 'POST', body: {
+      name: f.get('name').trim(),
+      price_cents: Math.round(Number(f.get('price')) * 100),
+      capacity: f.get('capacity') ? Number(f.get('capacity')) : null,
+      description: f.get('description').trim() || null,
+    } });
+    renderTicketPanel(eventId);
+  });
+}
+
+async function renderMyTicketsView(mainView) {
+  mainView.innerHTML = `<h2>My Tickets</h2><div class="placeholder-note">Loading…</div>`;
+  const { tickets } = await apiFetch('/api/me/tickets');
+  const joinCta = !isInnerMember() ? `
+    <div class="ticket-join">
+      <div>You're in the courtyard. Become an inner member for $5 (one time) to get tickets.</div>
+      <button class="composer-submit" data-join>Become an inner member — $5</button>
+    </div>` : '';
+  const list = tickets.length ? tickets.map(t => `
+    <div class="post-card" style="cursor:default;">
+      <div class="post-title">${escapeHtml(t.title)}</div>
+      <div class="post-meta">${formatEventDate(t.starts_at)}${t.location ? ' · ' + escapeHtml(t.location) : ''} · ${escapeHtml(t.tier_name)}</div>
+      <div class="ticket-qr">${qrSvg(t.code)}</div>
+      <div class="post-meta">${t.checked_in_at ? 'Checked in' : 'Show this code at the door'} · <code>${escapeHtml(t.code)}</code></div>
+    </div>`).join('') : '<div class="placeholder-note">No tickets yet.</div>';
+  mainView.innerHTML = `<h2>My Tickets</h2>${joinCta}<div class="post-list">${list}</div>`;
+  const join = mainView.querySelector('[data-join]');
+  if (join) join.addEventListener('click', () => startMembershipCheckout(join));
+}
+
+// Stripe sends people back here; the webhook may land a moment after the
+// redirect, so poll /api/me briefly for the tier flip before moving on.
+async function renderMembershipSuccess(mainView) {
+  mainView.innerHTML = `<h2>Welcome inside</h2><div class="placeholder-note">Confirming your payment…</div>`;
+  for (let i = 0; i < 10; i++) {
+    await refreshProfile();
+    if (isInnerMember()) break;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  if (isInnerMember()) {
+    await loadAppData();
+    location.hash = '#/events';
+    renderShell();
+  } else {
+    mainView.innerHTML = `<h2>Almost there</h2><div class="placeholder-note">Your payment is still processing. Refresh in a minute — if you were charged and nothing changes, contact a Ringleader.</div>`;
+  }
+}
+async function renderTicketSuccess(mainView) {
+  mainView.innerHTML = `<h2>Your ticket</h2><div class="placeholder-note">Confirming your payment…</div>`;
+  for (let i = 0; i < 10; i++) {
+    const { tickets } = await apiFetch('/api/me/tickets');
+    if (tickets.length) break;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  location.hash = '#/tickets';
+}
+
+// Ringleader door scanner. Typed code always works; camera scan is used when
+// the browser has BarcodeDetector (Chrome/Android; recent Safari).
+async function renderCheckinView(mainView, eventId) {
+  if (!profile?.is_ringleader) { mainView.innerHTML = '<h2>Door Check-in</h2><div class="placeholder-note">Ringleaders only.</div>'; return; }
+  if (!eventId) {
+    const { events } = await apiFetch('/api/events');
+    mainView.innerHTML = `<h2>Door Check-in</h2><div class="post-list">${events.map(e => `<a class="post-card" href="#/checkin/${e.id}"><div class="post-title">${escapeHtml(e.title)}</div><div class="post-meta">${formatEventDate(e.starts_at)}</div></a>`).join('') || '<div class="placeholder-note">No upcoming events.</div>'}</div>`;
+    return;
+  }
+  mainView.innerHTML = `
+    <h2>Door Check-in</h2>
+    <div class="ticket-box">
+      <video id="scanVideo" playsinline muted style="display:none;width:100%;max-width:360px;border-radius:6px;"></video>
+      <form id="checkinForm" class="ticket-tier-form">
+        <input type="text" id="checkinCode" placeholder="Ticket code" autocomplete="off" autocapitalize="off" autofocus>
+        <button type="submit" class="composer-submit">Check in</button>
+      </form>
+      <div id="checkinResult" class="post-meta"></div>
+    </div>`;
+  const result = document.getElementById('checkinResult');
+  async function submit(code) {
+    try {
+      const r = await apiFetch(`/api/events/${eventId}/checkin`, { method: 'POST', body: { code } });
+      result.style.color = r.ok ? '#8FD19E' : '#E0B060';
+      result.textContent = r.ok ? `✓ ${r.display_name} — ${r.tier_name}` : `Already checked in: ${r.display_name} (${r.checked_in_at} UTC)`;
+    } catch (err) {
+      result.style.color = '#E08A8A';
+      result.textContent = '✗ ' + err.message;
+    }
+  }
+  document.getElementById('checkinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = document.getElementById('checkinCode');
+    if (input.value.trim()) submit(input.value.trim());
+    input.value = '';
+  });
+  if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const video = document.getElementById('scanVideo');
+      video.srcObject = stream; video.style.display = 'block'; await video.play();
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      let last = '', lastAt = 0;
+      const tick = async () => {
+        if (!document.body.contains(video)) { stream.getTracks().forEach(t => t.stop()); return; }
+        try {
+          const codes = await detector.detect(video);
+          if (codes.length && (codes[0].rawValue !== last || Date.now() - lastAt > 4000)) {
+            last = codes[0].rawValue; lastAt = Date.now();
+            await submit(last);
+          }
+        } catch (e) { /* frame not ready */ }
+        requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (e) { /* camera denied — typed entry still works */ }
+  }
 }
 
 boot();

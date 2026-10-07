@@ -982,3 +982,13 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 }
 .meeting-content-card .ld-table { background: rgba(0,0,0,0.15); }
 .meeting-content-card .ld-table th, .meeting-content-card .ld-table td { border-color: var(--border); }
+
+/* TICKETS */
+.ticket-box { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.ticket-tier { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.ticket-remaining { margin-left: 0.5rem; color: var(--cream-soft); font-style: italic; font-size: 0.82rem; }
+.ticket-join { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.9rem 1rem; margin: 0.5rem 0; border: 1px solid var(--gold-deep); border-radius: 4px; background: var(--surface-2); max-width: 720px; }
+.ticket-tier-form { display: flex; flex-direction: column; gap: 0.5rem; max-width: 360px; margin-top: 0.5rem; }
+.ticket-manage summary { cursor: pointer; color: var(--cream-soft); font-style: italic; }
+.ticket-qr { width: 200px; max-width: 100%; margin: 0.75rem 0; background: #fff; padding: 6px; border-radius: 4px; }
+.ticket-qr svg { display: block; width: 100%; height: auto; }

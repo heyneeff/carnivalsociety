@@ -201,6 +201,12 @@ async function api(request, env, url) {
   }
   const user = await getSessionUser(request, env);
   const requireAuth = () => user ? null : err(401, "Sign in required.");
+  // Courtyard gate: free accounts only reach public info + the path to
+  // becoming an inner member. Everything else below needs tier = inner.
+  {
+    const gateUser = await getSessionUser(request, env);
+    if (gateUser && !isInner(gateUser) && !courtyardAllowed(method, pathname)) return err(403, "Inner members only.");
+  }
   if (pathname === "/api/chapters" && method === "GET") {
     const { results } = await env.DB.prepare("SELECT * FROM chapters ORDER BY name").all();
     return withCors(json({ chapters: results }));
@@ -1584,6 +1590,7 @@ async function api(request, env, url) {
     await env.DB.prepare("INSERT INTO direct_messages (id, conversation_id, sender_id, body) VALUES (?, ?, ?, ?)").bind(id, convId, user.id, text).run();
     return json({ id });
   }
+  { const r = await ticketRoutes(request, env, url); if (r) return r; }
   return err(404, "Not found.");
 }
 function shapePost(row) {
@@ -1636,4 +1643,176 @@ function shapeMember(row) {
     materials_to_donate: row.materials_to_donate || null,
     is_organization: !!row.is_organization
   };
+}
+
+// ---------------------------------------------------------------------
+// Tiers + ticketing. Courtyard = free account (info only). Inner member =
+// paid the one-time membership fee (or already in the network). Tickets
+// require inner. Payments go to the nonprofit's Stripe account.
+// Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET. Optional var:
+// MEMBERSHIP_PRICE_CENTS (default 500), SITE_URL.
+// ---------------------------------------------------------------------
+function isInner(user) {
+  return !!user && (user.tier === "inner" || !!user.is_ringleader);
+}
+async function stripeCheckout(env, params) {
+  const form = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) form.append(k, String(v));
+  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + env.STRIPE_SECRET_KEY, "Content-Type": "application/x-www-form-urlencoded" },
+    body: form
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error("Stripe: " + (data.error && data.error.message));
+  return data;
+}
+function checkoutParams(env, { user, name, amountCents, metadata, successPath }) {
+  const site = env.SITE_URL || "https://members.carnivalsociety.org";
+  const p = {
+    mode: "payment",
+    "line_items[0][quantity]": 1,
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][unit_amount]": amountCents,
+    "line_items[0][price_data][product_data][name]": name,
+    customer_email: user.email,
+    client_reference_id: user.id,
+    success_url: site + successPath,
+    cancel_url: site + "/#cancelled"
+  };
+  for (const [k, v] of Object.entries(metadata)) p["metadata[" + k + "]"] = v;
+  return p;
+}
+async function verifyStripeSignature(env, raw, header) {
+  if (!header || !env.STRIPE_WEBHOOK_SECRET) return false;
+  const parts = Object.fromEntries(header.split(",").map((kv) => kv.split("=")));
+  if (!parts.t || !parts.v1) return false;
+  if (Math.abs(Date.now() / 1e3 - Number(parts.t)) > 300) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.STRIPE_WEBHOOK_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(parts.t + "." + raw));
+  return timingSafeEqual(bytesToHex(new Uint8Array(sig)), parts.v1);
+}
+function ticketCode() {
+  return bytesToHex(crypto.getRandomValues(new Uint8Array(10)));
+}
+async function ticketsSold(env, tierId) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE tier_id = ? AND (status = 'paid' OR (status = 'pending' AND created_at > datetime('now', '-30 minutes')))").bind(tierId).first();
+  return row.n;
+}
+async function ticketRoutes(request, env, url) {
+  const { pathname } = url;
+  const method = request.method;
+
+  if (pathname === "/api/stripe/webhook" && method === "POST") {
+    const raw = await request.text();
+    if (!await verifyStripeSignature(env, raw, request.headers.get("Stripe-Signature"))) return err(400, "Bad signature.");
+    const event = JSON.parse(raw);
+    if (event.type !== "checkout.session.completed") return json({ ok: true });
+    const s = event.data.object;
+    if (s.payment_status !== "paid") return json({ ok: true });
+    const md = s.metadata || {};
+    const userId = md.user_id;
+    const ins = await env.DB.prepare(
+      "INSERT OR IGNORE INTO payments (id, user_id, kind, amount_cents, stripe_session_id, stripe_payment_intent) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(crypto.randomUUID(), userId, md.kind, s.amount_total, s.id, s.payment_intent || null).run();
+    if (!ins.meta.changes) return json({ ok: true }); // already processed
+    if (md.kind === "membership") {
+      await env.DB.prepare("UPDATE users SET tier = 'inner', dues_paid = 1, dues_amount = ?, dues_date = date('now') WHERE id = ?").bind((s.amount_total / 100).toFixed(2), userId).run();
+    } else if (md.kind === "ticket") {
+      await env.DB.prepare("UPDATE tickets SET status = 'paid' WHERE id = ?").bind(md.ticket_id).run();
+    }
+    return json({ ok: true });
+  }
+
+  if (pathname === "/api/membership/checkout" && method === "POST") {
+    const user = await getSessionUser(request, env);
+    if (!user) return err(401, "Not signed in.");
+    if (isInner(user)) return err(400, "Already an inner member.");
+    const cents = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
+    const session = await stripeCheckout(env, checkoutParams(env, {
+      user, name: "Carnival Society membership (one time)", amountCents: cents,
+      metadata: { kind: "membership", user_id: user.id }, successPath: "/#membership-success"
+    }));
+    return json({ url: session.url });
+  }
+
+  const tiersMatch = pathname.match(/^\/api\/events\/([^/]+)\/ticket-tiers$/);
+  if (tiersMatch && method === "GET") {
+    const { results } = await env.DB.prepare("SELECT * FROM ticket_tiers WHERE event_id = ? AND active = 1 ORDER BY position, price_cents").bind(tiersMatch[1]).all();
+    const tiers = [];
+    for (const t of results) {
+      const sold = await ticketsSold(env, t.id);
+      tiers.push({ id: t.id, name: t.name, description: t.description, price_cents: t.price_cents, capacity: t.capacity, remaining: t.capacity == null ? null : Math.max(0, t.capacity - sold) });
+    }
+    return json({ tiers });
+  }
+  if (tiersMatch && method === "POST") {
+    const user = await getSessionUser(request, env);
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { name, description, price_cents, capacity, position } = await body(request);
+    if (!name || !Number.isInteger(price_cents) || price_cents < 0) return err(400, "name and integer price_cents required.");
+    const id = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO ticket_tiers (id, event_id, name, description, price_cents, capacity, position) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, tiersMatch[1], name, description || null, price_cents, capacity ?? null, position || 0).run();
+    return json({ id });
+  }
+
+  const buyMatch = pathname.match(/^\/api\/events\/([^/]+)\/tickets$/);
+  if (buyMatch && method === "POST") {
+    const user = await getSessionUser(request, env);
+    if (!user) return err(401, "Not signed in.");
+    if (!isInner(user)) return err(403, "Tickets are for inner members. Join from the courtyard first.");
+    const { tier_id } = await body(request);
+    const tier = await env.DB.prepare("SELECT * FROM ticket_tiers WHERE id = ? AND event_id = ? AND active = 1").bind(tier_id || "", buyMatch[1]).first();
+    if (!tier) return err(404, "Unknown ticket tier.");
+    const have = await env.DB.prepare("SELECT 1 FROM tickets WHERE event_id = ? AND user_id = ? AND tier_id = ? AND status = 'paid'").bind(tier.event_id, user.id, tier.id).first();
+    if (have) return err(400, "You already have this ticket.");
+    if (tier.capacity != null && await ticketsSold(env, tier.id) >= tier.capacity) return err(409, "Sold out.");
+    const id = crypto.randomUUID();
+    const free = tier.price_cents === 0;
+    await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, tier.event_id, tier.id, user.id, free ? "paid" : "pending", tier.price_cents, ticketCode()).run();
+    if (free) return json({ ticket_id: id });
+    const session = await stripeCheckout(env, checkoutParams(env, {
+      user, name: "Ticket: " + tier.name, amountCents: tier.price_cents,
+      metadata: { kind: "ticket", user_id: user.id, ticket_id: id }, successPath: "/#ticket-success"
+    }));
+    await env.DB.prepare("UPDATE tickets SET stripe_session_id = ? WHERE id = ?").bind(session.id, id).run();
+    return json({ url: session.url });
+  }
+
+  if (pathname === "/api/me/tickets" && method === "GET") {
+    const user = await getSessionUser(request, env);
+    if (!user) return err(401, "Not signed in.");
+    const { results } = await env.DB.prepare(
+      `SELECT tickets.id, tickets.code, tickets.status, tickets.checked_in_at, ticket_tiers.name AS tier_name, events.title, events.starts_at, events.location
+       FROM tickets JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id JOIN events ON events.id = tickets.event_id
+       WHERE tickets.user_id = ? AND tickets.status = 'paid' ORDER BY events.starts_at`
+    ).bind(user.id).all();
+    return json({ tickets: results });
+  }
+
+  const checkinMatch = pathname.match(/^\/api\/events\/([^/]+)\/checkin$/);
+  if (checkinMatch && method === "POST") {
+    const user = await getSessionUser(request, env);
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { code } = await body(request);
+    const t = await env.DB.prepare(
+      `SELECT tickets.*, users.display_name, ticket_tiers.name AS tier_name FROM tickets
+       JOIN users ON users.id = tickets.user_id JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id
+       WHERE tickets.code = ? AND tickets.event_id = ?`
+    ).bind(code || "", checkinMatch[1]).first();
+    if (!t || t.status !== "paid") return err(404, "No valid ticket for that code.");
+    if (t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: t.checked_in_at });
+    await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
+    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name });
+  }
+  return null;
+}
+
+function courtyardAllowed(method, pathname) {
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets")) return true;
+  if (method === "GET" && /^\/api\/events\/[^/]+$/.test(pathname)) return true;
+  if (method === "GET" && /^\/api\/events\/[^/]+\/ticket-tiers$/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/events\/[^/]+\/tickets$/.test(pathname)) return true; // answers with its own 403
+  if (method === "POST" && pathname === "/api/membership/checkout") return true;
+  return false;
 }
