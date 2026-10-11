@@ -4973,44 +4973,85 @@ async function renderDressingRoom(mainView) {
 const ROOM = 'assets/room/';
 const ORACLES = { mercury: 'https://mercury-oracle.vercel.app/', field: 'https://heyneeff.github.io/field-oracle/' };
 
+// Every placed thing in the room is an item: { id, role, img (asset name,
+// or null for an invisible painted hotspot), l, t, w, h (hotspots only),
+// rot, flip, z, n (which upcoming event, for flyers), anim }. The layout
+// lives in the database (Arrange mode, Ringleaders); this is the default.
+const ROOM_ASSETS = { trunk_closed: 338 / 329, trunk_open: 322 / 393, costume_ringmaster: 156 / 327, costume_teal: 143 / 382, costume_clown: 138 / 386, costume_purple: 165 / 348, costume_pink: 178 / 418, raven_perched: 151 / 287, raven_squawk: 208 / 297, flyer_circus: 147 / 239, flyer_volunteer: 122 / 212, flyer_carnival: 127 / 219, book_lectern: 188 / 282, book_open: 232 / 228, passport_closed: 145 / 212, passport_open: 191 / 181, perch_empty: 116 / 217, hatbox_closed: 185 / 160, hatbox_open: 222 / 279, popcorn: 132 / 189, potion: 76 / 161, coat_rack: 127 / 347, vanity: 283 / 271, rug: 315 / 205 };
+const ROOM_ANIMS = { '': 'Still', sway: 'Sway (hangs from top)', flutter: 'Flutter', float: 'Float', breathe: 'Breathe', hop: 'Hop', shimmer: 'Shimmer', wobble: 'Wobble' };
+const ROOM_ROLES = {
+  decor: 'Just decoration', mirror: 'Mirror → My Profile', trunk: 'Trunk → Passport & Prizes', costume: 'Costume → Profile / acts',
+  flyer: 'Flyer → an upcoming event', raven: 'Raven → volunteer requests', book: 'Big Book → the forum', drawer: 'Drawer → Messages',
+  exit: 'Exit → Courtyard', hatbox: 'Hat box → Ringleader tools (only you see it)', potion: 'Secret → Mercury Oracle', stars: 'Secret → Field Oracle',
+  popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
+};
+const ROOM_DEFAULT = [
+  { id: 'mirror', role: 'mirror', img: null, l: 6.5, t: 7, w: 33, h: 36 },
+  { id: 'drawer', role: 'drawer', img: null, l: 18.5, t: 48.5, w: 17, h: 7 },
+  { id: 'stars', role: 'stars', img: null, l: 0, t: 19, w: 5.5, h: 18 },
+  { id: 'exit', role: 'exit', img: null, l: 91, t: 9, w: 9, h: 40 },
+  { id: 'c1', role: 'costume', img: 'costume_ringmaster', l: 66.2, t: 7.4, w: 8.4, anim: 'sway' },
+  { id: 'c2', role: 'costume', img: 'costume_clown', l: 74.4, t: 7.2, w: 7.8, anim: 'sway' },
+  { id: 'c3', role: 'costume', img: 'costume_teal', l: 82, t: 7.2, w: 7.8, anim: 'sway' },
+  { id: 'f1', role: 'flyer', n: 0, img: 'flyer_circus', l: 67.4, t: 33.5, w: 7.4, rot: -5, anim: 'flutter' },
+  { id: 'f2', role: 'flyer', n: 1, img: 'flyer_volunteer', l: 75.4, t: 35.5, w: 6.8, rot: 4, anim: 'flutter' },
+  { id: 'f3', role: 'flyer', n: 2, img: 'flyer_carnival', l: 82.6, t: 33.8, w: 7.0, rot: -5, anim: 'flutter' },
+  { id: 'potion', role: 'potion', img: 'potion', l: 40.2, t: 37.4, w: 3.6, anim: 'shimmer' },
+  { id: 'popcorn', role: 'popcorn', img: 'popcorn', l: 45.3, t: 36.8, w: 5.6, anim: 'wobble' },
+  { id: 'book', role: 'book', img: 'book_lectern', l: 63.5, t: 54.5, w: 14, anim: 'float' },
+  { id: 'raven', role: 'raven', img: 'raven_perched', l: 82, t: 55.5, w: 11, anim: 'breathe' },
+  { id: 'trunk', role: 'trunk', img: 'trunk_closed', l: 3, t: 74, w: 22 },
+  { id: 'hatbox', role: 'hatbox', img: 'hatbox_closed', l: 27.5, t: 85.5, w: 12 },
+];
+let roomEditing = false;
+
 async function renderRoom(mainView) {
   mainView.classList.add('main-room');
-  const [p, { events }] = await Promise.all([apiFetch('/api/me/passport'), apiFetch('/api/events')]);
+  roomEditing = false;
+  const [p, { events }, layout] = await Promise.all([
+    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })),
+  ]);
   const upcoming = events || [];
   const request = upcoming.find(e => !myVolunteering.has(e.id));
   const latest = p.stamps[p.stamps.length - 1];
   let newStamp = false;
   try { newStamp = !!latest && localStorage.getItem('cs-prize-seen-' + profile.id) !== latest.id && Date.now() - sqlTime(latest.created_at) < 7 * 864e5; } catch (e) { /* no storage */ }
   const inner = isInnerMember();
-  const flyer = i => upcoming[i]
-    ? [`Flyer: ${upcoming[i].title}`, `#/event/${upcoming[i].id}`]
-    : ['The Flyers', '#/events'];
+  const saved = Array.isArray(layout.items) ? layout.items : ROOM_DEFAULT;
+  let items = JSON.parse(JSON.stringify(saved));
+  let selectedId = null;
 
-  // key: [image or null (painted hotspot), left%, top%, width%, height% (hotspots), class, hover verb + name, href]
-  // href null = it reacts in place (popcorn, a quiet raven, a locked drawer).
-  const objs = {
-    mirror: [null, 6.5, 7, 33, 36, 'hot', 'Look in the Mirror', '#/profile'],
-    drawer: [null, 18.5, 48.5, 17, 7, 'hot', inner ? 'Open the Drawer (your letters)' : 'Try the Drawer (locked)', inner ? '#/dm' : null],
-    stars: [null, 0, 19, 5.5, 18, 'hot', 'Touch the Hanging Stars', ORACLES.field],
-    exit: [null, 91, 9, 9, 40, 'hot', 'Step out to the Courtyard', '#/courtyard'],
-    costume_ringmaster: ['costume_ringmaster', 66.2, 7.4, 8.4, null, 'sway', 'Try on a Costume', '#/profile'],
-    costume_clown: ['costume_clown', 74.4, 7.2, 7.8, null, 'sway d2', 'Try on a Costume', '#/profile'],
-    costume_teal: ['costume_teal', 82, 7.2, 7.8, null, 'sway d3', 'Try on a Costume', '#/profile'],
-    flyer_circus: ['flyer_circus', 67.4, 33.5, 7.4, null, 'flutter tilt-l', ...flyer(0)],
-    flyer_volunteer: ['flyer_volunteer', 75.4, 35.5, 6.8, null, 'flutter d2 tilt-r', ...flyer(1)],
-    flyer_carnival: ['flyer_carnival', 82.6, 33.8, 7.0, null, 'flutter d3 tilt-l', ...flyer(2)],
-    potion: ['potion', 40.2, 37.4, 3.6, null, 'shimmer', 'Drink the Strange Little Bottle', ORACLES.mercury],
-    popcorn: ['popcorn', 45.3, 36.8, 5.6, null, 'wobble', 'Eat the Popcorn', null],
-    book: ['book_lectern', 63.5, 54.5, 14, null, 'float', 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'],
-    raven: [request ? 'raven_squawk' : 'raven_perched', 82, 55.5, request ? 15.2 : 11, null, request ? 'hop' : 'breathe',
-      request ? `Hear the Raven (${request.title} needs hands)` : 'Pet the Raven', request ? `#/event/${request.id}` : null],
-    trunk: [newStamp ? 'trunk_open' : 'trunk_closed', 3, newStamp ? 70.5 : 74, 22, null, newStamp ? 'breathe' : '', newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/passport'],
-    ...(profile.is_ringleader ? { hatbox: ['hatbox_closed', 27.5, 85.5, 12, null, '', 'Open the Ringleader’s Hat Box', 'more'] } : {}),
+  // What a role means right now: hover verb, destination (null = reacts in place).
+  const behave = it => {
+    switch (it.role) {
+      case 'mirror': return ['Look in the Mirror', '#/profile'];
+      case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/passport'];
+      case 'costume': return ['Try on a Costume', '#/profile'];
+      case 'flyer': { const e = upcoming[it.n || 0]; return e ? [`Flyer: ${e.title}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
+      case 'raven': return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
+      case 'book': return ['Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
+      case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
+      case 'exit': return ['Step out to the Courtyard', '#/courtyard'];
+      case 'hatbox': return ['Open the Ringleader’s Hat Box', 'more'];
+      case 'potion': return ['Drink the Strange Little Bottle', ORACLES.mercury];
+      case 'stars': return ['Touch the Hanging Stars', ORACLES.field];
+      case 'popcorn': return ['Eat the Popcorn', null];
+      case 'events': return ['See what’s coming up', '#/events'];
+      case 'tickets': return ['Find your Tickets', '#/tickets'];
+      default: return [null, null];
+    }
   };
-  const html = Object.entries(objs).map(([key, [img, l, t, w, h, cls, label]]) => img
-    ? `<button class="room-obj ${cls}" data-obj="${key}" aria-label="${escapeHtml(label)}" style="left:${l}%;top:${t}%;width:${w}%"><img src="${ROOM}${img}.png" alt="" draggable="false"></button>`
-    : `<button class="room-hot" data-obj="${key}" aria-label="${escapeHtml(label)}" style="left:${l}%;top:${t}%;width:${w}%;height:${h}%"></button>`).join('');
-  // Painted bulbs on the mirror (approx. centers in % of the painting) flicker.
+  // Live state swaps art: the raven squawks, the trunk spills open.
+  const look = it => {
+    let img = it.img, w = it.w, t = it.t, anim = it.anim || '';
+    if (!roomEditing && it.role === 'raven' && request && img === 'raven_perched') { img = 'raven_squawk'; w = it.w * (208 / 151); anim = 'hop'; }
+    if (!roomEditing && it.role === 'trunk' && newStamp && img === 'trunk_closed') {
+      img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
+    }
+    return { img, w, t, anim };
+  };
+  const visible = it => roomEditing || it.role !== 'hatbox' || profile.is_ringleader;
+
   const bulbs = [[9.2,19.2],[8.4,27.5],[8.8,35.6],[10.3,43.2],[15.6,13.8],[20.2,11.6],[26.5,13.9],[31.9,16.8],[34.7,23.1],[36.3,29.9],[37.1,37.1],[30.6,23.6]];
   const motes = Array.from({ length: 14 }, (_, i) => `<span class="room-mote" style="left:${(8 + (i * 61) % 84)}%;top:${(20 + (i * 37) % 60)}%;animation-delay:${(i * 0.9) % 11}s;animation-duration:${9 + (i % 5) * 2}s"></span>`).join('');
 
@@ -5020,53 +5061,76 @@ async function renderRoom(mainView) {
         <img class="room-bg" src="${ROOM}room_bg.jpg" alt="" draggable="false">
         <div class="room-lamplight" aria-hidden="true"></div>
         ${bulbs.map(([x, y], i) => `<span class="room-bulb" style="left:${x}%;top:${y}%;animation-delay:${(i * 0.37) % 3}s;animation-duration:${2.6 + (i % 4) * 0.7}s" aria-hidden="true"></span>`).join('')}
-        ${html}
+        <div class="room-items" id="roomItems"></div>
         <div class="room-motes" aria-hidden="true">${motes}</div>
-        <div class="room-exit-sign" aria-hidden="true">Courtyard →</div>
-        ${request ? `<div class="room-squawk" aria-hidden="true">SQUAWK!</div>` : ''}
-        ${newStamp ? `<div class="room-trunk-glow" aria-hidden="true"></div>` : ''}
         <div class="room-labels" id="roomLabels" aria-hidden="true"></div>
       </div>
     </div>
     <div class="room-verb" id="roomVerb" aria-hidden="true"></div>
     <button class="room-reveal" id="roomReveal" aria-label="Show everything you can touch">✦</button>
+    ${profile.is_ringleader ? '<button class="room-arrange-btn" id="roomArrange">✎ Arrange</button>' : ''}
+    <div class="room-editor" id="roomEditor" hidden></div>
     <div class="room-toast" id="roomToast" role="status" aria-live="polite"></div>`;
 
   const scene = document.getElementById('roomScene');
+  const host = document.getElementById('roomItems');
   const verb = document.getElementById('roomVerb');
   const toast = document.getElementById('roomToast');
+  const editor = document.getElementById('roomEditor');
   let toastTimer;
   const say = line => {
     toast.textContent = line; toast.classList.add('show');
     clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
   };
 
-  // Classic point-and-click hover line (mouse/trackpad only).
-  mainView.querySelectorAll('[data-obj]').forEach(el => {
-    el.addEventListener('mouseenter', () => { verb.textContent = objs[el.dataset.obj][6]; verb.classList.add('show'); });
-    el.addEventListener('mouseleave', () => verb.classList.remove('show'));
-  });
+  function draw() {
+    scene.classList.toggle('editing', roomEditing);
+    const order = items.map((it, i) => [it, i]).sort((a, b) => (a[0].z || 0) - (b[0].z || 0) || a[1] - b[1]).map(x => x[0]);
+    host.innerHTML = order.filter(visible).map(it => {
+      const v = look(it);
+      const [label, href] = behave(it);
+      const live = label !== null;
+      const tf = `transform: rotate(${it.rot || 0}deg) scaleX(${it.flip ? -1 : 1});`;
+      const sel = it.id === selectedId ? ' selected' : '';
+      const handle = roomEditing ? '<span class="room-handle" data-handle></span>' : '';
+      if (!v.img) {
+        return `<button class="room-hot${sel}" data-item="${it.id}" ${live ? `aria-label="${escapeHtml(label)}"` : 'tabindex="-1" aria-hidden="true"'} style="left:${it.l}%;top:${it.t}%;width:${it.w}%;height:${it.h || 10}%">${roomEditing ? `<span class="room-hot-name">${escapeHtml(ROOM_ROLES[it.role] || it.role)}</span>` : ''}${handle}</button>`;
+      }
+      const tag = live || roomEditing ? 'button' : 'div';
+      return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}" data-item="${it.id}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
+        <span class="room-turn" style="${tf}"><img src="${ROOM}${v.img}.png" alt="" draggable="false"></span>${handle}</${tag}>`;
+    }).join('') + (roomEditing ? '' : extras());
+    if (roomEditing) renderEditor();
+  }
+  // Squawk bubble, exit sign and trunk glow ride along with their items.
+  function extras() {
+    let out = '';
+    const raven = items.find(i => i.role === 'raven'), exit = items.find(i => i.role === 'exit'), trunk = items.find(i => i.role === 'trunk');
+    if (request && raven) out += `<div class="room-squawk" style="left:${raven.l - 6}%;top:${raven.t - 4.5}%" aria-hidden="true">SQUAWK!</div>`;
+    if (exit) out += `<div class="room-exit-sign" style="left:${exit.l - 4}%;top:${exit.t + (exit.h || 10) - 5}%" aria-hidden="true">Courtyard →</div>`;
+    if (newStamp && trunk) out += `<div class="room-trunk-glow" style="left:${trunk.l}%;top:${trunk.t - 3}%;width:${trunk.w}%;height:${trunk.w}%" aria-hidden="true"></div>`;
+    return out;
+  }
 
-  // One click opens: the room leans in toward the thing, then you're there.
-  const go = (el, key, href) => {
+  // ── Playing: hover verb, one click opens ──
+  const go = (el, it, href) => {
     if (href === 'more') { mobileNavOpen = true; renderShell(); return; }
     if (href.startsWith('http')) { window.open(href, '_blank', 'noopener'); return; }
-    if (key === 'book') { openBookToward(el, href); return; }
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) { location.hash = href; return; }
+    if (it.role === 'book') { openBookToward(el, href); return; }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { location.hash = href; return; }
     const sr = scene.getBoundingClientRect(), r = el.getBoundingClientRect();
     scene.style.transformOrigin = `${((r.left + r.width / 2 - sr.left) / sr.width) * 100}% ${((r.top + r.height / 2 - sr.top) / sr.height) * 100}%`;
     scene.classList.add('zooming');
     setTimeout(() => { location.hash = href; }, 380);
   };
   const quiet = {
-    popcorn: () => {
+    popcorn: el => {
       say('Still warm. Nobody knows who keeps refilling it.');
-      const el = mainView.querySelector('[data-obj="popcorn"]');
+      const it = items.find(i => i.id === el.dataset.item);
       for (let i = 0; i < 7; i++) {
         const k = document.createElement('span');
         k.className = 'room-kernel';
-        k.style.left = `${45.3 + 2.8}%`; k.style.top = '37.5%';
+        k.style.left = `${it.l + it.w / 2}%`; k.style.top = `${it.t + 0.5}%`;
         k.style.setProperty('--dx', `${(i - 3) * 14}px`); k.style.setProperty('--dy', `${-30 - (i % 3) * 18}px`);
         scene.appendChild(k); setTimeout(() => k.remove(), 900);
       }
@@ -5075,31 +5139,150 @@ async function renderRoom(mainView) {
     raven: () => say('Croak. Nothing to squawk about right now. It’s keeping watch.'),
     drawer: () => say('Locked. The letters are for inner members — work two shifts to step inside.'),
   };
-  mainView.querySelectorAll('[data-obj]').forEach(el => el.addEventListener('click', () => {
-    const key = el.dataset.obj, href = objs[key][7];
-    if (href) go(el, key, href); else quiet[key]?.();
-  }));
+  host.addEventListener('mouseover', e => {
+    const el = e.target.closest('[data-item]');
+    if (!el || roomEditing) { verb.classList.remove('show'); return; }
+    const [label] = behave(items.find(i => i.id === el.dataset.item));
+    if (label) { verb.textContent = label; verb.classList.add('show'); } else verb.classList.remove('show');
+  });
+  host.addEventListener('mouseleave', () => verb.classList.remove('show'));
+  host.addEventListener('click', e => {
+    if (roomEditing) return;
+    const el = e.target.closest('[data-item]');
+    if (!el) return;
+    const it = items.find(i => i.id === el.dataset.item);
+    const [, href] = behave(it);
+    if (href) go(el, it, href); else quiet[it.role]?.(el);
+  });
 
-  // ✦ reveal: every hotspot's name glows for a moment (adventure-game style).
+  // ✦ reveal: one short label per kind of thing, for a few seconds.
   const labels = document.getElementById('roomLabels');
   document.getElementById('roomReveal').addEventListener('click', () => {
     const sr = scene.getBoundingClientRect();
-    // One short label per thing; the three costumes / flyers share one.
-    const SHORT = { mirror: 'Mirror', drawer: 'Drawer', stars: 'Stars', exit: 'Courtyard', costume: 'Costumes', flyer: 'Flyers', potion: 'Bottle', popcorn: 'Popcorn', book: 'Big Book', raven: 'Raven', trunk: 'Trunk', hatbox: 'Hat Box' };
+    const SHORT = { mirror: 'Mirror', drawer: 'Drawer', stars: 'Stars', exit: 'Courtyard', costume: 'Costumes', flyer: 'Flyers', potion: 'Bottle', popcorn: 'Popcorn', book: 'Big Book', raven: 'Raven', trunk: 'Trunk', hatbox: 'Hat Box', events: 'Events', tickets: 'Tickets' };
     const groups = {};
-    mainView.querySelectorAll('[data-obj]').forEach(el => {
-      const g = el.dataset.obj.split('_')[0];
+    host.querySelectorAll('[data-item]').forEach(el => {
+      const it = items.find(i => i.id === el.dataset.item);
+      if (!SHORT[it.role]) return;
       const r = el.getBoundingClientRect();
-      const b = groups[g] || (groups[g] = { l: Infinity, t: Infinity, r: -Infinity, b: -Infinity });
+      const b = groups[it.role] || (groups[it.role] = { l: Infinity, t: Infinity, r: -Infinity, b: -Infinity });
       b.l = Math.min(b.l, r.left); b.t = Math.min(b.t, r.top); b.r = Math.max(b.r, r.right); b.b = Math.max(b.b, r.bottom);
+      el.classList.add('revealed');
     });
     labels.innerHTML = Object.entries(groups).map(([g, b]) =>
-      `<span class="room-label" style="left:${(((b.l + b.r) / 2 - sr.left) / sr.width) * 100}%;top:${(((b.t + b.b) / 2 - sr.top) / sr.height) * 100}%">${escapeHtml(SHORT[g] || g)}</span>`).join('');
+      `<span class="room-label" style="left:${(((b.l + b.r) / 2 - sr.left) / sr.width) * 100}%;top:${(((b.t + b.b) / 2 - sr.top) / sr.height) * 100}%">${escapeHtml(SHORT[g])}</span>`).join('');
     labels.classList.add('show');
-    mainView.querySelectorAll('[data-obj]').forEach(el => el.classList.add('revealed'));
-    setTimeout(() => { labels.classList.remove('show'); mainView.querySelectorAll('.revealed').forEach(el => el.classList.remove('revealed')); }, 3200);
+    setTimeout(() => { labels.classList.remove('show'); host.querySelectorAll('.revealed').forEach(el => el.classList.remove('revealed')); }, 3200);
   });
 
+  // ── Arrange mode (Ringleaders): drag, resize, rotate, flip, layer, add,
+  // delete, choose what things do; Save publishes for everyone.
+  // Drag/resize ported from the unison-map editor.
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const sel = () => items.find(i => i.id === selectedId);
+  host.addEventListener('pointerdown', e => {
+    if (!roomEditing) return;
+    const el = e.target.closest('[data-item]');
+    if (!el) { selectedId = null; draw(); return; }
+    e.preventDefault();
+    const it = items.find(i => i.id === el.dataset.item);
+    if (selectedId !== it.id) { selectedId = it.id; draw(); }
+    const rect = scene.getBoundingClientRect();
+    const node = host.querySelector(`[data-item="${it.id}"]`);
+    if (e.target.closest('[data-handle]')) {
+      const ax = rect.left + (it.l / 100) * rect.width, ay = rect.top + (it.t / 100) * rect.height;
+      const d0 = Math.max(1, Math.hypot(e.clientX - ax, e.clientY - ay));
+      const w0 = it.w, h0 = it.h;
+      const onMove = ev => {
+        const f = Math.hypot(ev.clientX - ax, ev.clientY - ay) / d0;
+        it.w = +clamp(w0 * f, 1.5, 90).toFixed(2);
+        if (!it.img) it.h = +clamp((h0 || 10) * f, 1.5, 90).toFixed(2);
+        node.style.width = it.w + '%';
+        if (!it.img) node.style.height = it.h + '%';
+      };
+      const onUp = () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); draw(); };
+      document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
+      return;
+    }
+    const sx = e.clientX, sy = e.clientY, l0 = it.l, t0 = it.t;
+    const onMove = ev => {
+      it.l = +clamp(l0 + ((ev.clientX - sx) / rect.width) * 100, -10, 100).toFixed(2);
+      it.t = +clamp(t0 + ((ev.clientY - sy) / rect.height) * 100, -10, 100).toFixed(2);
+      node.style.left = it.l + '%'; node.style.top = it.t + '%';
+    };
+    const onUp = () => { document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); draw(); };
+    document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp);
+  });
+
+  function renderEditor() {
+    const it = sel();
+    const opt = (map, val) => Object.entries(map).map(([k, v]) => `<option value="${k}" ${k === (val || '') ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+    editor.innerHTML = `
+      <div class="re-row re-title"><strong>Arrange the room</strong><span class="re-hint">Drag to move · gold corner to resize</span></div>
+      ${it ? `
+        <div class="re-row"><label>It does<select data-f="role">${opt(ROOM_ROLES, it.role)}</select></label></div>
+        ${it.role === 'flyer' ? `<div class="re-row"><label>Which event<select data-f="n">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === (it.n || 0) ? 'selected' : ''}>${['Next', '2nd', '3rd', '4th', '5th', '6th'][n]} upcoming</option>`).join('')}</select></label></div>` : ''}
+        ${it.img ? `<div class="re-row"><label>Moves<select data-f="anim">${opt(ROOM_ANIMS, it.anim)}</select></label>
+          <label>Art<select data-f="img">${Object.keys(ROOM_ASSETS).map(k => `<option ${k === it.img ? 'selected' : ''}>${k}</option>`).join('')}</select></label></div>` : ''}
+        <div class="re-row"><label class="re-wide">Rotate <input type="range" min="-45" max="45" step="1" value="${it.rot || 0}" data-f="rot"></label></div>
+        <div class="re-row re-btns">
+          ${it.img ? '<button data-a="flip">Flip</button>' : ''}
+          <button data-a="back">Send back</button><button data-a="front">Bring forward</button>
+          <button data-a="dup">Duplicate</button><button data-a="del" class="re-danger">Delete</button>
+        </div>` : '<div class="re-row re-hint">Tap something in the room to select it.</div>'}
+      <div class="re-row re-add"><select id="reAddArt"><option value="">+ Add a thing…</option>${Object.keys(ROOM_ASSETS).map(k => `<option>${k}</option>`).join('')}<option value="__hot">Invisible hotspot (for painted things)</option></select></div>
+      <div class="re-row re-btns re-save">
+        <button data-a="save" class="re-primary">Save for everyone</button><button data-a="cancel">Cancel</button><button data-a="reset">Reset to default</button>
+      </div>`;
+  }
+  editor.addEventListener('input', e => {
+    const it = sel(); const f = e.target.dataset.f;
+    if (!it || !f) return;
+    if (f === 'rot') { it.rot = +e.target.value; const n = host.querySelector(`[data-item="${it.id}"] .room-turn`); if (n) n.style.transform = `rotate(${it.rot}deg) scaleX(${it.flip ? -1 : 1})`; }
+  });
+  editor.addEventListener('change', e => {
+    if (e.target.id === 'reAddArt') {
+      const art = e.target.value; if (!art) return;
+      const id = 'x' + Math.random().toString(36).slice(2, 8);
+      items.push(art === '__hot' ? { id, role: 'decor', img: null, l: 42, t: 42, w: 14, h: 14 } : { id, role: 'decor', img: art, l: 42, t: 40, w: 12, z: 5 });
+      selectedId = id; draw(); return;
+    }
+    const it = sel(); const f = e.target.dataset.f;
+    if (!it || !f || f === 'rot') return;
+    it[f] = f === 'n' ? +e.target.value : e.target.value;
+    draw();
+  });
+  editor.addEventListener('click', async e => {
+    const a = e.target.dataset.a; if (!a) return;
+    const it = sel();
+    if (a === 'flip' && it) { it.flip = !it.flip; draw(); }
+    if (a === 'front' && it) { it.z = Math.max(...items.map(i => i.z || 0)) + 1; draw(); }
+    if (a === 'back' && it) { it.z = Math.min(...items.map(i => i.z || 0)) - 1; draw(); }
+    if (a === 'dup' && it) { const c = { ...it, id: 'x' + Math.random().toString(36).slice(2, 8), l: it.l + 2, t: it.t + 2 }; items.push(c); selectedId = c.id; draw(); }
+    if (a === 'del' && it) { items = items.filter(i => i !== it); selectedId = null; draw(); }
+    if (a === 'cancel') { exitEditing(); }
+    if (a === 'reset') { if (!confirm('Put the room back to the default arrangement for everyone?')) return; await apiFetch('/api/room-layout', { method: 'PUT', body: { items: null } }); items = JSON.parse(JSON.stringify(ROOM_DEFAULT)); exitEditing(true); say('Back to the default room.'); }
+    if (a === 'save') {
+      try {
+        await apiFetch('/api/room-layout', { method: 'PUT', body: { items } });
+        exitEditing(true); say('Saved. Everyone sees your room now.');
+      } catch (err) { say(`Couldn't save: ${err.message}`); }
+    }
+  });
+  function exitEditing(keep) {
+    roomEditing = false; selectedId = null;
+    if (!keep) items = JSON.parse(JSON.stringify(saved));
+    editor.hidden = true; document.getElementById('roomArrange').textContent = '✎ Arrange';
+    draw();
+  }
+  document.getElementById('roomArrange')?.addEventListener('click', e => {
+    if (roomEditing) { exitEditing(); return; }
+    roomEditing = true; editor.hidden = false; e.currentTarget.textContent = '✕ Stop arranging';
+    say('Arrange mode: drag things around. Nothing opens until you stop.');
+    draw();
+  });
+
+  draw();
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
   const vp = document.getElementById('roomViewport');

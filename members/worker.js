@@ -1920,6 +1920,28 @@ async function passportRoutes(request, env, url, user) {
     if (!user) return err(401, "Sign in required.");
     return json(await passportFor(env, user.id));
   }
+  // The Dressing Room layout: everyone signed in reads it; Ringleaders
+  // arrange it (Arrange mode in the room) and save it for everyone.
+  if (pathname === "/api/room-layout" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const row = await env.DB.prepare("SELECT data, updated_at FROM room_layout WHERE id = 'main'").first();
+    return json({ items: row ? JSON.parse(row.data) : null, updated_at: row?.updated_at || null });
+  }
+  if (pathname === "/api/room-layout" && method === "PUT") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    const { items } = await body(request);
+    if (items === null) {
+      await env.DB.prepare("DELETE FROM room_layout WHERE id = 'main'").run();
+      return json({ ok: true, reset: true });
+    }
+    if (!Array.isArray(items) || items.length > 120) return err(400, "items must be an array (max 120).");
+    const data = JSON.stringify(items);
+    if (data.length > 60000) return err(400, "Layout too large.");
+    await env.DB.prepare(
+      "INSERT INTO room_layout (id, data, updated_by, updated_at) VALUES ('main', ?, ?, datetime('now')) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_by = excluded.updated_by, updated_at = excluded.updated_at"
+    ).bind(data, user.id).run();
+    return json({ ok: true });
+  }
   // "Your troupe": the people you've actually shared events with (both
   // stamped at the same event). Earned, not picked; names and rank only.
   if (pathname === "/api/me/troupe" && method === "GET") {
@@ -2146,7 +2168,7 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout")) return true;
   // Boards/posts handlers themselves restrict courtyard members to the
   // Courtyard board, read-only (POST /api/posts stays blocked here).
   if (method === "GET" && (pathname === "/api/boards" || pathname === "/api/posts" || /^\/api\/posts\/[^/]+$/.test(pathname))) return true;

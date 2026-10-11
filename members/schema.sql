@@ -352,6 +352,19 @@ ALTER TABLE users ADD COLUMN share_email INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN share_phone INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN share_instagram INTEGER NOT NULL DEFAULT 0;
 
+-- ============================================================
+-- migrations/2026-10-11-room-layout.sql
+-- ============================================================
+-- The Dressing Room layout Neeff arranges in the room's Arrange mode.
+-- One row ('main'); data = JSON array of placed items (see ROOM_ROLES in
+-- app.js). No row = the default layout baked into app.js.
+CREATE TABLE room_layout (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:
 --   * users:   self can update display_name/home_chapter_id/avatar_url only;

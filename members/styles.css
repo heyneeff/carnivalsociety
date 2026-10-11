@@ -1309,3 +1309,34 @@ body {
   .room-scene.zooming { transition: none; transform: none; }
 }
 .room-viewport::before { transform: none; }
+
+/* ── Room Arrange mode (Ringleader editor, 2026-10-11) ── */
+.room-items { position: absolute; inset: 0; }
+.room-turn { display: block; transform-origin: 50% 50%; }
+.room-obj.decor { pointer-events: none; cursor: default; filter: drop-shadow(0 6px 6px rgba(0,0,0,0.45)); }
+.room-scene.editing .room-obj, .room-scene.editing .room-hot { pointer-events: auto; cursor: grab; touch-action: none; outline: 1px dashed rgba(255,226,160,0.7); outline-offset: 2px; }
+.room-scene.editing .room-obj:hover { transform: none; }
+.room-scene.editing .room-obj img, .room-scene.editing .room-obj.decor { animation: none !important; }
+.room-scene.editing .room-hot { background: rgba(155,48,54,0.28); border: 2px dashed var(--glow); }
+.room-scene.editing .selected { outline: 2px solid var(--glow); outline-offset: 2px; z-index: 50; }
+.room-hot-name { position: absolute; left: 4px; top: 4px; right: 4px; font-size: 11px; line-height: 1.2; color: var(--cream); text-shadow: 0 1px 2px #000; pointer-events: none; }
+.room-handle { position: absolute; right: -9px; bottom: -9px; width: 18px; height: 18px; border-radius: 50%; background: var(--glow); border: 2px solid #231712; cursor: nwse-resize; touch-action: none; display: none; }
+.room-scene.editing .selected .room-handle { display: block; }
+.room-arrange-btn { position: fixed; right: 80px; bottom: 26px; z-index: 26; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--gold-bright); background: rgba(20,12,10,0.92); color: var(--glow); font-weight: 700; cursor: pointer; }
+.room-editor { position: fixed; z-index: 30; top: 84px; right: 16px; width: 300px; max-height: calc(100vh - 170px); overflow-y: auto; padding: 14px; border-radius: 12px; background: rgba(28,18,16,0.97); border: 2px solid var(--gold); box-shadow: 0 10px 30px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.room-editor[hidden] { display: none; }
+.re-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.re-row label { display: flex; flex-direction: column; gap: 3px; flex: 1 1 120px; color: var(--cream-soft); font-size: 12.5px; }
+.re-row .re-wide { flex-basis: 100%; }
+.re-row select, .re-row input[type=range] { min-height: 36px; background: var(--surface-2); color: var(--cream); border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; }
+.re-title { justify-content: space-between; color: var(--glow); font-family: 'Playfair Display', serif; font-size: 16px; }
+.re-hint { color: var(--cream-soft); font-size: 12.5px; font-family: 'Libre Franklin', sans-serif; }
+.re-btns button { min-height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--gold); background: var(--surface-2); color: var(--cream); cursor: pointer; font-size: 13px; }
+.re-btns .re-primary { background: var(--burgundy-red); border-color: var(--gold-bright); font-weight: 700; }
+.re-btns .re-danger { border-color: #c45a5f; color: #f2b8bb; }
+.re-add select { width: 100%; min-height: 40px; background: var(--surface-2); color: var(--glow); border: 1px dashed var(--gold); border-radius: 8px; padding: 0 8px; }
+.re-save { border-top: 1px solid var(--border); padding-top: 10px; }
+@media (max-width: 800px) {
+  .room-arrange-btn { right: 76px; bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .room-editor { top: auto; bottom: calc(140px + env(safe-area-inset-bottom)); left: 8px; right: 8px; width: auto; max-height: 42vh; }
+}
