@@ -494,7 +494,7 @@ function renderShell() {
 // the forum is the big book, events are the corkboard, and so on.
 function pageKind(route) {
   if (route === 'dressing-room') return 'room';
-  if (route === 'courtyard' || route === 'guild-hall' || route.startsWith('post/') || chapters.some(c => c.slug === route)) return 'book';
+  if (route === 'courtyard' || route === 'guild-hall' || route.startsWith('post/') || chapters.some(c => c.slug === route)) return 'forum';
   if (route === 'events' || route.startsWith('event/')) return 'events';
   if (route === 'dm' || route.startsWith('dm/')) return 'letters';
   if (route === 'profile') return 'profile';
@@ -539,24 +539,36 @@ function renderMainView(route) {
 // nav still shows the guild's full shape.
 const LOCKED_BOARD_SLUGS = ['denver', 'los-angeles'];
 
-function renderGuildHallTabs(mainView, activeSlug) {
-  const boardTabs = [{ slug: 'guild-hall', name: 'Guild Hall' }, ...chapters.map(c => ({ slug: c.slug, name: c.name }))];
-  const active = boardTabs.some(t => t.slug === activeSlug) ? activeSlug : 'guild-hall';
-
+// The forum: one warm parchment sheet in a wooden frame (Spiritfarer /
+// Animal Crossing bulletin-board energy), real forum function inside.
+const FORUM_ICONS = {
+  tent: 'M3 20 12 4l9 16z M12 4v16 M12 4l3-2',
+  pin: 'M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z M12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  lock: 'M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3',
+  yard: 'M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5',
+  bubble: 'M4 5h16v11H9l-5 4z',
+};
+const forumIcon = (k, size = 18) => `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${FORUM_ICONS[k]}"/></svg>`;
+function forumFrame(mainView, { title, icon, tabsHtml = '', backHtml = '' }) {
   mainView.innerHTML = `
-    <h2>Guild Hall</h2>
-    <div class="crew-tabs">
-      ${boardTabs.map(t => LOCKED_BOARD_SLUGS.includes(t.slug)
-        ? `<span class="crew-tab locked" title="Not open yet">${escapeHtml(t.name)} 🔒</span>`
-        : `<a class="crew-tab ${active === t.slug ? 'active' : ''}" href="#/${t.slug}">${escapeHtml(t.name)}</a>`
-      ).join('')}
-    </div>
-    <div id="guildHallTabBody"><div class="placeholder-note">Loading…</div></div>
-  `;
+    <div class="forum">
+      <div class="forum-banner">${forumIcon(icon, 22)}<span>${escapeHtml(title)}</span></div>
+      ${tabsHtml ? `<nav class="forum-tabs" aria-label="Boards">${tabsHtml}</nav>` : ''}
+      <div class="forum-sheet">${backHtml}<div id="forumBody"><div class="forum-empty">Unrolling the parchment…</div></div></div>
+    </div>`;
+  return document.getElementById('forumBody');
+}
 
-  const body = document.getElementById('guildHallTabBody');
+function renderGuildHallTabs(mainView, activeSlug) {
+  const boardTabs = [{ slug: 'guild-hall', name: 'Guild Hall', icon: 'tent' }, ...chapters.map(c => ({ slug: c.slug, name: c.name, icon: 'pin' }))];
+  const active = boardTabs.some(t => t.slug === activeSlug) ? activeSlug : 'guild-hall';
+  const tabsHtml = boardTabs.map(t => LOCKED_BOARD_SLUGS.includes(t.slug)
+    ? `<span class="forum-tab locked" title="Not open yet">${forumIcon('lock', 16)}${escapeHtml(t.name)}</span>`
+    : `<a class="forum-tab ${active === t.slug ? 'active' : ''}" href="#/${t.slug}" ${active === t.slug ? 'aria-current="page"' : ''}>${forumIcon(t.icon, 16)}${escapeHtml(t.name)}</a>`).join('')
+    + `<a class="forum-tab" href="#/courtyard">${forumIcon('yard', 16)}Courtyard</a>`;
+  const body = forumFrame(mainView, { title: 'The Guild Hall', icon: 'tent', tabsHtml });
   if (LOCKED_BOARD_SLUGS.includes(active)) {
-    body.innerHTML = `<div class="placeholder-note">This chapter board isn't open yet.</div>`;
+    body.innerHTML = `<div class="forum-empty"><img src="${ROOM}raven_perched.png" alt="" class="forum-empty-bird">This chapter's board isn't open yet. The raven is keeping its seat warm.</div>`;
     return;
   }
   renderBoardView(body, active);
@@ -590,142 +602,151 @@ function rankColor(rank) {
   return RANK_COLORS[rank] || 'var(--cream)';
 }
 
-// ── Board view: composer + top-level post list ─────────────────────────
-async function renderBoardView(mainView, slug) {
+// ── Board view: thread cards + a pop-up note to start a thread ─────────
+const AVATAR_COLORS = ['#9B3036', '#2F7F7A', '#8B5FA3', '#C97C3D', '#5F7A3D', '#C77B8A', '#8F6E34'];
+function avatarFor(id, name, size = 44) {
+  let h = 0;
+  for (const ch of String(id || name || '?')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `<span class="forum-avatar" style="--av:${AVATAR_COLORS[h % AVATAR_COLORS.length]};--sz:${size}px" aria-hidden="true">${escapeHtml((name || '?').trim().slice(0, 1).toUpperCase())}</span>`;
+}
+const sqlIso = t => (String(t).includes('T') ? t : String(t).replace(' ', 'T') + 'Z');
+function authorChip(a) {
+  const label = a?.is_ringleader ? 'Ringleader' : a?.rank ? rankLabel(a.rank) : '';
+  return label ? `<span class="forum-rank ${a?.is_ringleader ? 'ringleader' : ''}">${escapeHtml(label)}</span>` : '';
+}
+
+async function renderBoardView(host, slug) {
   const board = boards.find(b => b.slug === slug);
-  if (!board) {
-    mainView.innerHTML = `<div class="placeholder-note">That board doesn't exist.</div>`;
-    return;
-  }
-  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
-
+  if (!board) { host.innerHTML = `<div class="forum-empty">That board doesn't exist.</div>`; return; }
   const { posts } = await apiFetch(`/api/posts?board_id=${board.id}`);
-
-  const postListHtml = (posts || []).map(p => `
-    <div class="post-card ${p.pinned ? 'pinned' : ''}" data-post-id="${p.id}">
-      <div class="post-title-row">
-        ${p.pinned ? '<span class="pin-flag">📌</span>' : ''}
-        <span class="post-title">${escapeHtml(p.title || '(untitled)')}</span>
-      </div>
-      <div class="post-meta">${escapeHtml(p.author?.display_name || 'unknown')} ${authorBadge(p.author)} · ${timeAgo(p.created_at)}</div>
-      <div class="post-snippet">${escapeHtml((p.body || '').slice(0, 160))}${(p.body || '').length > 160 ? '…' : ''}</div>
-    </div>
-  `).join('') || `<div class="placeholder-note">${board.slug === 'courtyard' ? 'Nothing posted yet. News and volunteer calls will show up here.' : 'No posts yet. Be the first to say something.'}</div>`;
-
-  // Courtyard threads are started by moderators only (server enforces too).
+  // "New" = activity since you last looked at this board (per device).
+  const seenKey = `cs-board-seen-${board.id}`;
+  let seen = 0;
+  try { seen = +localStorage.getItem(seenKey) || 0; localStorage.setItem(seenKey, String(Date.now())); } catch (e) { /* ignore */ }
   const canStartThread = board.slug !== 'courtyard' || isModerator();
+  const cards = (posts || []).map(p => {
+    const fresh = seen && Date.parse(sqlIso(p.last_activity)) > seen && p.author_id !== profile.id;
+    return `
+    <a class="thread-card ${p.pinned ? 'pinned' : ''}" href="#/post/${p.id}">
+      ${avatarFor(p.author_id, p.author?.display_name)}
+      <span class="thread-main">
+        <span class="thread-title">${fresh ? '<span class="forum-new">NEW</span>' : ''}${escapeHtml(p.title || '(untitled)')}</span>
+        <span class="thread-snippet">${escapeHtml((p.body || '').slice(0, 180))}</span>
+        <span class="thread-meta">${escapeHtml(p.author?.display_name || 'someone')} ${authorChip(p.author)} · ${timeAgo(sqlIso(p.created_at))}</span>
+      </span>
+      <span class="thread-side">
+        <span class="thread-replies" title="${p.reply_count} replies">${forumIcon('bubble', 16)}<b>${p.reply_count}</b><small>${p.reply_count === 1 ? 'reply' : 'replies'}</small></span>
+        <span class="thread-last">${p.reply_count ? `${escapeHtml(p.last_replier || '')} · ${timeAgo(sqlIso(p.last_activity))}` : 'no replies yet'}</span>
+      </span>
+      ${p.pinned ? '<span class="thread-seal" title="Pinned" aria-label="Pinned"></span>' : ''}
+    </a>`;
+  }).join('');
+  host.innerHTML = `
+    <div class="forum-toolbar">
+      <div class="forum-desc">${escapeHtml(board.description || '')}</div>
+      ${canStartThread ? `<button class="forum-btn" id="startThread">✒ Start a thread</button>` : ''}
+    </div>
+    ${!isInnerMember() && board.slug === 'courtyard' ? `<div class="forum-note-pinned"><strong>Welcome to the courtyard, ${escapeHtml(profile.display_name)}!</strong> This is where the guild posts news and calls for help. The quickest way in is to <a href="#/events">volunteer for an upcoming event</a>.</div>` : ''}
+    <div class="thread-list">${cards || `<div class="forum-empty"><img src="${ROOM}raven_perched.png" alt="" class="forum-empty-bird">${board.slug === 'courtyard' ? 'Nothing posted yet. News and volunteer calls will land here.' : 'Quiet in here. Be the first to start a thread!'}</div>`}</div>`;
+  document.getElementById('startThread')?.addEventListener('click', () => openForumNote({
+    heading: `A new thread in ${board.name}`, withTitle: true, cta: 'Pin it up',
+    placeholder: board.slug === 'courtyard' ? 'News for everyone in the courtyard…' : "What's on your mind?",
+    onSubmit: async ({ title, body }) => { await apiFetch('/api/posts', { method: 'POST', body: { board_id: board.id, title, body } }); renderBoardView(host, slug); },
+  }));
+}
 
-  mainView.innerHTML = `
-    ${canStartThread ? `<form class="composer" id="postComposer">
-      <input type="text" id="postTitle" placeholder="Title" required>
-      <textarea id="postBody" placeholder="${board.slug === 'courtyard' ? 'Post to everyone in the courtyard…' : "What's on your mind?"}" required></textarea>
-      <button type="submit" class="composer-submit">Post</button>
-    </form>` : ''}
-    <div class="post-list">${postListHtml}</div>
-  `;
-
-  document.getElementById('postComposer')?.addEventListener('submit', async e => {
+// A note card that pops up to write on (threads and replies).
+function openForumNote({ heading, withTitle, cta, placeholder, onSubmit }) {
+  const o = document.createElement('div');
+  o.className = 'forum-note-overlay';
+  o.innerHTML = `
+    <form class="forum-note" role="dialog" aria-label="${escapeHtml(heading)}">
+      <div class="forum-note-head">${escapeHtml(heading)}</div>
+      ${withTitle ? '<input name="title" required maxlength="140" placeholder="A title for your thread" aria-label="Title">' : ''}
+      <textarea name="body" required placeholder="${escapeHtml(placeholder)}" aria-label="Message"></textarea>
+      <div class="forum-note-btns"><button type="button" class="forum-btn ghost" data-cancel>Cancel</button><button class="forum-btn">${escapeHtml(cta)}</button></div>
+      <div class="forum-note-err" role="status"></div>
+    </form>`;
+  document.body.appendChild(o);
+  const form = o.querySelector('form');
+  (form.title || form.body).focus();
+  const close = () => o.remove();
+  o.addEventListener('click', e => { if (e.target === o || e.target.dataset.cancel !== undefined) close(); });
+  form.addEventListener('submit', async e => {
     e.preventDefault();
-    const title = document.getElementById('postTitle').value.trim();
-    const body = document.getElementById('postBody').value.trim();
-    if (!title || !body) return;
-    await apiFetch('/api/posts', { method: 'POST', body: { board_id: board.id, title, body } });
-    renderBoardView(mainView, slug);
-  });
-
-  mainView.querySelectorAll('.post-card').forEach(card => {
-    card.addEventListener('click', () => { window.location.hash = `#/post/${card.dataset.postId}`; });
+    const title = form.title ? form.title.value.trim() : '', body = form.body.value.trim();
+    if (!body || (withTitle && !title)) return;
+    form.querySelector('button:not([data-cancel])').disabled = true;
+    try { await onSubmit({ title, body }); close(); }
+    catch (err) { form.querySelector('.forum-note-err').textContent = err.message; form.querySelector('button:not([data-cancel])').disabled = false; }
   });
 }
 
-// ── Courtyard: landing page for free accounts, a shared board for all ───
+// ── Courtyard: the board everyone can read ───────────────────────────────
 async function renderCourtyardView(mainView) {
-  const welcome = !isInnerMember() ? `
-    <div class="courtyard-welcome">
-      <h3>Welcome to the courtyard, ${escapeHtml(profile.display_name)}.</h3>
-      <p>This is where the guild posts news and calls for help. The quickest way in is to
-        <a href="#/events">volunteer for an upcoming event</a>. Show up, build, and get to know the crew.</p>
-    </div>` : '';
-  mainView.innerHTML = `<h2>Courtyard</h2>${welcome}<div id="courtyardBoard"></div>`;
-  await renderBoardView(document.getElementById('courtyardBoard'), 'courtyard');
+  const tabsHtml = isInnerMember()
+    ? `<a class="forum-tab" href="#/guild-hall">${forumIcon('tent', 16)}Guild Hall</a><a class="forum-tab active" href="#/courtyard" aria-current="page">${forumIcon('yard', 16)}Courtyard</a>`
+    : '';
+  const body = forumFrame(mainView, { title: 'The Courtyard', icon: 'yard', tabsHtml });
+  await renderBoardView(body, 'courtyard');
 }
 
-// ── Thread view: single post + replies ─────────────────────────────────
+// ── Thread view: the original post, then the conversation ───────────────
 async function renderThreadView(mainView, postId) {
-  mainView.innerHTML = `<div class="placeholder-note">Loading…</div>`;
-
   let post, replies;
-  try {
-    ({ post, replies } = await apiFetch(`/api/posts/${postId}`));
-  } catch (e) {
-    mainView.innerHTML = `<h2>Not found</h2><div class="placeholder-note">That post doesn't exist.</div>`;
-    return;
-  }
-
+  try { ({ post, replies } = await apiFetch(`/api/posts/${postId}`)); }
+  catch (e) { forumFrame(mainView, { title: 'Not found', icon: 'tent' }).innerHTML = '<div class="forum-empty">That thread blew away in the wind.</div>'; return; }
   const board = boards.find(b => b.id === post.board_id);
-  const canModerate = isModerator();
-  const isAuthor = post.author_id === profile.id;
-
-  const postActions = (isAuthor || canModerate) ? `
-    <div class="post-actions">
-      ${canModerate ? `<button class="action-btn" id="pinBtn">${post.pinned ? 'Unpin' : 'Pin'}</button>` : ''}
-      <button class="action-btn danger" id="deletePostBtn">Delete</button>
-    </div>` : '';
-
-  const replyListHtml = (replies || []).map(r => `
-    <div class="reply-card" data-reply-id="${r.id}">
-      <div class="post-meta">${escapeHtml(r.author?.display_name || 'unknown')} ${authorBadge(r.author)} · ${timeAgo(r.created_at)}</div>
-      <div class="reply-body">${escapeHtml(r.body)}</div>
-      ${(r.author_id === profile.id || canModerate) ? `<div class="post-actions"><button class="action-btn danger" data-delete-reply="${r.id}">Delete</button></div>` : ''}
-    </div>
-  `).join('');
-
-  mainView.innerHTML = `
-    <a class="thread-back" href="#/${board ? board.slug : 'guild-hall'}">&larr; Back to ${escapeHtml(board ? board.name : 'Guild Hall')}</a>
-    <div class="thread-post">
-      <div class="post-title-row">
-        ${post.pinned ? '<span class="pin-flag">📌</span>' : ''}
-        <span class="post-title">${escapeHtml(post.title || '(untitled)')}</span>
-      </div>
-      <div class="post-meta">${escapeHtml(post.author?.display_name || 'unknown')} ${authorBadge(post.author)} · ${timeAgo(post.created_at)}</div>
-      <div class="thread-post-body">${escapeHtml(post.body)}</div>
-      ${postActions}
-    </div>
-    <div class="reply-list">${replyListHtml}</div>
-    ${isInnerMember() ? `<form class="composer" id="replyComposer">
-      <textarea id="replyBody" placeholder="Write a reply…" required></textarea>
-      <button type="submit" class="composer-submit">Reply</button>
-    </form>` : ''}
-  `;
-
-  document.getElementById('replyComposer')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const body = document.getElementById('replyBody').value.trim();
-    if (!body) return;
-    await apiFetch('/api/posts', { method: 'POST', body: { board_id: post.board_id, parent_id: postId, body } });
-    renderThreadView(mainView, postId);
+  const backSlug = board ? board.slug : 'guild-hall';
+  const body = forumFrame(mainView, {
+    title: board ? (board.slug === 'courtyard' ? 'The Courtyard' : board.name) : 'The Guild Hall', icon: board?.slug === 'courtyard' ? 'yard' : 'tent',
+    backHtml: `<a class="forum-back" href="#/${backSlug}">← Back to ${escapeHtml(board ? board.name : 'Guild Hall')}</a>`,
   });
-
-  const pinBtn = document.getElementById('pinBtn');
-  if (pinBtn) pinBtn.addEventListener('click', async () => {
+  const canModerate = isModerator();
+  const mine = id => id === profile.id;
+  body.innerHTML = `
+    <article class="op-card ${post.pinned ? 'pinned' : ''}">
+      ${post.pinned ? '<span class="thread-seal" title="Pinned"></span>' : ''}
+      <header class="op-head">${avatarFor(post.author_id, post.author?.display_name, 52)}
+        <div><h1 class="op-title">${escapeHtml(post.title || '(untitled)')}</h1>
+        <div class="thread-meta">${escapeHtml(post.author?.display_name || 'someone')} ${authorChip(post.author)} · ${timeAgo(sqlIso(post.created_at))}</div></div>
+      </header>
+      <div class="op-body">${escapeHtml(post.body)}</div>
+      ${mine(post.author_id) || canModerate ? `<div class="op-actions">
+        ${canModerate ? `<button class="forum-btn small ghost" id="pinBtn">${post.pinned ? 'Unpin' : '📌 Pin'}</button>` : ''}
+        <button class="forum-btn small ghost danger" id="deletePostBtn">Delete</button></div>` : ''}
+    </article>
+    <div class="reply-count-line">${replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : 'No replies yet'}</div>
+    <div class="reply-stack">${(replies || []).map(r => `
+      <div class="reply-row ${mine(r.author_id) ? 'mine' : ''}">
+        ${avatarFor(r.author_id, r.author?.display_name, 38)}
+        <div class="reply-bubble">
+          <div class="thread-meta"><b>${escapeHtml(r.author?.display_name || 'someone')}</b> ${authorChip(r.author)} · ${timeAgo(sqlIso(r.created_at))}
+            ${mine(r.author_id) || canModerate ? `<button class="reply-del" data-delete-reply="${r.id}" aria-label="Delete reply">×</button>` : ''}</div>
+          <div class="reply-text">${escapeHtml(r.body)}</div>
+        </div>
+      </div>`).join('')}</div>
+    ${isInnerMember()
+      ? `<button class="forum-btn reply-open" id="replyOpen">✒ Write a reply</button>`
+      : `<div class="forum-note-pinned">Inner members can reply. Work two shifts to step inside.</div>`}`;
+  document.getElementById('replyOpen')?.addEventListener('click', () => openForumNote({
+    heading: `Reply to “${post.title || 'this thread'}”`, withTitle: false, cta: 'Send reply', placeholder: 'Write a reply…',
+    onSubmit: async ({ body: text }) => { await apiFetch('/api/posts', { method: 'POST', body: { board_id: post.board_id, parent_id: postId, body: text } }); renderThreadView(mainView, postId); },
+  }));
+  document.getElementById('pinBtn')?.addEventListener('click', async () => {
     await apiFetch(`/api/posts/${postId}`, { method: 'PATCH', body: { pinned: !post.pinned } });
     renderThreadView(mainView, postId);
   });
-
-  const deletePostBtn = document.getElementById('deletePostBtn');
-  if (deletePostBtn) deletePostBtn.addEventListener('click', async () => {
-    if (!confirm('Delete this post and all its replies?')) return;
+  document.getElementById('deletePostBtn')?.addEventListener('click', async () => {
+    if (!confirm('Delete this thread and all its replies?')) return;
     await apiFetch(`/api/posts/${postId}`, { method: 'DELETE' });
-    window.location.hash = `#/${board ? board.slug : 'guild-hall'}`;
+    location.hash = `#/${backSlug}`;
   });
-
-  mainView.querySelectorAll('[data-delete-reply]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('Delete this reply?')) return;
-      await apiFetch(`/api/posts/${btn.dataset.deleteReply}`, { method: 'DELETE' });
-      renderThreadView(mainView, postId);
-    });
-  });
+  body.querySelectorAll('[data-delete-reply]').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirm('Delete this reply?')) return;
+    await apiFetch(`/api/posts/${btn.dataset.deleteReply}`, { method: 'DELETE' });
+    renderThreadView(mainView, postId);
+  }));
 }
 
 // ── Direct messages ──────────────────────────────────────────────────

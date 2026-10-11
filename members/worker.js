@@ -360,13 +360,19 @@ async function api(request, env, url, ctx) {
     const boardId = url.searchParams.get("board_id");
     if (!boardId) return err(400, "board_id required.");
     if (!isInner(user) && !await isCourtyardBoard(env, boardId)) return err(403, "Inner members only.");
+    // Forum list: reply count, last activity (bumps busy threads up) and who
+    // replied last, alongside the usual post + author fields.
     const { results } = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring
+      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring,
+              (SELECT COUNT(*) FROM posts r WHERE r.parent_id = posts.id) AS reply_count,
+              COALESCE((SELECT MAX(r.created_at) FROM posts r WHERE r.parent_id = posts.id), posts.created_at) AS last_activity,
+              (SELECT u2.display_name FROM posts r JOIN users u2 ON u2.id = r.author_id WHERE r.parent_id = posts.id ORDER BY r.created_at DESC LIMIT 1) AS last_replier
        FROM posts JOIN users ON users.id = posts.author_id
        WHERE posts.board_id = ? AND posts.parent_id IS NULL
-       ORDER BY posts.pinned DESC, posts.created_at DESC`
+       ORDER BY posts.pinned DESC, last_activity DESC
+       LIMIT 200`
     ).bind(boardId).all();
-    return json({ posts: results.map(shapePost) });
+    return json({ posts: results.map((r) => ({ ...shapePost(r), reply_count: r.reply_count, last_activity: r.last_activity, last_replier: r.last_replier || null })) });
   }
   if (pathname === "/api/posts" && method === "POST") {
     const authErr = requireAuth();
