@@ -1103,6 +1103,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
+      <div class="run-board" data-run-for="${e.id}" data-starts="${e.starts_at}" data-ends="${e.ends_at || ''}"></div>
       <div class="job-board" data-jobs-for="${e.id}"></div>
       <div class="need-board" data-needs-for="${e.id}"></div>
       ${onlyEventId ? `<div class="crew-table" data-crew-for="${e.id}"></div>` : myVolunteering.has(e.id) ? `<a class="crew-link" href="#/event/${e.id}">🎪 Your crew table →</a>` : ''}
@@ -1123,6 +1124,18 @@ async function renderEventsView(mainView, onlyEventId = null) {
           </div>
           <input name="details" maxlength="300" placeholder="Anything they should know (optional)…" aria-label="Details" autocomplete="off">
           <button class="composer-submit">📌 Pin the job</button>
+        </form>
+        <form class="job-add run-add" data-event="${e.id}">
+          <div class="job-add-h">Add to the run of show</div>
+          <div class="job-add-row">
+            <input name="at" type="datetime-local" value="${toDatetimeLocalValue(e.starts_at)}" aria-label="When" required>
+            <input name="title" maxlength="80" placeholder="What happens, e.g. Doors open…" aria-label="What" required autocomplete="off">
+          </div>
+          <div class="job-add-row">
+            <input name="who" maxlength="60" placeholder="Who leads it (optional)…" aria-label="Who" autocomplete="off">
+            <input name="place" maxlength="60" placeholder="Where (optional)…" aria-label="Where" autocomplete="off">
+          </div>
+          <button class="composer-submit">🕰 Add to the run</button>
         </form>
         <form class="job-add need-add" data-event="${e.id}">
           <div class="job-add-h">Add to the needs list</div>
@@ -1158,6 +1171,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
   }));
 
   (events || []).forEach(e => { renderTicketPanel(e.id); renderVolunteerRow(e.id); });
+  renderRun(mainView);
   renderJobs(mainView);
   renderNeeds(mainView);
   mainView.querySelectorAll('[data-crew-for]').forEach(h => renderCrewTable(h, h.dataset.crewFor));
@@ -1301,6 +1315,43 @@ async function renderAlbum(mainView) {
       </a></figure>`).join('') : `<div class="album-empty"><img src="${ROOM}raven_perched.png" alt=""><span>Volunteer for an event, take a job, and on the day tap <b>🤝 Shake hands</b> at your crew table.</span><a class="composer-submit" href="#/events">See what’s coming up</a></div>`}</div>`;
 }
 
+// ── Run of show (2026-10-12): the event's timeline on its flyer. While the
+// event is on, the current item glows NOW and the next says UP NEXT.
+async function renderRun(mainView) {
+  let run;
+  try { ({ run } = await apiFetch('/api/run')); } catch (e) { return; }
+  const mod = isModerator();
+  const now = Date.now();
+  mainView.querySelectorAll('[data-run-for]').forEach(board => {
+    const rows = run.filter(r => r.event_id === board.dataset.runFor);
+    if (!rows.length) { board.innerHTML = ''; return; }
+    const start = Date.parse(board.dataset.starts), end = board.dataset.ends ? Date.parse(board.dataset.ends) : Date.parse(rows[rows.length - 1].at) + 3 * 3600e3;
+    const live = now >= start - 3 * 3600e3 && now <= end;
+    const nowIdx = live ? rows.reduce((k, r, i) => (Date.parse(r.at) <= now ? i : k), -1) : -1;
+    const days = new Set(rows.map(r => new Date(r.at).toDateString())).size > 1;
+    const time = r => new Date(r.at).toLocaleString(undefined, days ? { weekday: 'short', hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' });
+    board.innerHTML = `
+      <div class="job-board-h">🕰 Run of show</div>
+      <ol class="run-list">${rows.map((r, i) => `
+        <li class="run-item ${i === nowIdx ? 'now' : ''} ${live && i === nowIdx + 1 ? 'next' : ''} ${live && i < nowIdx ? 'past' : ''}">
+          <span class="run-time">${escapeHtml(time(r))}</span>
+          <span class="run-what"><b>${escapeHtml(r.title)}</b>${r.who || r.place ? `<small>${[r.who, r.place].filter(Boolean).map(escapeHtml).join(' · ')}</small>` : ''}</span>
+          ${i === nowIdx ? '<span class="run-tag">NOW</span>' : live && i === nowIdx + 1 ? '<span class="run-tag next">UP NEXT</span>' : ''}
+          ${mod ? `<button class="run-del" data-del-run="${r.id}" aria-label="Remove ${escapeHtml(r.title)}">✕</button>` : ''}
+        </li>`).join('')}</ol>`;
+  });
+  const act = async (fn, msg) => { try { await fn(); if (msg) flashToast(msg); } catch (err) { flashToast(err.message); } renderRun(mainView); };
+  mainView.querySelectorAll('[data-del-run]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/run/${b.dataset.delRun}`, { method: 'DELETE' })));
+  mainView.querySelectorAll('.run-add').forEach(f => f.onsubmit = e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    act(async () => {
+      await apiFetch(`/api/events/${f.dataset.event}/run`, { method: 'POST', body: { ...d, at: new Date(d.at).toISOString() } });
+      f.title.value = ''; f.who.value = ''; f.place.value = '';
+    }, '🕰 Added to the run of show.');
+  });
+}
+
 // ── Needs on flyers (2026-10-12): materials wanted and needed ──
 // Anyone can say "I can bring it!"; the Ringleader marks it received at the
 // event, which wins them the Junk Saint stamp.
@@ -1395,7 +1446,7 @@ async function renderJobs(mainView) {
   mainView.querySelectorAll('[data-done-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.doneJob}/claims/${b.dataset.user}/done`, { method: 'POST' }), 'Done! They got a Roustabout stamp.'));
   mainView.querySelectorAll('[data-drop-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.dropJob}/claims/${b.dataset.user}`, { method: 'DELETE' })));
   mainView.querySelectorAll('[data-delete-job]').forEach(b => b.onclick = () => { if (confirm('Remove this job from the flyer?')) act(() => apiFetch(`/api/jobs/${b.dataset.deleteJob}`, { method: 'DELETE' })); });
-  mainView.querySelectorAll('.job-add:not(.need-add)').forEach(f => f.onsubmit = e => {
+  mainView.querySelectorAll('.job-add:not(.need-add):not(.run-add)').forEach(f => f.onsubmit = e => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(f));
     act(async () => { await apiFetch(`/api/events/${f.dataset.event}/jobs`, { method: 'POST', body: d }); f.reset(); }, '📌 Pinned to the flyer.');

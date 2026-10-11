@@ -2246,6 +2246,31 @@ async function needRoutes(request, env, url, user) {
       return json({ ok: true });
     }
   }
+  // Run of show (lives here with the other flyer lists).
+  if (pathname === "/api/run" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare(
+      `SELECT r.id, r.event_id, r.at, r.title, r.who, r.place FROM run_of_show r JOIN events e ON e.id = r.event_id WHERE ${UPCOMING} ORDER BY r.at`
+    ).all();
+    return json({ run: results });
+  }
+  const runAdd = pathname.match(/^\/api\/events\/([^/]+)\/run$/);
+  if (runAdd && method === "POST") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { at, title, who, place } = await body(request);
+    const t = (title || "").trim().slice(0, 80);
+    const when = Date.parse(at || "");
+    if (!t || !Number.isFinite(when)) return err(400, "Give it a time and a name.");
+    await env.DB.prepare("INSERT INTO run_of_show (id, event_id, at, title, who, place, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(crypto.randomUUID(), runAdd[1], new Date(when).toISOString(), t, (who || "").trim().slice(0, 60) || null, (place || "").trim().slice(0, 60) || null, user.id).run();
+    return json({ ok: true });
+  }
+  const runDel = pathname.match(/^\/api\/run\/([^/]+)$/);
+  if (runDel && method === "DELETE") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    await env.DB.prepare("DELETE FROM run_of_show WHERE id = ?").bind(runDel[1]).run();
+    return json({ ok: true });
+  }
   const delMatch = pathname.match(/^\/api\/needs\/([^/]+)$/);
   if (delMatch && method === "DELETE") {
     if (!isModerator(user)) return err(403, "Moderators only.");
@@ -2819,7 +2844,7 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room" || pathname === "/api/materials")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room" || pathname === "/api/materials" || pathname === "/api/run")) return true;
   if ((method === "POST" || method === "DELETE") && /^\/api\/materials\/[^/]+\/pledge$/.test(pathname)) return true;
   if (method === "PUT" && pathname === "/api/me/room") return true;
   if (method === "GET" && /^\/api\/rooms\/[^/]+$/.test(pathname)) return true;

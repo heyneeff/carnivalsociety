@@ -2035,3 +2035,22 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .nd-tools .jt-delete { color: #9B3036; border-color: #9B3036; }
 .need-add select { min-height: 38px; border-radius: 8px; border: 1px solid #8F6E34; background: #fffaf0; color: #231712; }
 .nd-tools { flex-basis: auto; margin-left: auto; }
+
+/* ── Run of show (2026-10-12) ── */
+.run-board { margin-top: 14px; text-align: left; }
+.run-board:empty { display: none; }
+.run-list { list-style: none; margin: 6px 0 0; padding: 0 0 0 10px; border-left: 3px dotted #9B3036; display: flex; flex-direction: column; gap: 4px; }
+.run-item { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; color: #231712; font-size: 14px; }
+.run-item::before { content: ''; position: absolute; left: -17px; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; background: #F4E8D0; border: 2px solid #9B3036; }
+.run-time { flex: none; min-width: 62px; font-family: 'Playfair Display', serif; font-weight: 800; color: #9B3036; font-variant-numeric: tabular-nums; }
+.run-what { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.run-what small { color: #6b5040; font-size: 12px; }
+.run-item.past { opacity: 0.5; }
+.run-item.now { background: #fff3b8; box-shadow: 0 0 0 2px #c99a2e, 0 0 14px rgba(255,214,140,0.8); }
+.run-item.now::before { background: #FFE2A0; border-color: #c99a2e; box-shadow: 0 0 8px #FFE2A0; }
+.run-item.next { background: #f1faf5; }
+.run-tag { flex: none; font-family: 'Rye', serif; font-size: 10px; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 4px; background: #9B3036; color: #FFE2A0; }
+.run-tag.next { background: #2F7F7A; color: #F4E8D0; }
+.run-del { flex: none; min-height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid #9B3036; background: #fffaf0; color: #9B3036; font-size: 11px; cursor: pointer; }
+.run-add input[type="datetime-local"] { flex: 0 0 auto; }
+@media (prefers-reduced-motion: reduce) { .run-item.now { box-shadow: 0 0 0 2px #c99a2e; } }
