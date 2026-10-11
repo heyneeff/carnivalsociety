@@ -40,6 +40,8 @@ let boards = [];
 let crewEvents = []; // upcoming events the signed-in user is crew on (or, for moderators, all upcoming events)
 let activeCrewEventId = null; // which of crewEvents the Schedule/Meetups/Projects/Materials nav is currently pointed at
 let newSignupsCount = 0; // unseen new-member signups, Ringleaders only
+let appConfig = { turnstile_site_key: null, payments_enabled: false, password_reset_enabled: false }; // from /api/config
+let myVolunteering = new Set(); // event ids the signed-in user has volunteered for
 
 // Escape user-supplied text before it goes into innerHTML — display names,
 // post titles/bodies, and replies are all attacker-controllable strings.
@@ -62,6 +64,7 @@ function timeAgo(iso) {
 
 // ── Boot ──────────────────────────────────────────────────────────────
 async function boot() {
+  try { appConfig = { ...appConfig, ...await apiFetch('/api/config') }; } catch (e) { /* defaults: optional features off */ }
   try {
     const { user } = await apiFetch('/api/me');
     if (user) { session = true; profile = user; await loadAppData(); }
@@ -71,19 +74,28 @@ async function boot() {
 
 async function loadAppData() {
   if (!isInnerMember()) {
-    const { chapters: chapterData } = await apiFetch('/api/chapters');
+    // Server returns just the Courtyard board to courtyard accounts.
+    const [{ chapters: chapterData }, { boards: boardData }, { event_ids }] = await Promise.all([
+      apiFetch('/api/chapters'),
+      apiFetch('/api/boards'),
+      apiFetch('/api/me/volunteering'),
+    ]);
     chapters = chapterData || [];
-    boards = []; crewEvents = []; activeCrewEventId = null;
+    boards = boardData || [];
+    myVolunteering = new Set(event_ids || []);
+    crewEvents = []; activeCrewEventId = null;
     return;
   }
-  const [{ chapters: chapterData }, { boards: boardData }, { events: crewData }] = await Promise.all([
+  const [{ chapters: chapterData }, { boards: boardData }, { events: crewData }, { event_ids }] = await Promise.all([
     apiFetch('/api/chapters'),
     apiFetch('/api/boards'),
     apiFetch('/api/me/crew'),
+    apiFetch('/api/me/volunteering'),
   ]);
   chapters = chapterData || [];
   boards = boardData || [];
   crewEvents = crewData || [];
+  myVolunteering = new Set(event_ids || []);
   activeCrewEventId = crewEvents[0]?.id || null;
   if (profile?.is_ringleader) await refreshNewSignupsCount();
 }
@@ -113,6 +125,8 @@ window.addEventListener('hashchange', render);
 
 // ── Render root ───────────────────────────────────────────────────────
 function render() {
+  const resetMatch = window.location.hash.match(/^#\/reset\/([0-9a-f]+)$/);
+  if (resetMatch) { renderResetScreen(resetMatch[1]); return; }
   if (!session || !profile) { session = false; profile = null; renderAuthScreen(); return; }
   if (!profile.onboarded) { renderOnboarding(); return; }
   renderShell();
@@ -184,12 +198,16 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
             <label for="email">Email</label>
             <input type="email" id="email" required>
           </div>
+          ${mode === 'forgot' ? `<p class="auth-sub">We'll email you a link to set a new password.</p>` : `
           <div class="auth-field">
             <label for="password">Password</label>
             <input type="password" id="password" minlength="6" required>
-          </div>
+          </div>`}
+          ${mode === 'signup' && appConfig.turnstile_site_key ? '<div id="turnstileWidget" class="turnstile-slot"></div>' : ''}
           <p class="auth-error">${escapeHtml(errorMsg)}</p>
-          <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join' : 'Enter'}</button>
+          <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join' : mode === 'forgot' ? 'Send reset link' : 'Enter'}</button>
+          ${mode === 'signin' && appConfig.password_reset_enabled ? '<button type="button" class="auth-link" id="forgotLink">Forgot password?</button>' : ''}
+          ${mode === 'forgot' ? '<button type="button" class="auth-link" id="backToSignin">Back to sign in</button>' : ''}
         </form>
       </div>
     </div>
@@ -197,16 +215,33 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
 
   document.getElementById('tabSignin').onclick = () => renderAuthScreen('signin');
   document.getElementById('tabSignup').onclick = async () => { await ensureChaptersLoaded(); renderAuthScreen('signup'); };
+  document.getElementById('forgotLink')?.addEventListener('click', () => renderAuthScreen('forgot'));
+  document.getElementById('backToSignin')?.addEventListener('click', () => renderAuthScreen('signin'));
 
+  let turnstileWidgetId = null;
   if (mode === 'signup') {
     document.getElementById('isOrganization').addEventListener('change', e => {
       document.getElementById('displayNameLabel').textContent = e.target.checked ? 'Organization Name' : 'Name';
     });
+    if (appConfig.turnstile_site_key) {
+      loadTurnstile().then(ts => {
+        if (document.getElementById('turnstileWidget')) turnstileWidgetId = ts.render('#turnstileWidget', { sitekey: appConfig.turnstile_site_key, theme: 'dark' });
+      });
+    }
   }
 
   document.getElementById('authForm').addEventListener('submit', async e => {
     e.preventDefault();
     const email = document.getElementById('email').value.trim();
+    if (mode === 'forgot') {
+      try {
+        await apiFetch('/api/auth/forgot', { method: 'POST', body: { email } });
+        renderAuthScreen('signin', 'If that email has an account, a reset link is on its way. Check your inbox (and spam).');
+      } catch (err) {
+        renderAuthScreen('forgot', err.message);
+      }
+      return;
+    }
     const password = document.getElementById('password').value;
     if (mode === 'signup') {
       const displayName = document.getElementById('displayName').value.trim();
@@ -218,7 +253,8 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
       try {
         const { user } = await apiFetch('/api/auth/signup', {
           method: 'POST',
-          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId, city, phone, instagram_handle: instagram, is_organization: isOrganization },
+          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId, city, phone, instagram_handle: instagram, is_organization: isOrganization,
+                  turnstile_token: turnstileWidgetId !== null ? window.turnstile.getResponse(turnstileWidgetId) : undefined },
         });
         session = true;
         profile = user;
@@ -237,6 +273,51 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
       } catch (err) {
         renderAuthScreen('signin', err.message);
       }
+    }
+  });
+}
+
+let turnstilePromise = null;
+function loadTurnstile() {
+  if (!turnstilePromise) turnstilePromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    s.onload = () => resolve(window.turnstile);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return turnstilePromise;
+}
+
+// Landing page for the emailed reset link (#/reset/<token>).
+function renderResetScreen(token, errorMsg = '') {
+  app.innerHTML = `
+    <div class="auth-screen">
+      <div class="auth-panel">
+        <img class="auth-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
+        <h1>New password</h1>
+        <form class="auth-form" id="resetForm">
+          <div class="auth-field">
+            <label for="newPassword">New password (6+ characters)</label>
+            <input type="password" id="newPassword" minlength="6" required autocomplete="new-password">
+          </div>
+          <p class="auth-error">${escapeHtml(errorMsg)}</p>
+          <button type="submit" class="auth-submit">Set password</button>
+        </form>
+      </div>
+    </div>
+  `;
+  document.getElementById('resetForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const { user } = await apiFetch('/api/auth/reset', { method: 'POST', body: { token, password: document.getElementById('newPassword').value } });
+      session = true;
+      profile = user;
+      await loadAppData();
+      history.replaceState(null, '', '#/');
+      render();
+    } catch (err) {
+      renderResetScreen(token, err.message);
     }
   });
 }
@@ -303,7 +384,7 @@ async function renderOnboarding() {
 const CREW_ASSIGNMENT_ENABLED = false;
 
 function currentRoute() {
-  return window.location.hash.replace(/^#\/?/, '') || (isInnerMember() ? 'hub' : 'events');
+  return window.location.hash.replace(/^#\/?/, '') || (isInnerMember() ? 'hub' : 'courtyard');
 }
 
 let mobileNavOpen = false; // off-canvas sidebar drawer, ≤800px only (see .sidebar.open in styles.css)
@@ -329,7 +410,8 @@ function renderShell() {
         <div>
           <div class="nav-group-label">Courtyard</div>
           <ul class="nav-list">
-            <li><a class="nav-link ${route === 'events' ? 'active' : ''}" href="#/events">Events</a></li>
+            <li><a class="nav-link ${route === 'courtyard' ? 'active' : ''}" href="#/courtyard">Courtyard</a></li>
+            <li><a class="nav-link ${route === 'events' ? 'active' : ''}" href="#/events">Events &amp; Volunteering</a></li>
             <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
           </ul>
         </div>` : `
@@ -341,6 +423,7 @@ function renderShell() {
         <div>
           <div class="nav-group-label">Boards</div>
           <ul class="nav-list">
+            <li><a class="nav-link ${route === 'courtyard' ? 'active' : ''}" href="#/courtyard">Courtyard</a></li>
             <li><a class="nav-link ${onGuildHallBoard ? 'active' : ''}" href="#/guild-hall">Guild Hall</a></li>
           </ul>
         </div>
@@ -413,7 +496,9 @@ function renderMainView(route) {
   if (route === 'cancelled') { location.hash = '#/events'; return; }
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
-  if (!isInnerMember() && route !== 'events') { location.hash = '#/events'; return; }
+  if (route === 'courtyard') { renderCourtyardView(mainView); return; }
+  // Courtyard members can open Courtyard threads (server enforces which).
+  if (!isInnerMember() && route !== 'events' && !route.startsWith('post/')) { location.hash = '#/courtyard'; return; }
   if (route === 'hub') { renderCrewTabs(mainView, 'overview'); return; }
   if (route.startsWith('crew/')) { renderCrewTabs(mainView, route.slice(5)); return; }
   if (route === 'dm') { renderDMListView(mainView); return; }
@@ -504,18 +589,21 @@ async function renderBoardView(mainView, slug) {
       <div class="post-meta">${escapeHtml(p.author?.display_name || 'unknown')} ${authorBadge(p.author)} · ${timeAgo(p.created_at)}</div>
       <div class="post-snippet">${escapeHtml((p.body || '').slice(0, 160))}${(p.body || '').length > 160 ? '…' : ''}</div>
     </div>
-  `).join('') || '<div class="placeholder-note">No posts yet. Be the first to say something.</div>';
+  `).join('') || `<div class="placeholder-note">${board.slug === 'courtyard' ? 'Nothing posted yet. News and volunteer calls will show up here.' : 'No posts yet. Be the first to say something.'}</div>`;
+
+  // Courtyard threads are started by moderators only (server enforces too).
+  const canStartThread = board.slug !== 'courtyard' || isModerator();
 
   mainView.innerHTML = `
-    <form class="composer" id="postComposer">
+    ${canStartThread ? `<form class="composer" id="postComposer">
       <input type="text" id="postTitle" placeholder="Title" required>
-      <textarea id="postBody" placeholder="What's on your mind?" required></textarea>
+      <textarea id="postBody" placeholder="${board.slug === 'courtyard' ? 'Post to everyone in the courtyard…' : "What's on your mind?"}" required></textarea>
       <button type="submit" class="composer-submit">Post</button>
-    </form>
+    </form>` : ''}
     <div class="post-list">${postListHtml}</div>
   `;
 
-  document.getElementById('postComposer').addEventListener('submit', async e => {
+  document.getElementById('postComposer')?.addEventListener('submit', async e => {
     e.preventDefault();
     const title = document.getElementById('postTitle').value.trim();
     const body = document.getElementById('postBody').value.trim();
@@ -527,6 +615,18 @@ async function renderBoardView(mainView, slug) {
   mainView.querySelectorAll('.post-card').forEach(card => {
     card.addEventListener('click', () => { window.location.hash = `#/post/${card.dataset.postId}`; });
   });
+}
+
+// ── Courtyard: landing page for free accounts, a shared board for all ───
+async function renderCourtyardView(mainView) {
+  const welcome = !isInnerMember() ? `
+    <div class="courtyard-welcome">
+      <h3>Welcome to the courtyard, ${escapeHtml(profile.display_name)}.</h3>
+      <p>This is where the guild posts news and calls for help. The quickest way in is to
+        <a href="#/events">volunteer for an upcoming event</a>. Show up, build, and get to know the crew.</p>
+    </div>` : '';
+  mainView.innerHTML = `<h2>Courtyard</h2>${welcome}<div id="courtyardBoard"></div>`;
+  await renderBoardView(document.getElementById('courtyardBoard'), 'courtyard');
 }
 
 // ── Thread view: single post + replies ─────────────────────────────────
@@ -571,13 +671,13 @@ async function renderThreadView(mainView, postId) {
       ${postActions}
     </div>
     <div class="reply-list">${replyListHtml}</div>
-    <form class="composer" id="replyComposer">
+    ${isInnerMember() ? `<form class="composer" id="replyComposer">
       <textarea id="replyBody" placeholder="Write a reply…" required></textarea>
       <button type="submit" class="composer-submit">Reply</button>
-    </form>
+    </form>` : ''}
   `;
 
-  document.getElementById('replyComposer').addEventListener('submit', async e => {
+  document.getElementById('replyComposer')?.addEventListener('submit', async e => {
     e.preventDefault();
     const body = document.getElementById('replyBody').value.trim();
     if (!body) return;
@@ -799,6 +899,7 @@ async function renderEventsView(mainView) {
       <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
+      <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       ${canManage || canEdit ? `<div class="post-actions">
         ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
         ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}
@@ -814,7 +915,7 @@ async function renderEventsView(mainView) {
     <div id="archivedEvents"></div>
   `;
 
-  (events || []).forEach(e => renderTicketPanel(e.id));
+  (events || []).forEach(e => { renderTicketPanel(e.id); renderVolunteerRow(e.id); });
 
   if (canManage) {
     document.getElementById('eventComposer').addEventListener('submit', async e => {
@@ -890,6 +991,58 @@ async function renderEventsView(mainView) {
     el.classList.add('open');
     btn.textContent = 'Hide Past Events';
     await loadArchivedEvents();
+  });
+}
+
+// Volunteer toggle for everyone; moderators also get the sign-up list.
+function renderVolunteerRow(eventId) {
+  const el = document.getElementById('volunteerRow-' + eventId);
+  if (!el) return;
+  const signedUp = myVolunteering.has(eventId);
+  el.innerHTML = `
+    <div class="post-actions">
+      ${signedUp
+        ? `<span class="volunteer-yes">✓ You're volunteering</span><button class="action-btn" data-unvolunteer>Withdraw</button>`
+        : `<button class="composer-submit" data-volunteer>Volunteer for this</button>`}
+      ${isModerator() ? `<button class="action-btn" data-show-volunteers>Volunteers</button>` : ''}
+    </div>
+    <form class="volunteer-form" hidden>
+      <input type="text" name="note" maxlength="500" placeholder="Anything we should know? Skills, when you can help… (optional)">
+      <button type="submit" class="composer-submit">Count me in</button>
+    </form>
+    <div class="volunteer-list"></div>`;
+
+  const form = el.querySelector('.volunteer-form');
+  el.querySelector('[data-volunteer]')?.addEventListener('click', () => {
+    form.hidden = false;
+    form.querySelector('input').focus();
+  });
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await apiFetch(`/api/events/${eventId}/volunteer`, { method: 'POST', body: { note: form.note.value } });
+      myVolunteering.add(eventId);
+      renderVolunteerRow(eventId);
+    } catch (err) { form.insertAdjacentHTML('beforeend', `<div class="auth-error">${escapeHtml(err.message)}</div>`); }
+  });
+  el.querySelector('[data-unvolunteer]')?.addEventListener('click', async () => {
+    await apiFetch(`/api/events/${eventId}/volunteer`, { method: 'DELETE' });
+    myVolunteering.delete(eventId);
+    renderVolunteerRow(eventId);
+  });
+  el.querySelector('[data-show-volunteers]')?.addEventListener('click', async () => {
+    const list = el.querySelector('.volunteer-list');
+    if (list.innerHTML) { list.innerHTML = ''; return; }
+    const { volunteers } = await apiFetch(`/api/events/${eventId}/volunteers`);
+    list.innerHTML = volunteers.length ? volunteers.map(v => `
+      <div class="volunteer-item">
+        <strong>${escapeHtml(v.display_name)}</strong>
+        <span class="post-meta">${escapeHtml(v.city || '')}${v.tier === 'inner' ? ' · inner' : ' · courtyard'}</span>
+        <div class="post-meta">
+          <a href="mailto:${escapeHtml(v.email)}">${escapeHtml(v.email)}</a>${v.phone ? ` · <a href="tel:${escapeHtml(v.phone)}">${escapeHtml(v.phone)}</a>` : ''}
+        </div>
+        ${v.note ? `<div class="post-snippet">${escapeHtml(v.note)}</div>` : ''}
+      </div>`).join('') : '<div class="placeholder-note">No volunteers yet.</div>';
   });
 }
 
@@ -1290,6 +1443,10 @@ function renderMemberRows() {
           <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
           Ringleader
         </label>
+        <label class="admin-ringleader-toggle" title="Inner members get boards, DMs, the Hub and tickets; unchecked = courtyard">
+          <input type="checkbox" data-field="tier" ${m.tier === 'inner' || m.is_ringleader ? 'checked' : ''} ${m.is_ringleader ? 'disabled' : ''}>
+          Inner
+        </label>
         <label class="admin-ringleader-toggle">
           <input type="checkbox" data-field="dues_paid" ${m.dues_paid ? 'checked' : ''}>
           Dues Paid
@@ -1332,6 +1489,7 @@ function renderMemberRows() {
     row.querySelector('[data-field="rank"]')?.addEventListener('change', e => patchField('rank', e.target.value));
     row.querySelector('[data-field="is_organization"]').addEventListener('change', e => patchField('is_organization', e.target.checked));
     row.querySelector('[data-field="is_ringleader"]').addEventListener('change', e => patchField('is_ringleader', e.target.checked));
+    row.querySelector('[data-field="tier"]').addEventListener('change', e => patchField('tier', e.target.checked ? 'inner' : 'courtyard'));
     row.querySelector('[data-field="dues_paid"]').addEventListener('change', e => patchField('dues_paid', e.target.checked));
     row.querySelector('[data-field="dues_amount"]').addEventListener('change', e => patchField('dues_amount', e.target.value));
     row.querySelector('[data-field="dues_date"]').addEventListener('change', e => patchField('dues_date', e.target.value));
@@ -4597,11 +4755,11 @@ async function renderTicketPanel(eventId) {
         ${t.remaining != null ? `<span class="ticket-remaining">${soldOut ? 'sold out' : t.remaining + ' left'}</span>` : ''}
         ${t.description ? `<div class="post-meta">${escapeHtml(t.description)}</div>` : ''}
       </div>
-      ${inner ? `<button class="action-btn" data-buy-tier="${t.id}" ${soldOut ? 'disabled' : ''}>${t.price_cents === 0 ? 'Claim' : 'Buy'}</button>` : ''}
+      ${inner && (t.price_cents === 0 || appConfig.payments_enabled) ? `<button class="action-btn" data-buy-tier="${t.id}" ${soldOut ? 'disabled' : ''}>${t.price_cents === 0 ? 'Claim' : 'Buy'}</button>` : ''}
     </div>`;
   }).join('');
 
-  const joinCta = !inner && tiers.length ? `
+  const joinCta = !inner && tiers.length && appConfig.payments_enabled ? `
     <div class="ticket-join">
       <div>Tickets are for inner members. Join once for $5 and you're in for good.</div>
       <button class="composer-submit" data-join>Become an inner member — $5</button>
@@ -4647,7 +4805,7 @@ async function renderTicketPanel(eventId) {
 async function renderMyTicketsView(mainView) {
   mainView.innerHTML = `<h2>My Tickets</h2><div class="placeholder-note">Loading…</div>`;
   const { tickets } = await apiFetch('/api/me/tickets');
-  const joinCta = !isInnerMember() ? `
+  const joinCta = !isInnerMember() && appConfig.payments_enabled ? `
     <div class="ticket-join">
       <div>You're in the courtyard. Become an inner member for $5 (one time) to get tickets.</div>
       <button class="composer-submit" data-join>Become an inner member — $5</button>

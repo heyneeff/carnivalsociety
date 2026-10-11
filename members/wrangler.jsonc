@@ -17,6 +17,17 @@
       "database_id": "2c2774f0-7494-4b4c-a176-6eb8f7230c38"
     }
   ],
+  // Per-IP throttle for signup/signin/forgot/reset (rateLimited() in worker.js).
+  "ratelimits": [
+    { "name": "AUTH_LIMITER", "namespace_id": "1001", "simple": { "limit": 8, "period": 60 } }
+  ],
+  // Daily housekeeping: expired sessions + reset tokens (scheduled() in worker.js).
+  "triggers": { "crons": ["17 9 * * *"] },
+  // Secrets (wrangler secret put): RESEND_API_KEY, TURNSTILE_SECRET,
+  // STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET. Each feature stays off until set.
+  "vars": {
+    "EMAIL_FROM": "Carnival Society <hello@carnivalsociety.org>"
+  },
   "workers_dev": true,
   "routes": [
     { "pattern": "members.carnivalsociety.org", "custom_domain": true }

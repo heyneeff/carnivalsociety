@@ -1,13 +1,13 @@
 -- Courtyard / inner-member tiers + event ticketing.
 -- Apply: npx wrangler d1 execute carnivalsociety-members --remote --file=migrations/2026-10-04-tiers-tickets.sql
--- (--local first.) Preview who gets backfilled BEFORE running the UPDATE:
---   SELECT email, rank, is_ringleader, dues_paid FROM users
---   WHERE dues_paid = 1 OR is_ringleader = 1 OR rank != 'clown';
+-- (--local first.) Run each statement as its own --command on remote (see the
+-- D1 multi-statement gotcha in the vault).
 
 -- tier is a separate column from `rank` (rank's CHECK constraint can't be altered on D1).
+-- No backfill: per Neeff 2026-10-10 every existing member starts in the
+-- courtyard. Ringleaders count as inner via is_ringleader (isInner() in
+-- worker.js); anyone else is promoted from the Directory's "Inner" toggle.
 ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'courtyard';  -- 'courtyard' | 'inner'
-
-UPDATE users SET tier = 'inner' WHERE dues_paid = 1 OR is_ringleader = 1 OR rank != 'clown';
 
 CREATE TABLE ticket_tiers (
   id TEXT PRIMARY KEY,

@@ -992,3 +992,19 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .ticket-manage summary { cursor: pointer; color: var(--cream-soft); font-style: italic; }
 .ticket-qr { width: 200px; max-width: 100%; margin: 0.75rem 0; background: #fff; padding: 6px; border-radius: 4px; }
 .ticket-qr svg { display: block; width: 100%; height: auto; }
+
+/* ── Courtyard launch (2026-10-10) ── */
+.courtyard-welcome { padding: 1rem 1.2rem; margin: 0 0 1.2rem; border: 1px solid var(--gold-deep); border-left: 4px solid var(--gold); border-radius: 4px; background: var(--surface-2); max-width: 720px; }
+.courtyard-welcome h3 { margin: 0 0 0.4rem; color: var(--gold-bright); }
+.courtyard-welcome p { margin: 0; color: var(--cream); line-height: 1.5; }
+.courtyard-welcome a { color: var(--gold-bright); }
+.auth-link { background: none; border: none; color: var(--gold-bright); cursor: pointer; font: inherit; font-size: 0.9rem; padding: 0.3rem 0; text-decoration: underline; }
+.turnstile-slot { min-height: 65px; }
+.volunteer-row .post-actions { align-items: center; }
+.volunteer-yes { color: #8FD19E; font-size: 0.9rem; }
+.volunteer-list:empty { display: none; }
+.volunteer-list { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.volunteer-item { padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }
+.volunteer-item a { color: var(--gold-bright); }
+.volunteer-form:not([hidden]) { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.volunteer-form input { flex: 1 1 240px; }

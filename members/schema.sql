@@ -1,144 +1,23 @@
 -- Carnival Society International — members app schema (Cloudflare D1 / SQLite)
--- Run via: npx wrangler d1 execute carnivalsociety-members --remote --file=schema.sql
--- (use --local instead of --remote for local `wrangler dev` testing)
+-- Full schema for a FRESH database: snapshot of production (wrangler d1 export
+-- --no-data, 2026-10-10) + seeds + every file in migrations/ to date.
+-- Fresh DB:  npx wrangler d1 execute carnivalsociety-members --local --file=schema.sql
+-- Prod is NOT rebuilt from this file; it gets the migrations/ deltas. When you
+-- add a migration, append it here too so this stays the source of truth.
+-- Per-column history/rationale for users lives in git history of this file.
 
--- ============================================================
--- CHAPTERS
--- ============================================================
 CREATE TABLE chapters (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-INSERT INTO chapters (id, name, slug) VALUES
-  (lower(hex(randomblob(16))), 'Boulder', 'boulder'),
-  (lower(hex(randomblob(16))), 'Denver', 'denver'),
-  (lower(hex(randomblob(16))), 'Los Angeles', 'los-angeles');
-
--- ============================================================
--- USERS — was `profiles` + Supabase `auth.users`; now holds credentials too
--- ============================================================
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  salt TEXT NOT NULL,
-  display_name TEXT NOT NULL,
-  home_chapter_id TEXT REFERENCES chapters(id),
-  -- Default was 'apprentice' originally; new signups are given 'clown'
-  -- explicitly in worker.js as of 2026-09-22 (column default below is
-  -- stale/unused — changing it would require a CHECK-constraint table
-  -- rebuild, which D1 blocks via mandatory foreign-key enforcement; not
-  -- worth 8 other tables' worth of risk for a default that's set at the
-  -- application layer anyway).
-  rank TEXT NOT NULL DEFAULT 'apprentice' CHECK (rank IN ('apprentice', 'journeyman', 'master', 'clown')),
-  is_ringleader INTEGER NOT NULL DEFAULT 0,
-  avatar_url TEXT,
-  dues_paid INTEGER NOT NULL DEFAULT 0,
-  dues_amount TEXT,
-  dues_date TEXT,
-  steward_role TEXT CHECK (steward_role IN (
-    'founder_steward', 'systems_steward', 'participation_steward', 'archive_steward',
-    'place_living_steward', 'temporal_steward', 'operations_finance_steward', 'carnival_director'
-  )),
-  birthday TEXT,
-  skills TEXT,
-  onboarded INTEGER NOT NULL DEFAULT 0,
-  -- When this user (a Ringleader) last checked the new-signup notification bell.
-  -- NULL means never checked; ringleaders compare users.created_at against this
-  -- to find unseen signups (see /api/admin/new-signups in worker.js). Added via
-  -- migration on 2026-09-22 — not part of the original CREATE TABLE on prod.
-  signups_seen_at TEXT,
-  -- Directory contact fields, added via migration on 2026-09-22. city is
-  -- required at signup (enforced in worker.js, not here); phone and
-  -- instagram_handle are always optional.
-  city TEXT,
-  phone TEXT,
-  instagram_handle TEXT,
-  -- Free-text onboarding fields (replaced a checkbox multi-select against
-  -- member_connections, which is still used elsewhere e.g. the Member
-  -- Network view — this just stopped being how onboarding populates it).
-  -- Added via migration 2026-09-22.
-  knows_who TEXT,
-  heard_about_us TEXT,
-  -- True for organization signups (a checkbox at signup / Members Hub, not
-  -- a rank tier) — display code shows "Organization" as their title instead
-  -- of their (otherwise-unused) rank. Added via migration 2026-09-22.
-  is_organization INTEGER NOT NULL DEFAULT 0,
-  -- Free-text description of materials a member/org can donate (electronics,
-  -- wood, building supplies, etc.) — CSI builds exclusively from donated and
-  -- upcycled material, so this turns that pipeline into something searchable
-  -- instead of word-of-mouth. Optional, collected at signup or onboarding.
-  -- Added via migration 2026-09-29.
-  materials_to_donate TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- ============================================================
--- MEMBER CONNECTIONS — "who knows who," declared at onboarding (or later).
--- Guild-wide, visible to any Ringleader via /api/network — distinct from
--- field_data, which is each Ringleader's own private canvas.
--- ============================================================
-CREATE TABLE member_connections (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  connected_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(user_id, connected_user_id)
-);
-CREATE INDEX idx_member_connections_user ON member_connections(user_id);
-CREATE INDEX idx_member_connections_connected ON member_connections(connected_user_id);
-
--- ============================================================
--- FIELD DATA — private per-user "Guild Map" (relational field tool retrofit).
--- One row per user; each user only ever reads/writes their own row (enforced
--- in worker.js, not RLS) — this is how "only I have access" is guaranteed,
--- not just Ringleader-gating. Arrays/objects stored as JSON text, mirroring
--- the original standalone app's single localStorage blob.
--- ============================================================
-CREATE TABLE field_data (
-  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  center_name TEXT,
-  communities TEXT NOT NULL DEFAULT '[]',
-  reltypes TEXT NOT NULL DEFAULT '[]',
-  people TEXT NOT NULL DEFAULT '[]',
-  connections TEXT NOT NULL DEFAULT '[]',
-  layouts TEXT NOT NULL DEFAULT '{}',
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- ============================================================
--- PROJECTS DATA — private per-user projects + to-do list. Same privacy
--- model as field_data: one row per user, scoped by session user_id in
--- worker.js, never cross-readable.
--- ============================================================
-CREATE TABLE projects_data (
-  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  projects TEXT NOT NULL DEFAULT '[]',
-  todos TEXT NOT NULL DEFAULT '[]',
-  -- Private personal docs for the Leadership Docs column — distinct from the
-  -- static, shared CSI governance docs baked into app.js. Never readable by
-  -- anyone but this user (enforced by user_id scoping in worker.js, same as
-  -- everything else in this table).
-  leadership_docs TEXT NOT NULL DEFAULT '[]',
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- ============================================================
--- SESSIONS — replaces Supabase Auth's session handling
--- ============================================================
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- ============================================================
--- BOARDS — one guild-wide board (chapter_id null) + one per chapter
--- ============================================================
 CREATE TABLE boards (
   id TEXT PRIMARY KEY,
   chapter_id TEXT REFERENCES chapters(id), -- null = guild-wide
@@ -147,16 +26,6 @@ CREATE TABLE boards (
   description TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-INSERT INTO boards (id, chapter_id, name, slug, description) VALUES
-  (lower(hex(randomblob(16))), NULL, 'Guild Hall', 'guild-hall', 'Guild-wide — open to every member, any chapter.'),
-  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'boulder'), 'Boulder', 'boulder', 'Boulder chapter board.'),
-  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'denver'), 'Denver', 'denver', 'Denver chapter board.'),
-  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'los-angeles'), 'Los Angeles', 'los-angeles', 'Los Angeles chapter board.');
-
--- ============================================================
--- POSTS — top-level posts have title set, replies set parent_id instead
--- ============================================================
 CREATE TABLE posts (
   id TEXT PRIMARY KEY,
   board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
@@ -167,21 +36,15 @@ CREATE TABLE posts (
   pinned INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- ============================================================
--- DIRECT MESSAGES
--- ============================================================
 CREATE TABLE conversations (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
 CREATE TABLE conversation_participants (
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   PRIMARY KEY (conversation_id, user_id)
 );
-
 CREATE TABLE direct_messages (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -189,10 +52,6 @@ CREATE TABLE direct_messages (
   body TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- ============================================================
--- EVENTS — publicly readable, managed only by Masters and Ringleaders
--- ============================================================
 CREATE TABLE events (
   id TEXT PRIMARY KEY,
   chapter_id TEXT REFERENCES chapters(id), -- null = guild-wide
@@ -202,60 +61,259 @@ CREATE TABLE events (
   starts_at TEXT NOT NULL,
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+, ends_at TEXT);
+CREATE TABLE field_data (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, center_name TEXT, communities TEXT NOT NULL DEFAULT '[]', reltypes TEXT NOT NULL DEFAULT '[]', people TEXT NOT NULL DEFAULT '[]', connections TEXT NOT NULL DEFAULT '[]', layouts TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE projects_data (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, projects TEXT NOT NULL DEFAULT '[]', todos TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL DEFAULT (datetime('now')), leadership_docs TEXT NOT NULL DEFAULT '[]');
+CREATE TABLE member_connections (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, connected_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(user_id, connected_user_id));
+CREATE TABLE event_crew (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (event_id, user_id)
 );
-
--- ============================================================
--- VENUES — Ringleader-managed list of event spaces; not user accounts,
--- so no auth/rank fields, just a place + who to contact there. Added via
--- migration 2026-09-29, shown as a Directory tab alongside Individuals
--- and Organizations.
--- ============================================================
-CREATE TABLE venues (
+CREATE TABLE event_meetups (
   id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  proposed_at TEXT NOT NULL,
+  location TEXT,
+  notes TEXT,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+, category TEXT NOT NULL DEFAULT 'meeting' CHECK (category IN ('meeting', 'field_trip')));
+CREATE TABLE event_meetup_rsvps (
+  meetup_id TEXT NOT NULL REFERENCES event_meetups(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  response TEXT NOT NULL CHECK (response IN ('yes', 'no', 'maybe')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (meetup_id, user_id)
+);
+CREATE TABLE event_projects (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  parent_id TEXT REFERENCES event_projects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  city TEXT,
-  address TEXT,
-  contact_name TEXT,
-  contact_email TEXT,
-  contact_phone TEXT,
-  website TEXT,
-  notes TEXT,
-  created_by TEXT REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  description TEXT,
+  deadline TEXT,
+  status TEXT NOT NULL DEFAULT 'not_started' CHECK (status IN ('not_started', 'in_progress', 'done')),
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- ============================================================
--- IMPACT LOGS — per-event travel/materials/waste data, feeding the B Corp
--- Climate Action and Environmental Stewardship & Circularity topics. Filled
--- in by a Ringleader after each event; not a user account, same pattern as
--- venues. See CSI Event Impact Log.md in the vault for the "why". Added via
--- migration 2026-09-29.
--- ============================================================
-CREATE TABLE impact_logs (
+CREATE TABLE event_project_items (
   id TEXT PRIMARY KEY,
-  event_date TEXT NOT NULL,
-  event_name TEXT NOT NULL,
-  venue_id TEXT REFERENCES venues(id),
-  travel_miles REAL,
-  travel_mode TEXT,
-  material_sourcing TEXT, -- category + source, e.g. "electronics, donated by X"
-  waste_generated TEXT,   -- free text, e.g. "2 bags" — not everything is weighable
-  waste_diverted TEXT,    -- what got recycled/reused/composted instead of landfill
-  notes TEXT,
-  created_by TEXT REFERENCES users(id),
+  project_id TEXT NOT NULL REFERENCES event_projects(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
--- ============================================================
--- INDEXES
--- ============================================================
+CREATE TABLE event_materials (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  item TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'need' CHECK (category IN ('need', 'want')),
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+, activity_id TEXT REFERENCES event_activities(id) ON DELETE SET NULL, priority INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE event_activities (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('game', 'event')),
+  name TEXT NOT NULL,
+  description TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+, starts_at TEXT, ends_at TEXT, location TEXT, status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'locked_in')), assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL, schedule_day TEXT, schedule_position INTEGER NOT NULL DEFAULT 0, schedule_slot TEXT NOT NULL DEFAULT '');
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  home_chapter_id TEXT REFERENCES chapters(id),
+  rank TEXT NOT NULL DEFAULT 'apprentice' CHECK (rank IN ('apprentice', 'journeyman', 'master', 'clown')),
+  is_ringleader INTEGER NOT NULL DEFAULT 0,
+  avatar_url TEXT,
+  dues_paid INTEGER NOT NULL DEFAULT 0,
+  dues_amount TEXT,
+  dues_date TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  steward_role TEXT CHECK (steward_role IN ('founder_steward','systems_steward','participation_steward','archive_steward','place_living_steward','temporal_steward','operations_finance_steward','carnival_director')),
+  birthday TEXT,
+  skills TEXT,
+  onboarded INTEGER NOT NULL DEFAULT 0
+, signups_seen_at TEXT, city TEXT, phone TEXT, instagram_handle TEXT, knows_who TEXT, heard_about_us TEXT, is_organization INTEGER NOT NULL DEFAULT 0, materials_to_donate TEXT);
+CREATE TABLE event_merch (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+, status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'locked_in')));
+CREATE TABLE event_signs (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+, status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'locked_in')));
+CREATE TABLE event_raffle (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'locked_in')),
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE guild_meetings (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+, meeting_date TEXT, recap TEXT NOT NULL DEFAULT '');
+CREATE TABLE guild_lore (
+  id TEXT PRIMARY KEY,
+  content TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_by TEXT REFERENCES users(id)
+);
+CREATE TABLE event_activity_assignees (
+  activity_id TEXT NOT NULL REFERENCES event_activities(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (activity_id, user_id)
+);
+CREATE TABLE impact_logs (id TEXT PRIMARY KEY, event_date TEXT NOT NULL, event_name TEXT NOT NULL, venue_id TEXT REFERENCES venues(id), travel_miles REAL, travel_mode TEXT, material_sourcing TEXT, waste_generated TEXT, waste_diverted TEXT, notes TEXT, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE venues (id TEXT PRIMARY KEY, name TEXT NOT NULL, city TEXT, address TEXT, contact_name TEXT, contact_email TEXT, contact_phone TEXT, website TEXT, notes TEXT, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now')));
 CREATE INDEX idx_sessions_user ON sessions(user_id);
 CREATE INDEX idx_posts_board ON posts(board_id);
 CREATE INDEX idx_posts_parent ON posts(parent_id);
 CREATE INDEX idx_dm_conversation ON direct_messages(conversation_id);
 CREATE INDEX idx_conv_participants_user ON conversation_participants(user_id);
 CREATE INDEX idx_events_starts ON events(starts_at);
+CREATE INDEX idx_member_connections_user ON member_connections(user_id);
+CREATE INDEX idx_member_connections_connected ON member_connections(connected_user_id);
+CREATE INDEX idx_event_crew_user ON event_crew(user_id);
+CREATE INDEX idx_meetups_event ON event_meetups(event_id);
+CREATE INDEX idx_meetup_rsvps_user ON event_meetup_rsvps(user_id);
+CREATE INDEX idx_projects_event ON event_projects(event_id);
+CREATE INDEX idx_projects_parent ON event_projects(parent_id);
+CREATE INDEX idx_project_items_project ON event_project_items(project_id);
+CREATE INDEX idx_materials_event ON event_materials(event_id);
+CREATE INDEX idx_activities_event ON event_activities(event_id);
+CREATE INDEX idx_materials_activity ON event_materials(activity_id);
+CREATE INDEX idx_merch_event ON event_merch(event_id);
+CREATE INDEX idx_signs_event ON event_signs(event_id);
+CREATE INDEX idx_raffle_event ON event_raffle(event_id);
 CREATE INDEX idx_impact_logs_date ON impact_logs(event_date);
+
+-- ============================================================
+-- SEEDS
+-- ============================================================
+INSERT INTO chapters (id, name, slug) VALUES
+  (lower(hex(randomblob(16))), 'Boulder', 'boulder'),
+  (lower(hex(randomblob(16))), 'Denver', 'denver'),
+  (lower(hex(randomblob(16))), 'Los Angeles', 'los-angeles');
+
+INSERT INTO boards (id, chapter_id, name, slug, description) VALUES
+  (lower(hex(randomblob(16))), NULL, 'Guild Hall', 'guild-hall', 'Guild-wide — open to every member, any chapter.'),
+  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'boulder'), 'Boulder', 'boulder', 'Boulder chapter board.'),
+  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'denver'), 'Denver', 'denver', 'Denver chapter board.'),
+  (lower(hex(randomblob(16))), (SELECT id FROM chapters WHERE slug = 'los-angeles'), 'Los Angeles', 'los-angeles', 'Los Angeles chapter board.');
+
+-- ============================================================
+-- migrations/2026-10-04-tiers-tickets.sql
+-- ============================================================
+-- Courtyard / inner-member tiers + event ticketing.
+-- D1 multi-statement gotcha in the vault).
+
+-- tier is a separate column from `rank` (rank's CHECK constraint can't be altered on D1).
+-- No backfill: per Neeff 2026-10-10 every existing member starts in the
+-- courtyard. Ringleaders count as inner via is_ringleader (isInner() in
+-- worker.js); anyone else is promoted from the Directory's "Inner" toggle.
+ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'courtyard';  -- 'courtyard' | 'inner'
+
+CREATE TABLE ticket_tiers (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  price_cents INTEGER NOT NULL DEFAULT 0,
+  capacity INTEGER,                       -- NULL = unlimited
+  position INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE tickets (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  tier_id TEXT NOT NULL REFERENCES ticket_tiers(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'paid' | 'void'
+  price_cents INTEGER NOT NULL DEFAULT 0,
+  code TEXT NOT NULL UNIQUE,              -- shown as QR, scanned at the door
+  stripe_session_id TEXT,
+  checked_in_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_tickets_user ON tickets(user_id);
+CREATE INDEX idx_tickets_event ON tickets(event_id, status);
+
+-- Ledger for the nonprofit's books; UNIQUE session id makes webhook retries idempotent.
+CREATE TABLE payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL,                     -- 'membership' | 'ticket'
+  amount_cents INTEGER NOT NULL,
+  stripe_session_id TEXT NOT NULL UNIQUE,
+  stripe_payment_intent TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================
+-- migrations/2026-10-10-courtyard.sql
+-- ============================================================
+-- Courtyard launch: Courtyard board, event volunteers, password resets, last-seen.
+
+ALTER TABLE users ADD COLUMN last_seen_at TEXT;
+
+-- Readable by every signed-in member (courtyard included); only moderators
+-- start threads here, inner members can reply.
+INSERT INTO boards (id, chapter_id, name, slug, description) VALUES
+  (lower(hex(randomblob(16))), NULL, 'Courtyard', 'courtyard', 'News, calls for volunteers, and what''s coming up. Open to everyone who has joined.');
+
+-- Separate from event_crew on purpose: volunteering must not unlock the
+-- inner-only crew Hub tools.
+CREATE TABLE event_volunteers (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (event_id, user_id)
+);
+CREATE INDEX idx_event_volunteers_user ON event_volunteers(user_id);
+
+-- Only the SHA-256 of the emailed token is stored; single use, 1h expiry.
+CREATE TABLE password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_password_resets_user ON password_resets(user_id);
 
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:

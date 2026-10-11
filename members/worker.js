@@ -95,31 +95,96 @@ async function body(request) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.protocol === "http:") {
+    // DEV_ALLOW_HTTP: local `wrangler dev --var DEV_ALLOW_HTTP:1` only, so a
+    // browser can test without a self-signed cert. Never set in production.
+    if (url.protocol === "http:" && !env.DEV_ALLOW_HTTP) {
       url.protocol = "https:";
       return Response.redirect(url.toString(), 301);
     }
     if (url.pathname.startsWith("/api/")) {
-      if (request.method === "OPTIONS" && (url.pathname === "/api/auth/signup" || url.pathname === "/api/chapters")) {
+      if (request.method === "OPTIONS" && (url.pathname === "/api/auth/signup" || url.pathname === "/api/chapters" || url.pathname === "/api/config")) {
         return withCors(new Response(null, { status: 204, headers: { "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" } }));
       }
       try {
-        return await api(request, env, url);
+        return await api(request, env, url, ctx);
       } catch (e) {
         console.error(e);
         return err(500, "Server error");
       }
     }
     return env.ASSETS.fetch(request);
+  },
+  // Daily housekeeping (cron in wrangler.jsonc): expired sessions and reset
+  // tokens otherwise accumulate forever — every sign-in adds a session row.
+  async scheduled(event, env, ctx) {
+    await env.DB.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+    await env.DB.prepare("DELETE FROM password_resets WHERE expires_at < datetime('now', '-1 day')").run();
   }
 };
-async function api(request, env, url) {
+// Per-IP throttle on the unauthenticated auth endpoints (Workers rate-limit
+// binding, see wrangler.jsonc). Absent binding (plain local dev) = no limit.
+async function rateLimited(env, request, bucket) {
+  if (!env.AUTH_LIMITER) return false;
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const { success } = await env.AUTH_LIMITER.limit({ key: bucket + ":" + ip });
+  return !success;
+}
+// Cloudflare Turnstile — enforced only once TURNSTILE_SECRET is set, so the
+// signup forms keep working until the widget keys exist.
+async function turnstileOk(env, request, token) {
+  if (!env.TURNSTILE_SECRET) return true;
+  if (!token) return false;
+  const form = new FormData();
+  form.append("secret", env.TURNSTILE_SECRET);
+  form.append("response", token);
+  form.append("remoteip", request.headers.get("CF-Connecting-IP") || "");
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form });
+  const data = await res.json().catch(() => ({}));
+  return !!data.success;
+}
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+function siteUrl(env) {
+  return env.SITE_URL || "https://members.carnivalsociety.org";
+}
+// Resend (https://resend.com). RESEND_API_KEY secret; EMAIL_FROM var must be
+// on a domain verified in Resend (carnivalsociety.org).
+async function sendEmail(env, { to, subject, html, text }) {
+  if (!env.RESEND_API_KEY) return false;
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + env.RESEND_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: env.EMAIL_FROM || "Carnival Society <hello@carnivalsociety.org>", to, subject, html, text })
+  });
+  if (!res.ok) console.error("Resend", res.status, await res.text());
+  return res.ok;
+}
+function escapeEmailHtml(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+async function sha256Hex(text) {
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
+}
+async function api(request, env, url, ctx) {
   const { pathname } = url;
   const method = request.method;
+  // Public: lets both signup forms (here and carnivalsociety.org) know which
+  // optional features are switched on without hardcoding keys.
+  if (pathname === "/api/config" && method === "GET") {
+    return withCors(json({
+      turnstile_site_key: env.TURNSTILE_SITE_KEY || null,
+      payments_enabled: !!env.STRIPE_SECRET_KEY,
+      password_reset_enabled: !!env.RESEND_API_KEY
+    }));
+  }
   if (pathname === "/api/auth/signup" && method === "POST") {
-    const { email, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization, materials_to_donate, heard_about_us } = await body(request);
+    if (await rateLimited(env, request, "signup")) return withCors(err(429, "Too many attempts. Wait a minute and try again."));
+    const { email: rawEmail, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization, materials_to_donate, heard_about_us, turnstile_token } = await body(request);
+    const email = normalizeEmail(rawEmail);
     if (!email || !password || password.length < 6 || !display_name || !city) return withCors(err(400, "Missing or invalid fields."));
-    const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+    if (!await turnstileOk(env, request, turnstile_token)) return withCors(err(400, "Couldn't verify you're human. Refresh and try again."));
+    const existing = await env.DB.prepare("SELECT id FROM users WHERE lower(email) = ?").bind(email).first();
     if (existing) return withCors(err(400, "That email is already registered."));
     const { hash, salt } = await hashPassword(password);
     const id = crypto.randomUUID();
@@ -128,6 +193,7 @@ async function api(request, env, url) {
     ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
+    ctx.waitUntil(sendWelcomeEmail(env, user2));
     // Signup from the public site (a different origin) can't use this cookie
     // anyway — cookies aren't shared cross-domain — so the CORS header is
     // what matters there; same-origin members-app signup still gets its
@@ -135,11 +201,48 @@ async function api(request, env, url) {
     return withCors(json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } }));
   }
   if (pathname === "/api/auth/signin" && method === "POST") {
+    if (await rateLimited(env, request, "signin")) return err(429, "Too many attempts. Wait a minute and try again.");
     const { email, password } = await body(request);
-    const user2 = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email || "").first();
+    const user2 = await env.DB.prepare("SELECT * FROM users WHERE lower(email) = ?").bind(normalizeEmail(email)).first();
     if (!user2 || !await verifyPassword(password || "", user2.password_hash, user2.salt)) return err(401, "Invalid email or password.");
     const token = await createSession(env, user2.id);
     return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } });
+  }
+  if (pathname === "/api/auth/forgot" && method === "POST") {
+    if (await rateLimited(env, request, "forgot")) return err(429, "Too many attempts. Wait a minute and try again.");
+    if (!env.RESEND_API_KEY) return err(503, "Password reset by email isn't switched on yet. Message a Ringleader to reset it.");
+    const { email } = await body(request);
+    const target = await env.DB.prepare("SELECT id, email, display_name FROM users WHERE lower(email) = ?").bind(normalizeEmail(email)).first();
+    // Same response whether or not the account exists — no account probing.
+    if (target) {
+      const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+      await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+1 hour'))").bind(await sha256Hex(token), target.id).run();
+      const link = siteUrl(env) + "/#/reset/" + token;
+      ctx.waitUntil(sendEmail(env, {
+        to: target.email,
+        subject: "Reset your Carnival Society password",
+        text: `Hi ${target.display_name},\n\nReset your password here (link works for 1 hour, once):\n${link}\n\nIf you didn't ask for this, ignore this email.`,
+        html: `<p>Hi ${escapeEmailHtml(target.display_name)},</p><p><a href="${link}">Reset your password</a> — the link works once, for 1 hour.</p><p>If you didn't ask for this, ignore this email.</p>`
+      }));
+    }
+    return json({ ok: true });
+  }
+  if (pathname === "/api/auth/reset" && method === "POST") {
+    if (await rateLimited(env, request, "reset")) return err(429, "Too many attempts. Wait a minute and try again.");
+    const { token, password } = await body(request);
+    if (!token || !password || password.length < 6) return err(400, "Password must be at least 6 characters.");
+    const tokenHash = await sha256Hex(token);
+    const row = await env.DB.prepare("SELECT * FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > datetime('now')").bind(tokenHash).first();
+    if (!row) return err(400, "That reset link is invalid or expired. Request a new one.");
+    const { hash, salt } = await hashPassword(password);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE token_hash = ?").bind(tokenHash),
+      env.DB.prepare("UPDATE users SET password_hash = ?, salt = ? WHERE id = ?").bind(hash, salt, row.user_id),
+      env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(row.user_id)
+    ]);
+    const sessionToken = await createSession(env, row.user_id);
+    const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(row.user_id).first();
+    return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(sessionToken, SESSION_DAYS * 86400) } });
   }
   if (pathname === "/api/auth/signout" && method === "POST") {
     const token = parseCookie(request.headers.get("Cookie"), "session");
@@ -201,12 +304,14 @@ async function api(request, env, url) {
   }
   const user = await getSessionUser(request, env);
   const requireAuth = () => user ? null : err(401, "Sign in required.");
-  // Courtyard gate: free accounts only reach public info + the path to
-  // becoming an inner member. Everything else below needs tier = inner.
-  {
-    const gateUser = await getSessionUser(request, env);
-    if (gateUser && !isInner(gateUser) && !courtyardAllowed(method, pathname)) return err(403, "Inner members only.");
+  // Throttled to one write per user per hour — feeds drift/activity views.
+  if (user && (!user.last_seen_at || Date.parse(user.last_seen_at.replace(" ", "T") + "Z") < Date.now() - 3600e3)) {
+    ctx.waitUntil(env.DB.prepare("UPDATE users SET last_seen_at = datetime('now') WHERE id = ?").bind(user.id).run());
   }
+  // Courtyard gate: free accounts reach public info, the Courtyard board
+  // (read-only), volunteering, and the path to becoming an inner member.
+  // Everything else below needs tier = inner.
+  if (user && !isInner(user) && !courtyardAllowed(method, pathname)) return err(403, "Inner members only.");
   if (pathname === "/api/chapters" && method === "GET") {
     const { results } = await env.DB.prepare("SELECT * FROM chapters ORDER BY name").all();
     return withCors(json({ chapters: results }));
@@ -214,7 +319,9 @@ async function api(request, env, url) {
   if (pathname === "/api/boards" && method === "GET") {
     const authErr = requireAuth();
     if (authErr) return authErr;
-    const { results } = await env.DB.prepare("SELECT * FROM boards").all();
+    const { results } = isInner(user)
+      ? await env.DB.prepare("SELECT * FROM boards").all()
+      : await env.DB.prepare("SELECT * FROM boards WHERE slug = ?").bind(COURTYARD_SLUG).all();
     return json({ boards: results });
   }
   if (pathname === "/api/posts" && method === "GET") {
@@ -222,6 +329,7 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const boardId = url.searchParams.get("board_id");
     if (!boardId) return err(400, "board_id required.");
+    if (!isInner(user) && !await isCourtyardBoard(env, boardId)) return err(403, "Inner members only.");
     const { results } = await env.DB.prepare(
       `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring
        FROM posts JOIN users ON users.id = posts.author_id
@@ -235,6 +343,7 @@ async function api(request, env, url) {
     if (authErr) return authErr;
     const { board_id, parent_id, title, body: text } = await body(request);
     if (!board_id || !text) return err(400, "board_id and body required.");
+    if (!parent_id && !isModerator(user) && await isCourtyardBoard(env, board_id)) return err(403, "Only Ringleaders start threads in the Courtyard.");
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, parent_id, title, body) VALUES (?, ?, ?, ?, ?, ?)").bind(id, board_id, user.id, parent_id || null, title || null, text).run();
     return json({ id });
@@ -249,6 +358,7 @@ async function api(request, env, url) {
        FROM posts JOIN users ON users.id = posts.author_id WHERE posts.id = ?`
     ).bind(postId).first();
     if (!post) return err(404, "Not found.");
+    if (!isInner(user) && !await isCourtyardBoard(env, post.board_id)) return err(403, "Inner members only.");
     const { results: replyRows } = await env.DB.prepare(
       `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring
        FROM posts JOIN users ON users.id = posts.author_id
@@ -1235,9 +1345,14 @@ async function api(request, env, url) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us, materials_to_donate } = await body(request);
+    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us, materials_to_donate, tier } = await body(request);
     const updates = [];
     const binds = [];
+    if (tier !== void 0) {
+      if (tier !== "courtyard" && tier !== "inner") return err(400, "tier must be courtyard or inner.");
+      updates.push("tier = ?");
+      binds.push(tier);
+    }
     if (email !== void 0) {
       if (!email) return err(400, "Email cannot be blank.");
       const existingEmail = await env.DB.prepare("SELECT id FROM users WHERE email = ? AND id != ?").bind(email, memberMatch[1]).first();
@@ -1590,6 +1705,7 @@ async function api(request, env, url) {
     await env.DB.prepare("INSERT INTO direct_messages (id, conversation_id, sender_id, body) VALUES (?, ?, ?, ?)").bind(id, convId, user.id, text).run();
     return json({ id });
   }
+  { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
   { const r = await ticketRoutes(request, env, url); if (r) return r; }
   return err(404, "Not found.");
 }
@@ -1641,8 +1757,66 @@ function shapeMember(row) {
     knows_who: row.knows_who || null,
     heard_about_us: row.heard_about_us || null,
     materials_to_donate: row.materials_to_donate || null,
-    is_organization: !!row.is_organization
+    is_organization: !!row.is_organization,
+    tier: row.tier || "courtyard",
+    last_seen_at: row.last_seen_at || null,
+    created_at: row.created_at
   };
+}
+
+// ---------------------------------------------------------------------
+// Courtyard: the one board free accounts can read, plus event volunteering
+// (open to every tier — it's how courtyard members get involved).
+// ---------------------------------------------------------------------
+var COURTYARD_SLUG = "courtyard";
+async function isCourtyardBoard(env, boardId) {
+  const row = await env.DB.prepare("SELECT slug FROM boards WHERE id = ?").bind(boardId).first();
+  return !!row && row.slug === COURTYARD_SLUG;
+}
+async function sendWelcomeEmail(env, u) {
+  const site = siteUrl(env);
+  return sendEmail(env, {
+    to: u.email,
+    subject: "Welcome to the Carnival Society courtyard",
+    text: `Hi ${u.display_name},\n\nYou're in the courtyard. Sign in at ${site} to see what's coming up and volunteer for an event; that's the fastest way into the guild.\n\nSee you under the tent.`,
+    html: `<p>Hi ${escapeEmailHtml(u.display_name)},</p><p>You're in the courtyard. <a href="${site}">Sign in</a> to see what's coming up and volunteer for an event; that's the fastest way into the guild.</p><p>See you under the tent.</p>`
+  });
+}
+async function volunteerRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/me/volunteering" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare("SELECT event_id FROM event_volunteers WHERE user_id = ?").bind(user.id).all();
+    return json({ event_ids: results.map((r) => r.event_id) });
+  }
+  const volMatch = pathname.match(/^\/api\/events\/([^/]+)\/volunteer$/);
+  if (volMatch && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const evt = await env.DB.prepare("SELECT id FROM events WHERE id = ? AND COALESCE(ends_at, starts_at) >= datetime('now')").bind(volMatch[1]).first();
+    if (!evt) return err(404, "That event isn't open for volunteers.");
+    const { note } = await body(request);
+    await env.DB.prepare(
+      "INSERT INTO event_volunteers (event_id, user_id, note) VALUES (?, ?, ?) ON CONFLICT(event_id, user_id) DO UPDATE SET note = excluded.note"
+    ).bind(evt.id, user.id, (note || "").trim().slice(0, 500) || null).run();
+    return json({ ok: true });
+  }
+  if (volMatch && method === "DELETE") {
+    if (!user) return err(401, "Sign in required.");
+    await env.DB.prepare("DELETE FROM event_volunteers WHERE event_id = ? AND user_id = ?").bind(volMatch[1], user.id).run();
+    return json({ ok: true });
+  }
+  const volListMatch = pathname.match(/^\/api\/events\/([^/]+)\/volunteers$/);
+  if (volListMatch && method === "GET") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { results } = await env.DB.prepare(
+      `SELECT users.id, users.display_name, users.email, users.phone, users.city, users.tier, event_volunteers.note, event_volunteers.created_at
+       FROM event_volunteers JOIN users ON users.id = event_volunteers.user_id
+       WHERE event_volunteers.event_id = ? ORDER BY event_volunteers.created_at`
+    ).bind(volListMatch[1]).all();
+    return json({ volunteers: results });
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------
@@ -1728,6 +1902,7 @@ async function ticketRoutes(request, env, url) {
     const user = await getSessionUser(request, env);
     if (!user) return err(401, "Not signed in.");
     if (isInner(user)) return err(400, "Already an inner member.");
+    if (!env.STRIPE_SECRET_KEY) return err(503, "Online payment isn't open yet.");
     const cents = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
     const session = await stripeCheckout(env, checkoutParams(env, {
       user, name: "Carnival Society membership (one time)", amountCents: cents,
@@ -1766,9 +1941,10 @@ async function ticketRoutes(request, env, url) {
     if (!tier) return err(404, "Unknown ticket tier.");
     const have = await env.DB.prepare("SELECT 1 FROM tickets WHERE event_id = ? AND user_id = ? AND tier_id = ? AND status = 'paid'").bind(tier.event_id, user.id, tier.id).first();
     if (have) return err(400, "You already have this ticket.");
+    const free = tier.price_cents === 0;
+    if (!free && !env.STRIPE_SECRET_KEY) return err(503, "Online ticket sales aren't open yet.");
     if (tier.capacity != null && await ticketsSold(env, tier.id) >= tier.capacity) return err(409, "Sold out.");
     const id = crypto.randomUUID();
-    const free = tier.price_cents === 0;
     await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, tier.event_id, tier.id, user.id, free ? "paid" : "pending", tier.price_cents, ticketCode()).run();
     if (free) return json({ ticket_id: id });
     let session;
@@ -1816,7 +1992,11 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering")) return true;
+  // Boards/posts handlers themselves restrict courtyard members to the
+  // Courtyard board, read-only (POST /api/posts stays blocked here).
+  if (method === "GET" && (pathname === "/api/boards" || pathname === "/api/posts" || /^\/api\/posts\/[^/]+$/.test(pathname))) return true;
+  if ((method === "POST" || method === "DELETE") && /^\/api\/events\/[^/]+\/volunteer$/.test(pathname)) return true;
   if (method === "GET" && /^\/api\/events\/[^/]+$/.test(pathname)) return true;
   if (method === "GET" && /^\/api\/events\/[^/]+\/ticket-tiers$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/events\/[^/]+\/tickets$/.test(pathname)) return true; // answers with its own 403
