@@ -5268,11 +5268,20 @@ const RAVEN_RESULT = {
 // layers so the head sits inside it), head_closed.png, head_open.png,
 // head_wide.png.
 let blastShowing = null;
-async function checkBlast() {
+async function checkBlast(waited = 0) {
   if (!session || blastShowing) return;
   try {
     const { blast } = await apiFetch('/api/me/blast');
-    if (blast && !blastShowing) showBlast(blast, { live: true });
+    if (!blast || blastShowing) return;
+    // Wait your turn behind a prize, the tour or a rank party; ring right after.
+    if (document.querySelector('.prize-pop, .intro-tour, .rank-celebration')) { setTimeout(() => checkBlast(waited), 1500); return; }
+    // In the Dressing Room, give the room a moment to draw so the holler
+    // comes out of the floor megaphone rather than the stand-in cone.
+    if (ROOM_ROUTES.includes(currentRoute()) && !document.querySelector('.room-stage [data-role="megaphone"]') && waited < 6) {
+      setTimeout(() => checkBlast(waited + 1), 500);
+      return;
+    }
+    showBlast(blast, { live: true });
   } catch (e) { /* try again next tick */ }
 }
 
