@@ -1899,3 +1899,9 @@ body.forum-docked .room-arrange-btn { right: calc(var(--room-gutter) + 80px); }
 .my-jobs a { color: #1d5652; font-weight: 700; text-decoration: none; padding: 2px 10px; border-radius: 999px; background: #fffaf0; border: 1px solid #2F7F7A; }
 @media (prefers-reduced-motion: reduce) { .job-ticket, .job-ticket:nth-child(odd) { transform: none; } }
 .sheet-raven { width: 100%; border: none; background: none; text-align: left; cursor: pointer; font: inherit; color: var(--glow); }
+
+/* ── Layers (2026-10-12): the tent valance hangs over both wings; the menu
+   sheet slides in over everything in the shell ── */
+.topbar { z-index: 46; }
+.sheet-scrim.open { z-index: 60; }
+.more-sheet { z-index: 61; }
