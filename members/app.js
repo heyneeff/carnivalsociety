@@ -428,6 +428,7 @@ function renderShell() {
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
       ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
       ${sheetLink('#/album', 'Troupe album', is('album'), '', 'the people you’ve met')}
+      <button class="sheet-link sheet-raven" id="sheetTour"><span>🐦‍⬛ Take the tour</span><small class="sheet-hint">the raven shows you around</small></button>
       ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
       ${(ravenEnv().ios && !ravenEnv().standalone) || ('Notification' in window && Notification.permission !== 'granted') ? '<button class="sheet-link sheet-raven" id="sheetRaven"><span>📲 Get live updates</span><small class="sheet-hint">job reminders, letters, hollers</small></button>' : ''}
     </div>
@@ -499,6 +500,11 @@ function renderShell() {
   };
   document.getElementById('moreBtn').onclick = () => { mobileNavOpen = !mobileNavOpen; renderShell(); };
   document.getElementById('sheetRaven')?.addEventListener('click', () => { mobileNavOpen = false; renderShell(); inviteRaven('menu'); });
+  document.getElementById('sheetTour')?.addEventListener('click', () => {
+    mobileNavOpen = false;
+    if (currentRoute() === 'dressing-room') { renderShell(); setTimeout(() => roomHooks.startIntro?.(), 400); }
+    else { try { localStorage.removeItem('cs-intro-' + profile.id); } catch (e) { /* ignore */ } location.hash = '#/dressing-room'; }
+  });
   document.getElementById('navScrim').onclick = () => { mobileNavOpen = false; renderShell(); };
 
   renderMainView(route);
@@ -542,6 +548,8 @@ const pageView = () => document.querySelector('.unfold-body') || document.getEle
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
   stopDMPolling();
+  // Arranging only owns the right wing while you're looking at the room itself.
+  document.body.classList.toggle('arranging', roomEditing && route === 'dressing-room');
   if (ROOM_ROUTES.includes(route) || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
   roomStage = null; unfoldKind = null; roomHooks = {};
   mainView.dataset.page = pageKind(route);
@@ -5571,11 +5579,13 @@ function flashToast(msg, ms = 4000) {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (mobileNavOpen && !document.querySelector('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal')) { mobileNavOpen = false; renderShell(); return; }
-  const tops = document.querySelectorAll('.unfold, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal');
+  const tops = document.querySelectorAll('.unfold, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
   const top = tops[tops.length - 1];
   if (top) {
     e.preventDefault();
-    if (top.classList.contains('unfold')) top.querySelector('.unfold-close').click();
+    if (top.classList.contains('prize-pop')) top.querySelector('[data-later]').click();
+    else if (top.classList.contains('intro-tour')) top.querySelector('[data-skip]').click();
+    else if (top.classList.contains('unfold')) top.querySelector('.unfold-close').click();
     else if (!top.classList.contains('blast-overlay')) top.click();
     else if (top.classList.contains('answered')) top.querySelector('[data-done]').click();
     else top.querySelector('.blast-pickup').focus(); // you can't hang up on the Ringleader
@@ -5706,6 +5716,45 @@ async function refreshNews() {
   document.querySelectorAll('[data-news]').forEach(d => { d.hidden = !isNew(d.dataset.news); });
   roomHooks.onNews?.();
   if (document.body.classList.contains('forum-docked')) mountForumWing();
+  maybePrize(news.stamp);
+}
+
+// ── The prize moment (2026-10-12): confetti the moment a new stamp lands,
+// wherever you are in the app. Once per stamp per device; "Later" leaves
+// the trunk glowing in the room until you open it.
+function maybePrize(st) {
+  if (!st || !profile || !BADGES[st.kind]) return;
+  const key = 'cs-prize-seen-' + profile.id;
+  let seen;
+  try { seen = localStorage.getItem(key); } catch (e) { return; }
+  if (seen === st.id) return;
+  if (Date.now() - sqlTime(st.created_at) > 7 * 864e5) { try { localStorage.setItem(key, st.id); } catch (e) { /* ignore */ } return; }
+  try { if (sessionStorage.getItem('cs-prize-later-' + st.id)) return; } catch (e) { /* ignore */ }
+  // Never on top of something else: a holler, the rank party, the intro, another prize.
+  if (blastShowing || needsRankCelebration() || document.querySelector('.prize-pop, .rank-celebration, .intro-tour, .raven-modal')) return;
+  const b = BADGES[st.kind];
+  const confetti = Array.from({ length: 60 }, (_, i) =>
+    `<span class="confetti" style="--x:${Math.random() * 100}vw;--d:${(Math.random() * 1.6 + 2.2).toFixed(2)}s;--delay:${(Math.random() * 0.9).toFixed(2)}s;--c:${['#C8A05A', '#9B3036', '#4E8C82', '#C77B8A', '#DFBE7D', '#FFE2A0'][i % 6]}"></span>`).join('');
+  const o = document.createElement('div');
+  o.className = 'prize-pop';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', `You won a prize: ${b.name}`);
+  o.innerHTML = `${confetti}
+    <div class="prize-card">
+      <div class="prize-kicker">Huzzah! You won a prize!</div>
+      <div class="prize-patch" style="--badge:${b.color}">${badgeIcon(st.kind, 64)}</div>
+      <h2>${escapeHtml(b.name)}</h2>
+      <p class="prize-motto">“${escapeHtml(b.motto)}”</p>
+      ${st.event_title ? `<p class="prize-where">for ${escapeHtml(st.event_title)}</p>` : ''}
+      <div class="prize-btns"><button class="composer-submit" data-open>Open the trunk</button><button class="raven-offer-no" data-later>Later</button></div>
+    </div>`;
+  document.body.appendChild(o);
+  try { const rig = megaphone(); if (rig) { playBoing(rig); setTimeout(() => rig.close(), 1500); } } catch (e) { /* no sound, no matter */ }
+  const close = () => o.remove();
+  o.querySelector('[data-later]').onclick = () => { try { sessionStorage.setItem('cs-prize-later-' + st.id, '1'); } catch (e) { /* ignore */ } close(); };
+  // A fresh room, so the trunk knows about the stamp that just landed.
+  o.querySelector('[data-open]').onclick = () => { close(); roomStage = null; if (location.hash === '#/badges') render(); else location.hash = '#/badges'; };
+  o.querySelector('[data-open]').focus();
 }
 
 async function refreshLetters() {
@@ -5930,6 +5979,7 @@ let roomEditing = false;
 async function renderRoom(mainView) {
   mainView.classList.add('main-room');
   roomEditing = false;
+  document.body.classList.remove('arranging');
   const [p, { events }, layout, { jobs }, { crews }] = await Promise.all([
     apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })),
     apiFetch('/api/jobs').catch(() => ({ jobs: [] })), apiFetch('/api/me/crews').catch(() => ({ crews: [] })), refreshLetters(), refreshNews(),
@@ -6232,6 +6282,64 @@ async function renderRoom(mainView) {
     }
   }
 
+  // ── The raven's tour (2026-10-12): first visit on a device, or "Take the
+  // tour" in the menu. A spotlight walks the room; the raven explains.
+  roomHooks.startIntro = () => {
+    if (document.querySelector('.intro-tour') || roomEditing) return;
+    const first = (profile.display_name || '').split(' ')[0];
+    const el = role => host.querySelector(`[data-role="${role}"]`);
+    const steps = [
+      { text: `Welcome to your Dressing Room, ${escapeHtml(first)}! I’m the raven. Let me show you around. Everything glowing in here is something you can tap.` },
+      { role: 'flyer', text: 'These flyers are real upcoming events. Tap one to see it and <b>take a job</b> on the crew. That’s how you join in.' },
+      { role: 'trunk', text: 'Your steamer trunk. Every time you show up and help at a real carnival, you win a badge and it lands in here. <b>Two shifts and you’re an Apprentice.</b>' },
+      inner ? { role: 'book', text: 'The Big Book is the <b>Guild Hall</b>: news, plans and talk for the whole troupe.' }
+            : { role: 'exit', text: 'Step out to the <b>Courtyard</b> for guild news and calls for helping hands.' },
+      { role: 'mirror', text: 'Look in the mirror to <b>pick your acts</b> (fire, clowning, building, costumes…) so your crew knows what you love.' },
+      { role: 'raven', text: 'And me! When there’s a letter, a new flyer or a job that needs hands, <b>I squawk about it</b> right here.' },
+      { role: 'megaphone', text: 'When the Ringleader hollers, it comes out of this megaphone. Tap it any time to hear the last one.' },
+      { text: 'That’s the tour! Want me to find you on your phone too, with job reminders, letters and hollers?', last: true },
+    ].filter(st => !st.role || el(st.role));
+    const tour = document.createElement('div');
+    tour.className = 'intro-tour';
+    tour.setAttribute('role', 'dialog');
+    tour.setAttribute('aria-label', 'A tour of your Dressing Room');
+    tour.innerHTML = `<div class="intro-spot"></div>
+      <div class="intro-card"><img src="${ROOM}raven_squawk.png" alt="" class="intro-bird"><div class="intro-text" aria-live="polite"></div>
+        <div class="intro-btns"><span class="intro-step"></span><button class="raven-offer-no" data-skip>Skip the tour</button><button class="composer-submit" data-next>Next</button></div></div>`;
+    document.body.appendChild(tour);
+    const spot = tour.querySelector('.intro-spot'), card = tour.querySelector('.intro-card');
+    const done = () => { try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } tour.remove(); };
+    let i = 0;
+    const show = () => {
+      const st = steps[i], target = st.role && el(st.role);
+      tour.querySelector('.intro-text').innerHTML = st.text;
+      tour.querySelector('.intro-step').textContent = `${i + 1} of ${steps.length}`;
+      const next = tour.querySelector('[data-next]');
+      next.textContent = st.last ? 'Yes, notify me' : i === 0 ? 'Show me around' : 'Next';
+      tour.querySelector('[data-skip]').textContent = st.last ? 'Maybe later' : 'Skip the tour';
+      tour.classList.toggle('no-target', !target);
+      if (target) {
+        target.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
+        // Light the whole group (all three flyers), not just the first.
+        const rs = [...host.querySelectorAll(`[data-role="${st.role}"]`)].map(n => n.getBoundingClientRect());
+        const r = { left: Math.min(...rs.map(q => q.left)), top: Math.min(...rs.map(q => q.top)), right: Math.max(...rs.map(q => q.right)), bottom: Math.max(...rs.map(q => q.bottom)) };
+        r.width = r.right - r.left; r.height = r.bottom - r.top;
+        const pad = 10;
+        Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+        // The card sits below the object if there's room, else above.
+        const below = r.bottom + 16 + 190 < innerHeight;
+        card.style.top = below ? `${r.bottom + 16}px` : 'auto';
+        card.style.bottom = below ? 'auto' : `${innerHeight - r.top + 16}px`;
+      } else { card.style.top = ''; card.style.bottom = ''; }
+      next.focus();
+    };
+    tour.querySelector('[data-skip]').onclick = done;
+    tour.querySelector('[data-next]').onclick = () => {
+      if (steps[i].last) { done(); inviteRaven('menu'); return; }
+      i++; show();
+    };
+    show();
+  };
   roomHooks.openTrunk = () => {
     const el = host.querySelector('[data-role="trunk"]'), it = items.find(i => i.role === 'trunk');
     if (el && it) openTrunk(el, it);
@@ -6352,6 +6460,7 @@ async function renderRoom(mainView) {
   });
   function exitEditing(keep) {
     roomEditing = false; selectedId = null;
+    document.body.classList.remove('arranging');
     if (!keep) items = JSON.parse(JSON.stringify(saved));
     editor.hidden = true; document.getElementById('roomArrange').textContent = '✎ Arrange';
     draw();
@@ -6359,6 +6468,8 @@ async function renderRoom(mainView) {
   document.getElementById('roomArrange')?.addEventListener('click', e => {
     if (roomEditing) { exitEditing(); return; }
     roomEditing = true; editor.hidden = false; e.currentTarget.textContent = '✕ Stop arranging';
+    // On wide screens the Guild Hall slides out and the Arrange panel takes its wing.
+    document.body.classList.add('arranging');
     say('Arrange mode: drag things around. Nothing opens until you stop.');
     draw();
   });
@@ -6375,7 +6486,10 @@ async function renderRoom(mainView) {
   const newFlyer = items.find(it => it.role === 'flyer' && fresh(it));
   if (letters.unread && letters.from[0]) say(`SQUAWK! ${letters.unread === 1 ? 'A letter' : `${letters.unread} letters`} waiting — the raven has them.`);
   else if (newFlyer) say(`SQUAWK! A new flyer went up: ${flyerEvent(newFlyer).title}`);
-  offerRaven();
+  let introDone = true;
+  try { introDone = !!localStorage.getItem('cs-intro-' + profile.id); } catch (e) { /* no storage: skip it */ }
+  if (!introDone && !wantTrunk) setTimeout(() => { if (scene.isConnected && !document.querySelector('.unfold')) roomHooks.startIntro(); }, 900);
+  else offerRaven();
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
   const vp = document.getElementById('roomViewport');

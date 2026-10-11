@@ -2338,7 +2338,11 @@ async function passportRoutes(request, env, url, user) {
          (SELECT MAX(p.created_at) FROM posts p JOIN boards b ON b.id = p.board_id WHERE b.slug != ? AND p.author_id != ?) AS guild,
          (SELECT MAX(created_at) FROM events WHERE COALESCE(ends_at, starts_at) >= datetime('now') AND COALESCE(created_by, '') != ?) AS events`
     ).bind(COURTYARD_SLUG, user.id, COURTYARD_SLUG, user.id, user.id).first();
-    return json({ courtyard: row.courtyard, guild: isInner(user) ? row.guild : null, events: row.events });
+    // Your newest stamp, so the app can throw confetti the moment it lands.
+    const stamp = await env.DB.prepare(
+      "SELECT s.id, s.kind, s.created_at, e.title AS event_title FROM stamps s LEFT JOIN events e ON e.id = s.event_id WHERE s.user_id = ? ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1"
+    ).bind(user.id).first();
+    return json({ courtyard: row.courtyard, guild: isInner(user) ? row.guild : null, events: row.events, stamp: stamp || null });
   }
   if (pathname === "/api/me/letters" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
