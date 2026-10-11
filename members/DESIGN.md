@@ -78,15 +78,23 @@ Tokens live on `:root` in `styles.css`. Use them; don't invent new hexes for UI 
 
 ### Buttons: three kinds only
 
-1. **The ask:** red ticket button (`composer-submit` / `forum-btn`), one per card or page,
-   a verb: "Volunteer for this", "Start a thread", "Send the letter", "Save".
-2. **Secondary:** cream outline (`action-btn`): Share, See who’s in, I can’t make it.
+1. **The ask:** a red ticket with stitched (dashed cream) edges and a pressable bottom
+   (`composer-submit`, `room-plaque-btn`; on parchment the yellow `forum-btn`), one per card
+   or page, a verb: "Volunteer for this", "Start a thread", "Send the letter", "Save".
+2. **Secondary:** a cream paper chip with a brass edge (`action-btn`): Share, See who’s in,
+   I can’t make it.
 3. **Ringleader tools:** tucked in a brass `✎ Ringleader tools` fold (`details.rl-tools`) so
    members only ever see the ask. Delete confirms first.
 
 Sentence case on every label ("Show past events", not "Show Past Events"). Menu items in the
 ☰ sheet carry a small italic hint naming where they live in the room ("the mirror").
 The avatar opens My profile; the logo and Dressing Room open the room.
+
+### The top bar
+A velvet bar with a scalloped tent valance hanging from it. Desktop tabs wear the painted
+sticker of the room object they open (vanity, flyer, book; drawn tent and sealed envelope where
+there is no sticker yet), lettered in Playfair. Hover lifts and glows the sticker like a room
+object; the page you're on lights up with a chasing row of marquee bulbs. Badges open the trunk.
 
 ## 5. Motion and sound
 

@@ -393,6 +393,10 @@ function currentRoute() {
 
 let mobileNavOpen = false; // off-canvas sidebar drawer, ≤800px only (see .sidebar.open in styles.css)
 
+// The Courtyard has no sticker yet: a little striped tent in the same hand.
+const TENT_SVG = `<svg viewBox="0 0 40 40"><path d="M20 7V1.5l6 2-6 2" fill="#C8A05A" stroke="#2a130c" stroke-width="1.6" stroke-linejoin="round"/><path d="M3.5 35 20 7l16.5 28z" fill="#F4E8D0"/><path d="M20 7 9 35h5zM20 7l6 28h5z" fill="#9B3036"/><path d="M16 35q4-9 8 0z" fill="#2a130c"/><path d="M3.5 35 20 7l16.5 28z" fill="none" stroke="#2a130c" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const LETTER_SVG = `<svg viewBox="0 0 40 40"><g transform="rotate(-8 20 20)"><rect x="4" y="10" width="32" height="22" rx="2" fill="#F4E8D0" stroke="#2a130c" stroke-width="2"/><path d="M4.5 11 20 23l15.5-12" fill="none" stroke="#2a130c" stroke-width="2" stroke-linejoin="round"/><circle cx="20" cy="23" r="4.6" fill="#9B3036" stroke="#2a130c" stroke-width="1.4"/><path d="M18 23h4M20 21v4" stroke="#F4E8D0" stroke-width="1.2"/></g></svg>`;
+
 // Top bar everywhere (no sidebar): bobbing wordmark, primary nav on wide
 // screens, a "More" sheet for everything else, bottom tabs on phones.
 function renderShell() {
@@ -401,14 +405,16 @@ function renderShell() {
   const inner = isInnerMember();
   const onGuildHallBoard = route === 'guild-hall' || chapters.some(c => c.slug === route);
   const is = (...names) => names.some(n => n.endsWith('/') ? route.startsWith(n) : route === n);
-  const link = (href, label, active, extra = '') => `<a class="topnav-link ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}>${label}${extra}</a>`;
+  // Desktop tabs wear the painted sticker of the room object they open.
+  const sticker = name => `<img src="${ROOM}${name}.png" alt="" draggable="false">`;
+  const link = (href, label, active, icon, extra = '') => `<a class="topnav-link ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}><span class="tn-icon" aria-hidden="true">${icon}</span><span class="tn-label">${label}${extra}</span></a>`;
 
   const primary = [
-    link('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport')),
-    link('#/courtyard', 'Courtyard', is('courtyard')),
-    link('#/events', 'Events', is('events', 'event/')),
-    inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard) : '',
-    inner ? link('#/dm', 'Letters', is('dm', 'dm/'), lettersBadge()) : '',
+    link('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport'), sticker('vanity')),
+    link('#/courtyard', 'Courtyard', is('courtyard'), TENT_SVG),
+    link('#/events', 'Events', is('events', 'event/'), sticker('flyer_circus')),
+    inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard, sticker('book_lectern')) : '',
+    inner ? link('#/dm', 'Letters', is('dm', 'dm/'), LETTER_SVG, lettersBadge()) : '',
   ].join('');
 
   // The ☰ sheet holds what the top bar doesn't: each item says where in the
@@ -458,8 +464,8 @@ function renderShell() {
           </a>
           <nav class="topnav" aria-label="Main">${primary}</nav>
           <div class="topbar-actions">
-            <button class="topbar-more" id="moreBtn" aria-label="More" aria-expanded="${mobileNavOpen}">
-              ${svg('M4 7h16M4 12h16M4 17h16')}
+            <button class="topbar-more" id="moreBtn" aria-label="Menu" aria-expanded="${mobileNavOpen}">
+              ${svg('M4 7h16M4 12h16M4 17h16')}<span class="tb-more-label">Menu</span>
               ${profile?.is_ringleader && newSignupsCount ? '<span class="topbar-dot" aria-hidden="true"></span>' : ''}
             </button>
             <a class="topbar-avatar" href="#/profile" aria-label="${escapeHtml(profile?.display_name || 'You')}: your profile" title="Your profile">${escapeHtml(initials)}</a>
