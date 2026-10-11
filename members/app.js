@@ -130,6 +130,7 @@ function render() {
   if (!session || !profile) { session = false; profile = null; renderAuthScreen(); return; }
   if (!profile.onboarded) { renderOnboarding(); return; }
   renderShell();
+  if (needsRankCelebration() && !document.querySelector('.rank-celebration')) renderRankCelebration();
 }
 
 // ── Auth screen ──────────────────────────────────────────────────────
@@ -412,6 +413,7 @@ function renderShell() {
           <ul class="nav-list">
             <li><a class="nav-link ${route === 'courtyard' ? 'active' : ''}" href="#/courtyard">Courtyard</a></li>
             <li><a class="nav-link ${route === 'events' ? 'active' : ''}" href="#/events">Events &amp; Volunteering</a></li>
+            <li><a class="nav-link ${route === 'passport' ? 'active' : ''}" href="#/passport">My Passport</a></li>
             <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
           </ul>
         </div>` : `
@@ -441,6 +443,7 @@ function renderShell() {
         </div>
         <div>
           <ul class="nav-list">
+            <li><a class="nav-link ${route === 'passport' ? 'active' : ''}" href="#/passport">My Passport</a></li>
             <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
           </ul>
         </div>`}
@@ -497,6 +500,7 @@ function renderMainView(route) {
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
+  if (route === 'passport') { renderPassportView(mainView); return; }
   // Courtyard members can open Courtyard threads (server enforces which).
   if (!isInnerMember() && route !== 'events' && !route.startsWith('post/')) { location.hash = '#/courtyard'; return; }
   if (route === 'hub') { renderCrewTabs(mainView, 'overview'); return; }
@@ -1030,11 +1034,10 @@ function renderVolunteerRow(eventId) {
     myVolunteering.delete(eventId);
     renderVolunteerRow(eventId);
   });
-  el.querySelector('[data-show-volunteers]')?.addEventListener('click', async () => {
-    const list = el.querySelector('.volunteer-list');
-    if (list.innerHTML) { list.innerHTML = ''; return; }
+  const list = el.querySelector('.volunteer-list');
+  async function drawVolunteers(flash = '') {
     const { volunteers } = await apiFetch(`/api/events/${eventId}/volunteers`);
-    list.innerHTML = volunteers.length ? volunteers.map(v => `
+    list.innerHTML = (flash ? `<div class="stamp-flash">${flash}</div>` : '') + (volunteers.length ? volunteers.map(v => `
       <div class="volunteer-item">
         <strong>${escapeHtml(v.display_name)}</strong>
         <span class="post-meta">${escapeHtml(v.city || '')}${v.tier === 'inner' ? ' · inner' : ' · courtyard'}</span>
@@ -1042,7 +1045,21 @@ function renderVolunteerRow(eventId) {
           <a href="mailto:${escapeHtml(v.email)}">${escapeHtml(v.email)}</a>${v.phone ? ` · <a href="tel:${escapeHtml(v.phone)}">${escapeHtml(v.phone)}</a>` : ''}
         </div>
         ${v.note ? `<div class="post-snippet">${escapeHtml(v.note)}</div>` : ''}
-      </div>`).join('') : '<div class="placeholder-note">No volunteers yet.</div>';
+        <div class="post-actions">
+          ${v.showed_up
+            ? `<span class="volunteer-yes">${BADGES.roustabout.glyph} Showed up · Roustabout stamped</span>`
+            : `<button class="action-btn" data-showed-up="${v.id}" data-name="${escapeHtml(v.display_name)}">${BADGES.roustabout.glyph} Showed up</button>`}
+        </div>
+      </div>`).join('') : '<div class="placeholder-note">No volunteers yet.</div>');
+    list.querySelectorAll('[data-showed-up]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const r = await apiFetch('/api/stamps', { method: 'POST', body: { user_id: btn.dataset.showedUp, kind: 'roustabout', event_id: eventId } });
+      drawVolunteers(r.promoted ? `🎉 ${escapeHtml(btn.dataset.name)} just became an Apprentice and stepped inside!` : '');
+    }));
+  }
+  el.querySelector('[data-show-volunteers]')?.addEventListener('click', async () => {
+    if (list.innerHTML) { list.innerHTML = ''; return; }
+    await drawVolunteers();
   });
 }
 
@@ -1453,6 +1470,7 @@ function renderMemberRows() {
         </label>
         <input type="text" class="admin-dues-amount" data-field="dues_amount" placeholder="Amount" value="${escapeHtml(m.dues_amount || '')}">
         <input type="date" class="admin-dues-date" data-field="dues_date" value="${escapeHtml(m.dues_date || '')}">
+        <button class="gm-btn admin-passport-btn" data-passport="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Passport</button>
         <button class="gm-btn admin-edit-btn" data-edit="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
       </div>
     </div>
@@ -1460,6 +1478,9 @@ function renderMemberRows() {
 
   list.querySelectorAll('.admin-edit-btn').forEach(btn => {
     btn.addEventListener('click', () => openMemberEditModal(btn.dataset.edit));
+  });
+  list.querySelectorAll('.admin-passport-btn').forEach(btn => {
+    btn.addEventListener('click', () => openPassportModal(btn.dataset.passport));
   });
 
   list.querySelectorAll('.dir-row').forEach(row => {
@@ -4712,6 +4733,154 @@ async function renderCrewLoreView(mainView) {
   draw();
 }
 
+// ── Carnival Passport ─────────────────────────────────────────────────
+// Merit-badge stamps that earn rank (vault: "CSI Rank and Passport Rule").
+// A souvenir, not a scoreboard: your own passport only, never compared.
+const BADGES = {
+  fix:        { name: 'The Fix Is In',   motto: 'I bribed my way in.',      glyph: '💰', color: '#8F6E34', how: 'Pay the one-time $5 door registration.' },
+  ticket:     { name: 'Ticket Punched',  motto: 'I was there.',             glyph: '🎟️', color: '#9B3036', how: 'Get checked in at a Carnival or guild event.' },
+  roustabout: { name: 'Roustabout',      motto: 'Hauled the canvas.',       glyph: '🔨', color: '#4E8C82', how: 'Work a volunteer shift.' },
+  sawdust:    { name: 'Sawdust',         motto: 'Made it with my hands.',   glyph: '🪚', color: '#C97C3D', how: 'Help build something that makes it into a Carnival.' },
+  barker:     { name: 'Barker',          motto: 'Step right up!',           glyph: '📣', color: '#C77B8A', how: 'Bring someone who joins and shows up.' },
+  junk:       { name: 'Junk Saint',      motto: "One carnie's trash…",      glyph: '♻️', color: '#5F7A3D', how: 'Donate materials that get used in a build.' },
+  canvasman:  { name: 'Boss Canvasman',  motto: 'Raised the big top.',      glyph: '🎪', color: '#8B5FA3', how: 'Lead a crew, teach a skill, or host newcomers.' },
+};
+const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman'];
+const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout'];
+
+function badgePatch(kind, count, extraClass = '') {
+  const b = BADGES[kind];
+  return `<div class="badge-patch ${count ? 'earned' : 'unearned'} ${extraClass}" style="--badge:${b.color}" title="${escapeHtml(count ? b.motto : b.how)}">
+    <div class="badge-glyph">${b.glyph}</div>
+    <div class="badge-name">${escapeHtml(b.name)}</div>
+    <div class="badge-motto">${escapeHtml(count ? b.motto : b.how)}</div>
+    ${count > 1 ? `<div class="badge-count">×${count}</div>` : ''}
+  </div>`;
+}
+
+function passportProgressText(p) {
+  if (!p.next) return p.user.is_ringleader ? 'Ringleader.' : `${rankLabel(p.user.rank)} of the guild.`;
+  const { stamps_needed, roustabouts_needed } = p.next;
+  if (!stamps_needed && !roustabouts_needed) return 'Apprentice is yours — refresh to step inside.';
+  const parts = [];
+  if (roustabouts_needed) parts.push(`${roustabouts_needed} more volunteer shift${roustabouts_needed > 1 ? 's' : ''} (Roustabout)`);
+  const otherNeeded = Math.max(0, stamps_needed - roustabouts_needed);
+  if (otherNeeded) parts.push(`${otherNeeded} more stamp${otherNeeded > 1 ? 's' : ''} of any kind`);
+  return `${parts.join(' and ')} to become an Apprentice and step inside.`;
+}
+
+async function renderPassportView(mainView) {
+  mainView.innerHTML = `<h2>My Passport</h2><div class="placeholder-note">Loading…</div>`;
+  const p = await apiFetch('/api/me/passport');
+  const counts = {};
+  p.stamps.forEach(s => { counts[s.kind] = (counts[s.kind] || 0) + 1; });
+  const first = p.stamps[0];
+  const firstPage = first ? `
+    <div class="passport-first">
+      <div class="post-meta">Page one · ${formatEventDate(first.created_at.replace(' ', 'T') + 'Z')}</div>
+      ${badgePatch(first.kind, 1, 'large')}
+      <div class="passport-first-motto">“${escapeHtml(BADGES[first.kind].motto)}”</div>
+    </div>` : `
+    <div class="passport-first empty">
+      <div class="passport-first-motto">Your passport is blank. Every carnie starts somewhere.</div>
+      <a class="composer-submit" href="#/events">Volunteer for something</a>
+    </div>`;
+  const pages = p.stamps.slice().reverse().map(s => `
+    <div class="passport-page">
+      <span class="passport-page-glyph">${BADGES[s.kind].glyph}</span>
+      <strong>${escapeHtml(BADGES[s.kind].name)}</strong>
+      <span class="post-meta">${s.event_title ? escapeHtml(s.event_title) + ' · ' : ''}${timeAgo(s.created_at.replace(' ', 'T') + 'Z')}${s.note ? ' · ' + escapeHtml(s.note) : ''}</span>
+    </div>`).join('');
+  mainView.innerHTML = `
+    <h2>My Passport</h2>
+    <div class="passport-header">
+      <div class="passport-rank">${escapeHtml(p.user.is_ringleader ? 'Ringleader' : rankLabel(p.user.rank))}</div>
+      <div class="passport-progress">${escapeHtml(passportProgressText(p))}</div>
+    </div>
+    ${firstPage}
+    <h3 class="passport-section">Badges</h3>
+    <div class="badge-grid">${BADGE_ORDER.map(k => badgePatch(k, counts[k] || 0)).join('')}</div>
+    ${pages ? `<h3 class="passport-section">Stamps</h3><div class="passport-pages">${pages}</div>` : ''}
+  `;
+}
+
+// Moderator view of someone's passport + hand-granted stamps (Directory).
+async function openPassportModal(userId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-edit-overlay open';
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  async function draw(flash = '') {
+    const p = await apiFetch(`/api/members/${userId}/passport`);
+    overlay.innerHTML = `
+      <div class="admin-edit-modal">
+        <div class="admin-edit-modal-header"><h3>${escapeHtml(p.user.display_name)}'s Passport</h3><button data-close>&times;</button></div>
+        <div class="admin-edit-modal-body">
+          <div class="passport-progress">${escapeHtml(p.user.is_ringleader ? 'Ringleader' : rankLabel(p.user.rank))} · ${p.counts.total} stamps, ${p.counts.roustabouts} Roustabout</div>
+          ${flash ? `<div class="stamp-flash">${flash}</div>` : ''}
+          <div class="passport-pages">${p.stamps.map(s => `
+            <div class="passport-page">
+              <span class="passport-page-glyph">${BADGES[s.kind].glyph}</span>
+              <strong>${escapeHtml(BADGES[s.kind].name)}</strong>
+              <span class="post-meta">${s.event_title ? escapeHtml(s.event_title) + ' · ' : ''}${escapeHtml(s.created_at.slice(0, 10))}${s.note ? ' · ' + escapeHtml(s.note) : ''}</span>
+              <button class="action-btn danger" data-remove-stamp="${s.id}">Remove</button>
+            </div>`).join('') || '<div class="placeholder-note">No stamps yet.</div>'}</div>
+          <form class="ticket-tier-form" id="grantStampForm">
+            <select name="kind">${HAND_GRANTED_BADGES.map(k => `<option value="${k}">${BADGES[k].glyph} ${escapeHtml(BADGES[k].name)}</option>`).join('')}</select>
+            <input type="text" name="note" maxlength="300" placeholder="What for? (e.g. built the ticket booth)">
+            <button type="submit" class="composer-submit">Grant stamp</button>
+          </form>
+        </div>
+      </div>`;
+    overlay.querySelector('[data-close]').onclick = close;
+    overlay.querySelectorAll('[data-remove-stamp]').forEach(btn => btn.addEventListener('click', async () => {
+      await apiFetch(`/api/stamps/${btn.dataset.removeStamp}`, { method: 'DELETE' });
+      draw();
+    }));
+    overlay.querySelector('#grantStampForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const r = await apiFetch('/api/stamps', { method: 'POST', body: { user_id: userId, kind: f.get('kind'), note: f.get('note') } });
+      draw(r.promoted ? `🎉 ${escapeHtml(p.user.display_name)} just became an Apprentice and stepped inside!` : '');
+    });
+  }
+  draw();
+}
+
+// "Welcome inside" moment — shown once per new rank (users.celebrated_rank).
+function needsRankCelebration() {
+  return !!profile && !profile.is_ringleader && profile.rank !== 'clown' && profile.celebrated_rank !== profile.rank;
+}
+function renderRankCelebration() {
+  const rank = profile.rank;
+  const lines = {
+    apprentice: "You've worked the shifts and earned your stamps. The Threshold is crossed. Welcome inside the guild.",
+    journeyman: 'Your craft has been seen by those who practice it. Welcome, Journeyman.',
+    master: 'The guild names you Master. Raise the big top.',
+  };
+  const confetti = Array.from({ length: 40 }, (_, i) =>
+    `<span class="confetti" style="--x:${Math.random() * 100}vw;--d:${(Math.random() * 1.5 + 2).toFixed(2)}s;--delay:${(Math.random() * 0.8).toFixed(2)}s;--c:${['#C8A05A', '#9B3036', '#4E8C82', '#C77B8A', '#DFBE7D'][i % 5]}"></span>`).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'rank-celebration';
+  overlay.innerHTML = `${confetti}
+    <div class="rank-celebration-card">
+      <div class="rank-celebration-kicker">Huzzah!</div>
+      <h1>${escapeHtml(rankLabel(rank))}</h1>
+      <p>${escapeHtml(lines[rank] || 'Your rank in the guild has risen.')}</p>
+      <button class="auth-submit" id="celebrateBtn">Step inside</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#celebrateBtn').addEventListener('click', async () => {
+    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { celebrated_rank: rank } });
+    profile = user;
+    overlay.remove();
+    await loadAppData();
+    location.hash = isInnerMember() ? '#/guild-hall' : '#/passport';
+    render();
+  });
+}
+
 // ── Tiers + tickets ───────────────────────────────────────────────────
 // Courtyard = free account (info only). Inner = paid the one-time $5 (or was
 // already in the network). Server enforces this; the UI just mirrors it.
@@ -4726,6 +4895,19 @@ function qrSvg(text) {
   qr.addData(text);
   qr.make();
   return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+}
+
+// Rank is earned, not bought: the $5 only buys The Fix Is In stamp.
+function courtyardPathCta(lead) {
+  return `
+    <div class="ticket-join">
+      <div>${escapeHtml(lead)} Earn your way inside: <strong>3 passport stamps, including 2 volunteer shifts</strong>.</div>
+      <div class="post-actions">
+        <a class="action-btn" href="#/passport">See my passport</a>
+        <a class="action-btn" href="#/events">Volunteer</a>
+        ${appConfig.payments_enabled ? `<button class="action-btn" data-join>${BADGES.fix.glyph} The Fix Is In — $5</button>` : ''}
+      </div>
+    </div>`;
 }
 
 async function startMembershipCheckout(btn) {
@@ -4759,11 +4941,7 @@ async function renderTicketPanel(eventId) {
     </div>`;
   }).join('');
 
-  const joinCta = !inner && tiers.length && appConfig.payments_enabled ? `
-    <div class="ticket-join">
-      <div>Tickets are for inner members. Join once for $5 and you're in for good.</div>
-      <button class="composer-submit" data-join>Become an inner member — $5</button>
-    </div>` : '';
+  const joinCta = !inner && tiers.length ? courtyardPathCta('Tickets are for inner members.') : '';
 
   const manage = canManage ? `
     <details class="ticket-manage"><summary>Add ticket tier</summary>
@@ -4805,11 +4983,7 @@ async function renderTicketPanel(eventId) {
 async function renderMyTicketsView(mainView) {
   mainView.innerHTML = `<h2>My Tickets</h2><div class="placeholder-note">Loading…</div>`;
   const { tickets } = await apiFetch('/api/me/tickets');
-  const joinCta = !isInnerMember() && appConfig.payments_enabled ? `
-    <div class="ticket-join">
-      <div>You're in the courtyard. Become an inner member for $5 (one time) to get tickets.</div>
-      <button class="composer-submit" data-join>Become an inner member — $5</button>
-    </div>` : '';
+  const joinCta = !isInnerMember() ? courtyardPathCta("You're in the courtyard. Tickets are for inner members.") : '';
   const list = tickets.length ? tickets.map(t => `
     <div class="post-card" style="cursor:default;">
       <div class="post-title">${escapeHtml(t.title)}</div>
@@ -4825,16 +4999,15 @@ async function renderMyTicketsView(mainView) {
 // Stripe sends people back here; the webhook may land a moment after the
 // redirect, so poll /api/me briefly for the tier flip before moving on.
 async function renderMembershipSuccess(mainView) {
-  mainView.innerHTML = `<h2>Welcome inside</h2><div class="placeholder-note">Confirming your payment…</div>`;
+  mainView.innerHTML = `<h2>${BADGES.fix.glyph} The Fix Is In</h2><div class="placeholder-note">Greasing the palm…</div>`;
+  let fixed = false;
   for (let i = 0; i < 10; i++) {
-    await refreshProfile();
-    if (isInnerMember()) break;
+    const { stamps } = await apiFetch('/api/me/passport');
+    if ((fixed = stamps.some(s => s.kind === 'fix'))) break;
     await new Promise(r => setTimeout(r, 1500));
   }
-  if (isInnerMember()) {
-    await loadAppData();
-    location.hash = '#/events';
-    renderShell();
+  if (fixed) {
+    location.hash = '#/passport';
   } else {
     mainView.innerHTML = `<h2>Almost there</h2><div class="placeholder-note">Your payment is still processing. Refresh in a minute — if you were charged and nothing changes, contact a Ringleader.</div>`;
   }
@@ -4867,13 +5040,58 @@ async function renderCheckinView(mainView, eventId) {
         <button type="submit" class="composer-submit">Check in</button>
       </form>
       <div id="checkinResult" class="post-meta"></div>
+    </div>
+    <div class="ticket-box">
+      <h3 class="passport-section">Walk-ins &amp; crew</h3>
+      <input type="text" id="doorSearch" placeholder="Find a member by name" autocomplete="off">
+      <div id="doorResults" class="volunteer-list"></div>
     </div>`;
   const result = document.getElementById('checkinResult');
+
+  // Stamp people who don't have a QR ticket: punch them in, take cash for
+  // The Fix, or mark crew shifts.
+  const doorResults = document.getElementById('doorResults');
+  let doorTimer = null;
+  async function drawDoor(flash = '') {
+    const q = document.getElementById('doorSearch').value.trim();
+    if (!q) { doorResults.innerHTML = flash ? `<div class="stamp-flash">${flash}</div>` : ''; return; }
+    const [{ members }, { stamps }] = await Promise.all([
+      apiFetch(`/api/members/search?q=${encodeURIComponent(q)}`),
+      apiFetch(`/api/events/${eventId}/stamps`),
+    ]);
+    const has = (uid, kind) => stamps.some(s => s.user_id === uid && s.kind === kind);
+    const btn = (m, kind, label) => has(m.id, kind)
+      ? `<span class="volunteer-yes">${BADGES[kind].glyph} ${label} ✓</span>`
+      : `<button class="action-btn" data-door-stamp="${kind}" data-uid="${m.id}" data-name="${escapeHtml(m.display_name)}">${BADGES[kind].glyph} ${label}</button>`;
+    doorResults.innerHTML = (flash ? `<div class="stamp-flash">${flash}</div>` : '') + (members.slice(0, 8).map(m => `
+      <div class="volunteer-item">
+        <strong>${escapeHtml(m.display_name)}</strong>
+        <span class="post-meta">${escapeHtml(m.city || '')} · ${escapeHtml(rankLabel(m.rank))}</span>
+        <div class="post-actions">
+          ${btn(m, 'ticket', 'Punch ticket')}
+          <button class="action-btn" data-door-stamp="fix" data-uid="${m.id}" data-name="${escapeHtml(m.display_name)}">${BADGES.fix.glyph} Took their $5</button>
+          ${btn(m, 'roustabout', 'Worked a shift')}
+        </div>
+      </div>`).join('') || '<div class="placeholder-note">No one by that name.</div>');
+    doorResults.querySelectorAll('[data-door-stamp]').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      const kind = b.dataset.doorStamp;
+      const r = await apiFetch('/api/stamps', { method: 'POST', body: { user_id: b.dataset.uid, kind, event_id: kind === 'fix' ? null : eventId } });
+      const name = escapeHtml(b.dataset.name);
+      drawDoor(r.promoted ? `🎉 ${name} just became an Apprentice and stepped inside!`
+        : !r.granted && kind === 'fix' ? `${name} already greased the palm. No double charge recorded.`
+        : `${BADGES[kind].glyph} ${name}: ${escapeHtml(BADGES[kind].name)} stamped.`);
+    }));
+  }
+  document.getElementById('doorSearch').addEventListener('input', () => {
+    clearTimeout(doorTimer);
+    doorTimer = setTimeout(() => drawDoor(), 250);
+  });
   async function submit(code) {
     try {
       const r = await apiFetch(`/api/events/${eventId}/checkin`, { method: 'POST', body: { code } });
       result.style.color = r.ok ? '#8FD19E' : '#E0B060';
-      result.textContent = r.ok ? `✓ ${r.display_name} — ${r.tier_name}` : `Already checked in: ${r.display_name} (${r.checked_in_at} UTC)`;
+      result.textContent = r.ok ? `✓ ${r.display_name} — ${r.tier_name}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}` : `Already checked in: ${r.display_name} (${r.checked_in_at} UTC)`;
     } catch (err) {
       result.style.color = '#E08A8A';
       result.textContent = '✗ ' + err.message;

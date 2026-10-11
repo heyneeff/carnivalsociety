@@ -1008,3 +1008,37 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 .volunteer-item a { color: var(--gold-bright); }
 .volunteer-form:not([hidden]) { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
 .volunteer-form input { flex: 1 1 240px; }
+
+/* ── Carnival Passport (2026-10-10) ── */
+.passport-header { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1.2rem; max-width: 720px; }
+.passport-rank { font-family: 'Playfair Display', serif; font-size: 1.6rem; color: var(--gold-bright); }
+.passport-progress { color: var(--cream); }
+.passport-section { color: var(--gold); margin: 1.6rem 0 0.7rem; font-size: 1.05rem; letter-spacing: 0.04em; }
+.passport-first { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; padding: 1.4rem 1rem; max-width: 720px; border: 1px dashed var(--gold-deep); border-radius: 8px; background: var(--surface); text-align: center; }
+.passport-first.empty { gap: 1rem; }
+.passport-first-motto { font-style: italic; color: var(--cream); font-size: 1.1rem; }
+.badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; max-width: 900px; }
+.badge-patch { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 1rem 0.6rem 0.9rem; border-radius: 50% / 42%; text-align: center; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--badge) 75%, #fff 10%), var(--badge)); border: 3px solid var(--gold); outline: 2px dashed rgba(244,232,208,0.55); outline-offset: -9px; box-shadow: 0 4px 0 rgba(0,0,0,0.35); min-height: 150px; justify-content: center; }
+.badge-patch.unearned { background: var(--surface-2); border-color: var(--border); outline-color: rgba(244,232,208,0.15); filter: grayscale(1); opacity: 0.55; }
+.badge-patch.large { width: 190px; min-height: 190px; }
+.badge-patch.large .badge-glyph { font-size: 2.6rem; }
+.badge-glyph { font-size: 1.9rem; line-height: 1; }
+.badge-name { font-weight: 700; color: var(--cream); font-size: 0.92rem; text-shadow: 0 1px 0 rgba(0,0,0,0.5); }
+.badge-motto { font-size: 0.72rem; color: rgba(244,232,208,0.85); font-style: italic; line-height: 1.25; }
+.badge-count { position: absolute; top: 6px; right: 10px; background: var(--gold); color: var(--bg); border-radius: 999px; padding: 0 0.45rem; font-size: 0.75rem; font-weight: 700; }
+.passport-pages { display: flex; flex-direction: column; gap: 0.4rem; max-width: 720px; }
+.passport-page { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.5rem 0.8rem; border-bottom: 1px dotted var(--border); }
+.passport-page-glyph { font-size: 1.2rem; }
+.passport-page .action-btn { margin-left: auto; }
+.stamp-flash { padding: 0.6rem 0.9rem; border-radius: 4px; background: rgba(143,209,158,0.12); border: 1px solid rgba(143,209,158,0.4); color: #8FD19E; margin-bottom: 0.5rem; }
+#doorSearch { width: 100%; margin-bottom: 0.5rem; }
+
+.rank-celebration { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(20,10,8,0.82); overflow: hidden; padding: 16px; }
+.rank-celebration-card { position: relative; z-index: 2; max-width: 440px; padding: 2rem 1.6rem; text-align: center; background: var(--surface); border: 2px solid var(--gold); border-radius: 10px; box-shadow: 0 0 60px rgba(200,160,90,0.35); animation: celebrate-pop 0.5s cubic-bezier(.2,1.6,.4,1) both; }
+.rank-celebration-card h1 { color: var(--gold-bright); margin: 0.3rem 0 0.8rem; font-size: 2.4rem; }
+.rank-celebration-card p { color: var(--cream); line-height: 1.5; margin-bottom: 1.2rem; }
+.rank-celebration-kicker { color: var(--burgundy-red); text-transform: uppercase; letter-spacing: 0.2em; font-weight: 700; }
+.confetti { position: absolute; top: -12px; left: var(--x); width: 9px; height: 14px; background: var(--c); border-radius: 2px; animation: confetti-fall var(--d) linear var(--delay) forwards; z-index: 1; }
+@keyframes confetti-fall { to { transform: translateY(110vh) rotate(720deg); } }
+@keyframes celebrate-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .confetti { display: none; } .rank-celebration-card { animation: none; } }

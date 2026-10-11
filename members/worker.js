@@ -256,9 +256,14 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/me" && method === "PATCH") {
     const user2 = await getSessionUser(request, env);
     if (!user2) return err(401, "Not signed in.");
-    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate } = await body(request);
+    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate, celebrated_rank } = await body(request);
     const updates = [];
     const binds = [];
+    // Acknowledging the "welcome inside" moment; can only mark the rank you hold.
+    if (celebrated_rank !== void 0 && celebrated_rank === user2.rank) {
+      updates.push("celebrated_rank = ?");
+      binds.push(celebrated_rank);
+    }
     if (display_name !== void 0) {
       updates.push("display_name = ?");
       binds.push(display_name);
@@ -1706,6 +1711,7 @@ async function api(request, env, url, ctx) {
     return json({ id });
   }
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
+  { const r = await passportRoutes(request, env, url, user); if (r) return r; }
   { const r = await ticketRoutes(request, env, url); if (r) return r; }
   return err(404, "Not found.");
 }
@@ -1810,11 +1816,101 @@ async function volunteerRoutes(request, env, url, user) {
   if (volListMatch && method === "GET") {
     if (!isModerator(user)) return err(403, "Moderators only.");
     const { results } = await env.DB.prepare(
-      `SELECT users.id, users.display_name, users.email, users.phone, users.city, users.tier, event_volunteers.note, event_volunteers.created_at
+      `SELECT users.id, users.display_name, users.email, users.phone, users.city, users.tier, event_volunteers.note, event_volunteers.created_at,
+              EXISTS(SELECT 1 FROM stamps WHERE stamps.user_id = users.id AND stamps.kind = 'roustabout' AND stamps.event_id = event_volunteers.event_id) AS showed_up
        FROM event_volunteers JOIN users ON users.id = event_volunteers.user_id
        WHERE event_volunteers.event_id = ? ORDER BY event_volunteers.created_at`
     ).bind(volListMatch[1]).all();
     return json({ volunteers: results });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Carnival Passport: merit-badge stamps that earn rank. Rule lives in the
+// vault ("CSI Rank and Passport Rule"): Clown → Apprentice is automatic at
+// 3 stamps incl. 2 Roustabouts, and crosses the Threshold (tier = inner).
+// Journeyman needs a human nod; Master is conferred. Never ranked/compared.
+// ---------------------------------------------------------------------
+var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman"];
+var APPRENTICE_STAMPS = 3;
+var APPRENTICE_ROUSTABOUTS = 2;
+// Unique indexes make repeats (same kind+event, or a second Fix) no-ops.
+async function grantStamp(env, { userId, kind, eventId = null, note = null, grantedBy = null }) {
+  const res = await env.DB.prepare(
+    "INSERT OR IGNORE INTO stamps (id, user_id, kind, event_id, note, granted_by) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(crypto.randomUUID(), userId, kind, eventId, note, grantedBy).run();
+  const granted = !!res.meta.changes;
+  return { granted, promoted: granted ? await checkPromotion(env, userId) : false };
+}
+async function stampCounts(env, userId) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(kind = 'roustabout'), 0) AS roustabouts FROM stamps WHERE user_id = ?").bind(userId).first();
+  return { total: row.total, roustabouts: row.roustabouts };
+}
+// Only ever moves a Clown up to Apprentice; never demotes, never touches
+// organizations (their standing is set by a Ringleader).
+async function checkPromotion(env, userId) {
+  const u = await env.DB.prepare("SELECT rank, is_organization FROM users WHERE id = ?").bind(userId).first();
+  if (!u || u.rank !== "clown" || u.is_organization) return false;
+  const c = await stampCounts(env, userId);
+  if (c.total < APPRENTICE_STAMPS || c.roustabouts < APPRENTICE_ROUSTABOUTS) return false;
+  await env.DB.prepare("UPDATE users SET rank = 'apprentice', tier = 'inner' WHERE id = ? AND rank = 'clown'").bind(userId).run();
+  return true;
+}
+async function passportFor(env, userId) {
+  const u = await env.DB.prepare("SELECT id, display_name, rank, is_ringleader, is_organization FROM users WHERE id = ?").bind(userId).first();
+  if (!u) return null;
+  const { results } = await env.DB.prepare(
+    `SELECT stamps.id, stamps.kind, stamps.event_id, stamps.note, stamps.created_at, events.title AS event_title
+     FROM stamps LEFT JOIN events ON events.id = stamps.event_id
+     WHERE stamps.user_id = ? ORDER BY stamps.created_at, stamps.rowid`
+  ).bind(userId).all();
+  const c = await stampCounts(env, userId);
+  const next = u.rank === "clown" && !u.is_organization ? {
+    rank: "apprentice",
+    stamps_needed: Math.max(0, APPRENTICE_STAMPS - c.total),
+    roustabouts_needed: Math.max(0, APPRENTICE_ROUSTABOUTS - c.roustabouts)
+  } : null;
+  return { user: { id: u.id, display_name: u.display_name, rank: u.rank, is_ringleader: !!u.is_ringleader }, stamps: results, counts: c, next };
+}
+async function passportRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/me/passport" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    return json(await passportFor(env, user.id));
+  }
+  const memberPassport = pathname.match(/^\/api\/members\/([^/]+)\/passport$/);
+  if (memberPassport && method === "GET") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const p = await passportFor(env, memberPassport[1]);
+    return p ? json(p) : err(404, "Not found.");
+  }
+  if (pathname === "/api/stamps" && method === "POST") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { user_id, kind, event_id, note } = await body(request);
+    if (!STAMP_KINDS.includes(kind)) return err(400, "Unknown stamp.");
+    const target = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(user_id || "").first();
+    if (!target) return err(404, "No such member.");
+    const result = await grantStamp(env, { userId: target.id, kind, eventId: event_id || null, note: (note || "").trim().slice(0, 300) || null, grantedBy: user.id });
+    // Cash at the door: put the $5 on the books alongside Stripe payments.
+    if (kind === "fix" && result.granted) {
+      await env.DB.prepare("INSERT INTO payments (id, user_id, kind, amount_cents, stripe_session_id) VALUES (?, ?, 'membership', ?, ?)")
+        .bind(crypto.randomUUID(), target.id, Number(env.MEMBERSHIP_PRICE_CENTS || 500), "cash:" + crypto.randomUUID()).run();
+    }
+    return json(result);
+  }
+  const stampMatch = pathname.match(/^\/api\/stamps\/([^/]+)$/);
+  if (stampMatch && method === "DELETE") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    await env.DB.prepare("DELETE FROM stamps WHERE id = ?").bind(stampMatch[1]).run();
+    return json({ ok: true });
+  }
+  const eventStamps = pathname.match(/^\/api\/events\/([^/]+)\/stamps$/);
+  if (eventStamps && method === "GET") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { results } = await env.DB.prepare("SELECT id, user_id, kind FROM stamps WHERE event_id = ?").bind(eventStamps[1]).all();
+    return json({ stamps: results });
   }
   return null;
 }
@@ -1891,7 +1987,9 @@ async function ticketRoutes(request, env, url) {
     ).bind(crypto.randomUUID(), userId, md.kind, s.amount_total, s.id, s.payment_intent || null).run();
     if (!ins.meta.changes) return json({ ok: true }); // already processed
     if (md.kind === "membership") {
-      await env.DB.prepare("UPDATE users SET tier = 'inner', dues_paid = 1, dues_amount = ?, dues_date = date('now') WHERE id = ?").bind((s.amount_total / 100).toFixed(2), userId).run();
+      // The $5 buys a stamp ("The Fix Is In"), not a rank or inner access —
+      // see CSI Rank and Passport Rule.
+      await grantStamp(env, { userId, kind: "fix" });
     } else if (md.kind === "ticket") {
       await env.DB.prepare("UPDATE tickets SET status = 'paid' WHERE id = ?").bind(md.ticket_id).run();
     }
@@ -1901,11 +1999,11 @@ async function ticketRoutes(request, env, url) {
   if (pathname === "/api/membership/checkout" && method === "POST") {
     const user = await getSessionUser(request, env);
     if (!user) return err(401, "Not signed in.");
-    if (isInner(user)) return err(400, "Already an inner member.");
     if (!env.STRIPE_SECRET_KEY) return err(503, "Online payment isn't open yet.");
+    if (await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(user.id).first()) return err(400, "The fix is already in.");
     const cents = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
     const session = await stripeCheckout(env, checkoutParams(env, {
-      user, name: "Carnival Society membership (one time)", amountCents: cents,
+      user, name: "Carnival Society door registration (one time)", amountCents: cents,
       metadata: { kind: "membership", user_id: user.id }, successPath: "/#membership-success"
     }));
     return json({ url: session.url });
@@ -1986,13 +2084,14 @@ async function ticketRoutes(request, env, url) {
     if (!t || t.status !== "paid") return err(404, "No valid ticket for that code.");
     if (t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: t.checked_in_at });
     await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
-    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name });
+    const { promoted } = await grantStamp(env, { userId: t.user_id, kind: "ticket", eventId: t.event_id, grantedBy: user.id });
+    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name, promoted });
   }
   return null;
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport")) return true;
   // Boards/posts handlers themselves restrict courtyard members to the
   // Courtyard board, read-only (POST /api/posts stays blocked here).
   if (method === "GET" && (pathname === "/api/boards" || pathname === "/api/posts" || /^\/api\/posts\/[^/]+$/.test(pathname))) return true;
