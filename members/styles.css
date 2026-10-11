@@ -1552,3 +1552,21 @@ body.chat-docked .chat-close { display: none; }
 .raven-modal-card ol { margin: 10px 0 16px 20px; display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 800px) { .raven-offer { bottom: calc(80px + env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) { .raven-offer { animation: none; } }
+
+/* ── The raven squawks: two-frame beak flip (2026-10-11) ── */
+@keyframes rf-open { 0%, 9% { opacity: 1; } 9.01%, 18% { opacity: 0; } 18.01%, 27% { opacity: 1; } 27.01%, 100% { opacity: 0; } }
+@keyframes rf-shut { 0%, 9% { opacity: 0; } 9.01%, 18% { opacity: 1; } 18.01%, 27% { opacity: 0; } 27.01%, 100% { opacity: 1; } }
+.raven-frames { position: relative; display: block; transform-origin: 50% 100%; }
+.room-obj .raven-frames img { display: block; width: 100%; height: auto; }
+/* the open-beak drawing is wider (squawk lines on the right), same scale */
+.room-obj .raven-frames img.rf-open { position: absolute; left: 0; bottom: 0; width: 137.75%; max-width: none; opacity: 0; animation: rf-open 2.6s linear infinite; }
+.room-obj .raven-frames img.rf-shut { animation: rf-shut 2.6s linear infinite; }
+.room-obj .raven-frames.frantic img.rf-open { animation-duration: 1.05s; }
+.room-obj .raven-frames.frantic img.rf-shut { animation-duration: 1.05s; }
+.room-obj.hop .raven-frames { animation: rm-hop 2.6s ease-in-out infinite; }
+.room-obj.hop .raven-frames.frantic { animation-duration: 1.05s; }
+@media (prefers-reduced-motion: reduce) {
+  .room-obj .raven-frames img.rf-open, .room-obj .raven-frames img.rf-shut, .room-obj.hop .raven-frames { animation: none !important; }
+}
+/* pin the two frames together at the perch base (measured: 86.0 vs 83.5 px) */
+.room-obj .raven-frames img.rf-open { left: 1.66%; }

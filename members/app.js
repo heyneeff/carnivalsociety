@@ -5323,11 +5323,14 @@ async function renderRoom(mainView) {
   // Live state swaps art: the raven squawks, the trunk spills open.
   const look = it => {
     let img = it.img, w = it.w, t = it.t, anim = it.anim || '';
-    if (!roomEditing && it.role === 'raven' && (request || letters.unread) && img === 'raven_perched') { img = 'raven_squawk'; w = it.w * (208 / 151); anim = 'hop'; }
+    // The raven really squawks: two frames (beak shut / beak open) flipped in
+    // bursts — frantic for a letter, now-and-then for a volunteer call.
+    let frames = null;
+    if (!roomEditing && it.role === 'raven' && (request || letters.unread) && img === 'raven_perched') { frames = letters.unread ? 'frantic' : 'calm'; anim = 'hop'; }
     if (!roomEditing && it.role === 'trunk' && newStamp && img === 'trunk_closed') {
       img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
     }
-    return { img, w, t, anim };
+    return { img, w, t, anim, frames };
   };
   const visible = it => roomEditing || it.role !== 'hatbox' || profile.is_ringleader;
 
@@ -5377,7 +5380,9 @@ async function renderRoom(mainView) {
       }
       const tag = live || roomEditing ? 'button' : 'div';
       return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}" data-item="${it.id}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
-        <span class="room-turn" style="${tf}"><img src="${ROOM}${v.img}.png" alt="" draggable="false"></span>${handle}</${tag}>`;
+        <span class="room-turn" style="${tf}">${v.frames
+          ? `<span class="raven-frames ${v.frames}"><img class="rf-shut" src="${ROOM}raven_perched.png" alt="" draggable="false"><img class="rf-open" src="${ROOM}raven_squawk.png" alt="" draggable="false"></span>`
+          : `<img src="${ROOM}${v.img}.png" alt="" draggable="false">`}</span>${handle}</${tag}>`;
     }).join('') + (roomEditing ? '' : extras());
     if (roomEditing) renderEditor();
   }
