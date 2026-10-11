@@ -428,6 +428,7 @@ function renderShell() {
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
       ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
       ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
+      ${(ravenEnv().ios && !ravenEnv().standalone) || ('Notification' in window && Notification.permission !== 'granted') ? '<button class="sheet-link sheet-raven" id="sheetRaven"><span>📲 Get live updates</span><small class="sheet-hint">job reminders, letters, hollers</small></button>' : ''}
     </div>
     ${inner ? `
     <div class="sheet-group sheet-phone">
@@ -496,6 +497,7 @@ function renderShell() {
     render();
   };
   document.getElementById('moreBtn').onclick = () => { mobileNavOpen = !mobileNavOpen; renderShell(); };
+  document.getElementById('sheetRaven')?.addEventListener('click', () => { mobileNavOpen = false; renderShell(); inviteRaven('menu'); });
   document.getElementById('navScrim').onclick = () => { mobileNavOpen = false; renderShell(); };
 
   renderMainView(route);
@@ -1253,6 +1255,7 @@ async function renderJobs(mainView) {
     await apiFetch(`/api/jobs/${b.dataset.claim}/claim`, { method: 'POST' });
     const j = jobs.find(x => x.id === b.dataset.claim);
     if (j && !myVolunteering.has(j.event_id)) { myVolunteering.add(j.event_id); renderVolunteerRow(j.event_id); }
+    setTimeout(() => inviteRaven('job', j ? `${j.title}` : 'your job'), 1200);
   }, '🎟 It’s yours! Your name is on the flyer.'));
   mainView.querySelectorAll('[data-unclaim]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.unclaim}/claim`, { method: 'DELETE' }), 'Off the job. Someone else can take it.'));
   mainView.querySelectorAll('[data-done-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.doneJob}/claims/${b.dataset.user}/done`, { method: 'POST' }), 'Done! They got a Roustabout stamp.'));
@@ -1294,7 +1297,9 @@ function renderVolunteerRow(eventId) {
     try {
       await apiFetch(`/api/events/${eventId}/volunteer`, { method: 'POST', body: { note: form.note.value } });
       myVolunteering.add(eventId);
+      const title = el.closest('.post-card')?.querySelector('.post-title')?.textContent.trim() || 'the event';
       renderVolunteerRow(eventId);
+      setTimeout(() => inviteRaven('volunteer', title), 900);
     } catch (err) { form.insertAdjacentHTML('beforeend', `<div class="auth-error">${escapeHtml(err.message)}</div>`); }
   });
   el.querySelector('[data-unvolunteer]')?.addEventListener('click', async () => {
@@ -6296,7 +6301,7 @@ async function renderRoom(mainView) {
   const newFlyer = items.find(it => it.role === 'flyer' && fresh(it));
   if (letters.unread && letters.from[0]) say(`SQUAWK! ${letters.unread === 1 ? 'A letter' : `${letters.unread} letters`} waiting — the raven has them.`);
   else if (newFlyer) say(`SQUAWK! A new flyer went up: ${flyerEvent(newFlyer).title}`);
-  offerRaven(mainView);
+  offerRaven();
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
   const vp = document.getElementById('roomViewport');
@@ -6311,37 +6316,62 @@ async function renderRoom(mainView) {
 }
 
 // A one-time (per device) invitation in the room for the raven to follow you.
-async function offerRaven(mainView) {
-  let dismissed = false;
-  try { dismissed = !!localStorage.getItem('cs-raven-offer'); } catch (e) { return; }
+// ── The raven invite (2026-10-12): "Get live updates & notifications".
+// Asked at moments where the benefit is obvious (you just took a job or
+// volunteered), or in the room from your second visit. Our own card goes
+// first; the phone's yes/no only appears after a "yes" here. "Not now"
+// waits 5 days, and we stop asking after 3 no's.
+const INVITE_KEY = 'cs-raven-invite';
+function inviteState() { try { return JSON.parse(localStorage.getItem(INVITE_KEY) || '{}'); } catch (e) { return null; } }
+function saveInvite(st) { try { localStorage.setItem(INVITE_KEY, JSON.stringify(st)); } catch (e) { /* no storage */ } }
+async function inviteRaven(moment = 'visit', what = '') {
+  const st = inviteState();
+  if (!st || document.querySelector('.raven-offer')) return;
+  const asked = moment === 'menu'; // they asked for it: skip the snooze
+  if (!asked && ((st.no || 0) >= 3 || Date.now() < (st.until || 0))) return;
   const env = ravenEnv();
-  if (dismissed || (!env.supported && !env.ios)) return;
+  if (!env.supported && !env.ios) return;
   if (await ravenSubscribed()) return;
-  setTimeout(() => {
-    if (!document.body.contains(mainView)) return;
-    const card = document.createElement('div');
-    card.className = 'raven-offer';
-    card.innerHTML = `
-      <img src="${ROOM}raven_squawk.png" alt="" class="raven-offer-bird">
-      <div class="raven-offer-text"><strong>Let the raven follow you home?</strong><span>It’ll squawk on your phone for letters, volunteer calls and prizes.</span></div>
-      <div class="raven-offer-btns">
-        <button class="room-plaque-btn" data-yes>Yes, follow me</button>
-        ${deferredInstall ? '<button class="room-plaque-btn td-close" data-install>Install the app</button>' : ''}
-        <button class="raven-offer-no" data-no>Not now</button>
-      </div>`;
-    mainView.appendChild(card);
-    const done = () => { try { localStorage.setItem('cs-raven-offer', '1'); } catch (e) { /* ignore */ } card.remove(); };
-    card.querySelector('[data-no]').onclick = done;
-    card.querySelector('[data-install]')?.addEventListener('click', () => { deferredInstall.prompt(); deferredInstall = null; });
-    card.querySelector('[data-yes]').onclick = async () => {
-      const r = await followRaven();
-      if (r === 'ios-install') { showIosInstall(); return; }
-      done();
-      const t = document.getElementById('roomToast');
-      if (t) { t.textContent = RAVEN_RESULT[r]; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 4500); }
-    };
-  }, 2500);
+  if (moment === 'visit') {
+    st.visits = (st.visits || 0) + 1; saveInvite(st);
+    if (st.visits < 2) return; // let them look around first
+  }
+  const iosInstall = env.ios && !env.standalone;
+  const name = what.length > 28 ? what.slice(0, 27).trimEnd() + '…' : what;
+  const head = moment === 'job' ? `Want a heads-up before ${escapeHtml(name)}?`
+    : moment === 'volunteer' ? `Want a reminder before ${escapeHtml(name)}?`
+    : 'Get live updates &amp; notifications';
+  const line = moment === 'visit'
+    ? 'Job reminders, letters and hollers, straight to your phone. No app store needed.'
+    : 'Get live updates &amp; notifications: the raven pings you the day before, plus letters and hollers.';
+  const card = document.createElement('div');
+  card.className = 'raven-offer';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-label', 'Get live updates and notifications');
+  card.innerHTML = `
+    <img src="${ROOM}raven_squawk.png" alt="" class="raven-offer-bird">
+    <div class="raven-offer-text"><strong>${head}</strong><span>${line}${iosInstall ? ' On iPhone it takes one quick step: add us to your Home Screen.' : ''}</span></div>
+    <div class="raven-offer-btns">
+      <button class="room-plaque-btn" data-yes>${iosInstall ? 'Yes, show me how' : 'Yes, notify me'}</button>
+      <button class="raven-offer-no" data-no>Not now</button>
+    </div>`;
+  document.body.appendChild(card);
+  const close = () => card.remove();
+  card.querySelector('[data-no]').onclick = () => {
+    const s2 = inviteState() || {};
+    s2.no = (s2.no || 0) + 1; s2.until = Date.now() + 5 * 864e5; saveInvite(s2); close();
+  };
+  card.querySelector('[data-yes]').onclick = async () => {
+    // Android/desktop Chrome: offer the real install too, then ask to notify.
+    if (deferredInstall && !env.standalone) { try { deferredInstall.prompt(); await deferredInstall.userChoice; } catch (e) { /* dismissed */ } deferredInstall = null; }
+    const r = await followRaven();
+    if (r === 'ios-install') { close(); showIosInstall(); return; }
+    close();
+    if (r === 'on') saveInvite({ ...(inviteState() || {}), done: 1 });
+    flashToast(RAVEN_RESULT[r] || RAVEN_RESULT.error, 5000);
+  };
 }
+function offerRaven() { setTimeout(() => inviteRaven('visit'), 2500); }
 
 // The big fat book swings toward you and fills the screen, then the forum.
 function openBookToward(bookEl, href) {
