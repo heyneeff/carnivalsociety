@@ -1920,6 +1920,21 @@ async function passportRoutes(request, env, url, user) {
     if (!user) return err(401, "Sign in required.");
     return json(await passportFor(env, user.id));
   }
+  // "Your troupe": the people you've actually shared events with (both
+  // stamped at the same event). Earned, not picked; names and rank only.
+  if (pathname === "/api/me/troupe" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.rank, u.is_ringleader, COUNT(DISTINCT s2.event_id) AS shared
+       FROM stamps s1
+       JOIN stamps s2 ON s2.event_id = s1.event_id AND s2.user_id != s1.user_id
+       JOIN users u ON u.id = s2.user_id
+       WHERE s1.user_id = ? AND s1.event_id IS NOT NULL
+         AND s1.kind IN ('ticket', 'roustabout', 'sawdust') AND s2.kind IN ('ticket', 'roustabout', 'sawdust')
+       GROUP BY u.id ORDER BY shared DESC, u.display_name LIMIT 8`
+    ).bind(user.id).all();
+    return json({ troupe: results.map((r) => ({ id: r.id, display_name: r.display_name, rank: r.rank, is_ringleader: !!r.is_ringleader, shared: r.shared })) });
+  }
   const memberPassport = pathname.match(/^\/api\/members\/([^/]+)\/passport$/);
   if (memberPassport && method === "GET") {
     if (!isModerator(user)) return err(403, "Moderators only.");
@@ -2131,7 +2146,7 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe")) return true;
   // Boards/posts handlers themselves restrict courtyard members to the
   // Courtyard board, read-only (POST /api/posts stays blocked here).
   if (method === "GET" && (pathname === "/api/boards" || pathname === "/api/posts" || /^\/api\/posts\/[^/]+$/.test(pathname))) return true;
