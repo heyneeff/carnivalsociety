@@ -63,7 +63,20 @@ function timeAgo(iso) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────
+// Opening the installed app from the Home Screen always lands in the
+// Dressing Room (iOS sometimes saves whatever page you were on when you
+// added it). Tapping a squawk opens /?n=1#/<where>, which is honored.
+function landInRoomOnLaunch() {
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const params = new URLSearchParams(location.search);
+  let launched = false;
+  try { launched = !!sessionStorage.getItem('cs-launched'); sessionStorage.setItem('cs-launched', '1'); } catch (e) { /* ignore */ }
+  if (params.has('n')) { history.replaceState(null, '', '/' + location.hash); return; }
+  if (standalone && !launched && !/^#\/(reset|event)\//.test(location.hash)) history.replaceState(null, '', '/#/dressing-room');
+}
+
 async function boot() {
+  landInRoomOnLaunch();
   try { appConfig = { ...appConfig, ...await apiFetch('/api/config') }; } catch (e) { /* defaults: optional features off */ }
   try {
     const { user } = await apiFetch('/api/me');

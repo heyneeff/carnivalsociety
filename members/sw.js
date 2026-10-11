@@ -16,7 +16,7 @@ self.addEventListener('push', event => {
       icon: '/assets/icons/icon-192.png',
       badge: '/assets/icons/badge-96.png',
       tag: `csi-${n.id}`,
-      data: { url: '/' + (n.url || '#/dressing-room') },
+      data: { url: '/?n=1' + (n.url || '#/dressing-room') },
     })));
   })());
 });
