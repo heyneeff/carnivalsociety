@@ -2016,3 +2016,22 @@ a.chat-name:hover { text-decoration: underline; }
 .ct-who a { color: inherit; text-decoration: none; border-bottom: 1px dashed #2F7F7A; }
 body.chat-docked .room-visit-plaque { max-width: calc(100vw - 2 * var(--room-gutter) - 90px); bottom: 18px; font-size: 15px; gap: 8px 12px; }
 body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: center; }
+
+/* ── Needs on flyers (2026-10-12): materials wanted and needed ── */
+.need-board { margin-top: 14px; text-align: left; }
+.need-board:empty { display: none; }
+.nd-h { margin: 8px 0 4px; font-family: 'Playfair Display', serif; font-weight: 800; font-size: 14px; color: #5A1E24; }
+.nd-h small { font-weight: 400; font-style: italic; color: #8a6a50; }
+.nd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.nd-item { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; border-radius: 8px; background: #fffaf0; border: 1px dashed #c9a97a; color: #231712; font-size: 14px; }
+.nd-item.covered { border-style: solid; border-color: #9fc9b8; background: #f1faf5; }
+.nd-name { flex: 1; min-width: 120px; font-weight: 600; }
+.nd-star { color: #c99a2e; margin-right: 4px; }
+.nd-item .jt-face { width: 24px; height: 24px; font-size: 11px; }
+.nd-btn { min-height: 32px; padding: 0 12px; border-radius: 999px; border: 2px solid #8F6E34; background: #F2D16B; color: #4a2f1c; font-weight: 800; font-size: 13px; cursor: pointer; box-shadow: 0 2px 0 #a88331; white-space: nowrap; }
+.nd-btn.nd-mine { background: #e3efe8; border-color: #2F7F7A; color: #1d5652; box-shadow: 0 2px 0 #2F7F7A; }
+.nd-tools { display: flex; gap: 4px; flex-basis: 100%; justify-content: flex-end; }
+.nd-tools button { min-height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid #8F6E34; background: #fffaf0; color: #4a2f1c; font-size: 11px; font-weight: 700; cursor: pointer; }
+.nd-tools .jt-delete { color: #9B3036; border-color: #9B3036; }
+.need-add select { min-height: 38px; border-radius: 8px; border: 1px solid #8F6E34; background: #fffaf0; color: #231712; }
+.nd-tools { flex-basis: auto; margin-left: auto; }

@@ -1753,6 +1753,7 @@ async function api(request, env, url, ctx) {
   { const r = await jobRoutes(request, env, url, user); if (r) return r; }
   { const r = await crewRoutes(request, env, url, user); if (r) return r; }
   { const r = await roomRoutes(request, env, url, user); if (r) return r; }
+  { const r = await needRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
   { const r = await pushRoutes(request, env, url, user); if (r) return r; }
   { const r = await blastRoutes(request, env, url, user, ctx); if (r) return r; }
@@ -2182,6 +2183,73 @@ async function roomRoutes(request, env, url, user) {
   if (delNote && method === "DELETE") {
     if (!user) return err(401, "Sign in required.");
     await env.DB.prepare("DELETE FROM room_notes WHERE id = ? AND room_user_id = ? AND (room_user_id = ? OR author_id = ?)").bind(delNote[2], delNote[1], user.id, user.id).run();
+    return json({ ok: true });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Needs on flyers: each upcoming event's materials (needed / wanted, ★ for
+// priority) shown to everyone; members pledge "I can bring it!", and when
+// the Ringleader marks it received they win the Junk Saint stamp.
+async function needRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/materials" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results: mats } = await env.DB.prepare(
+      `SELECT m.id, m.event_id, m.item, m.category, m.priority FROM event_materials m JOIN events e ON e.id = m.event_id
+       WHERE ${UPCOMING} AND lower(trim(m.item)) NOT IN ('none', '') ORDER BY m.category, m.priority DESC, m.position, m.created_at`
+    ).all();
+    if (!mats.length) return json({ materials: [] });
+    const { results: pl } = await env.DB.prepare(
+      `SELECT p.material_id, p.user_id, p.received_at, u.display_name FROM material_pledges p JOIN users u ON u.id = p.user_id
+       WHERE p.material_id IN (${mats.map(() => "?").join(",")}) ORDER BY p.created_at`
+    ).bind(...mats.map((m) => m.id)).all();
+    return json({ materials: mats.map((m) => ({ ...m, pledges: pl.filter((p) => p.material_id === m.id).map((p) => ({ user_id: p.user_id, display_name: p.display_name, received: !!p.received_at })) })) });
+  }
+  const addMatch = pathname.match(/^\/api\/events\/([^/]+)\/needs$/);
+  if (addMatch && method === "POST") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const { item, category, priority } = await body(request);
+    const t = (item || "").trim().slice(0, 80);
+    if (!t) return err(400, "What's needed?");
+    await env.DB.prepare("INSERT INTO event_materials (id, event_id, item, category, priority, position, created_by) VALUES (?, ?, ?, ?, ?, 0, ?)")
+      .bind(crypto.randomUUID(), addMatch[1], t, category === "want" ? "want" : "need", priority ? 1 : 0, user.id).run();
+    return json({ ok: true });
+  }
+  const pledgeMatch = pathname.match(/^\/api\/materials\/([^/]+)\/pledge$/);
+  if (pledgeMatch && (method === "POST" || method === "DELETE")) {
+    if (!user) return err(401, "Sign in required.");
+    if (method === "DELETE") {
+      await env.DB.prepare("DELETE FROM material_pledges WHERE material_id = ? AND user_id = ? AND received_at IS NULL").bind(pledgeMatch[1], user.id).run();
+      return json({ ok: true });
+    }
+    const m = await env.DB.prepare(`SELECT m.id FROM event_materials m JOIN events e ON e.id = m.event_id WHERE m.id = ? AND ${UPCOMING}`).bind(pledgeMatch[1]).first();
+    if (!m) return err(404, "That's not needed anymore.");
+    await env.DB.prepare("INSERT OR IGNORE INTO material_pledges (material_id, user_id) VALUES (?, ?)").bind(m.id, user.id).run();
+    return json({ ok: true });
+  }
+  const recvMatch = pathname.match(/^\/api\/materials\/([^/]+)\/pledges\/([^/]+)(\/received)?$/);
+  if (recvMatch) {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const [, matId, userId, received] = recvMatch;
+    if (received && method === "POST") {
+      const m = await env.DB.prepare("SELECT m.event_id, m.item FROM event_materials m JOIN material_pledges p ON p.material_id = m.id WHERE m.id = ? AND p.user_id = ?").bind(matId, userId).first();
+      if (!m) return err(404, "They didn't pledge that.");
+      await env.DB.prepare("UPDATE material_pledges SET received_at = datetime('now') WHERE material_id = ? AND user_id = ?").bind(matId, userId).run();
+      const r = await grantStamp(env, { userId, kind: "junk", eventId: m.event_id, note: `Brought: ${m.item}`, grantedBy: user.id });
+      return json({ ok: true, ...r });
+    }
+    if (!received && method === "DELETE") {
+      await env.DB.prepare("DELETE FROM material_pledges WHERE material_id = ? AND user_id = ?").bind(matId, userId).run();
+      return json({ ok: true });
+    }
+  }
+  const delMatch = pathname.match(/^\/api\/needs\/([^/]+)$/);
+  if (delMatch && method === "DELETE") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    await env.DB.prepare("DELETE FROM event_materials WHERE id = ?").bind(delMatch[1]).run();
     return json({ ok: true });
   }
   return null;
@@ -2751,7 +2819,8 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room" || pathname === "/api/materials")) return true;
+  if ((method === "POST" || method === "DELETE") && /^\/api\/materials\/[^/]+\/pledge$/.test(pathname)) return true;
   if (method === "PUT" && pathname === "/api/me/room") return true;
   if (method === "GET" && /^\/api\/rooms\/[^/]+$/.test(pathname)) return true;
   if ((method === "POST" && /^\/api\/rooms\/[^/]+\/notes$/.test(pathname)) || (method === "DELETE" && /^\/api\/rooms\/[^/]+\/notes\/\d+$/.test(pathname))) return true;

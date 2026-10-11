@@ -1104,6 +1104,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       <div class="job-board" data-jobs-for="${e.id}"></div>
+      <div class="need-board" data-needs-for="${e.id}"></div>
       ${onlyEventId ? `<div class="crew-table" data-crew-for="${e.id}"></div>` : myVolunteering.has(e.id) ? `<a class="crew-link" href="#/event/${e.id}">🎪 Your crew table →</a>` : ''}
       <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
       ${showTools ? `<details class="rl-tools"><summary>✎ Ringleader tools</summary><div class="rl-tools-body">
@@ -1122,6 +1123,15 @@ async function renderEventsView(mainView, onlyEventId = null) {
           </div>
           <input name="details" maxlength="300" placeholder="Anything they should know (optional)…" aria-label="Details" autocomplete="off">
           <button class="composer-submit">📌 Pin the job</button>
+        </form>
+        <form class="job-add need-add" data-event="${e.id}">
+          <div class="job-add-h">Add to the needs list</div>
+          <input name="item" maxlength="80" placeholder="What's needed, e.g. Extension cords…" aria-label="Item" required autocomplete="off">
+          <div class="job-add-row">
+            <select name="category" aria-label="Needed or wanted"><option value="need">Needed</option><option value="want">Wanted (nice to have)</option></select>
+            <label class="job-add-n"><input type="checkbox" name="priority" value="1"> ★ Top priority</label>
+          </div>
+          <button class="composer-submit">🧰 Add it</button>
         </form>
         <div id="rlTickets-${e.id}"></div>
       </div></details>` : ''}
@@ -1149,6 +1159,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
 
   (events || []).forEach(e => { renderTicketPanel(e.id); renderVolunteerRow(e.id); });
   renderJobs(mainView);
+  renderNeeds(mainView);
   mainView.querySelectorAll('[data-crew-for]').forEach(h => renderCrewTable(h, h.dataset.crewFor));
 
   if (canManage) {
@@ -1290,6 +1301,48 @@ async function renderAlbum(mainView) {
       </a></figure>`).join('') : `<div class="album-empty"><img src="${ROOM}raven_perched.png" alt=""><span>Volunteer for an event, take a job, and on the day tap <b>🤝 Shake hands</b> at your crew table.</span><a class="composer-submit" href="#/events">See what’s coming up</a></div>`}</div>`;
 }
 
+// ── Needs on flyers (2026-10-12): materials wanted and needed ──
+// Anyone can say "I can bring it!"; the Ringleader marks it received at the
+// event, which wins them the Junk Saint stamp.
+async function renderNeeds(mainView) {
+  let materials;
+  try { ({ materials } = await apiFetch('/api/materials')); } catch (e) { return; }
+  const mod = isModerator();
+  const initials = n => escapeHtml((n || '?').trim().slice(0, 1).toUpperCase());
+  mainView.querySelectorAll('[data-needs-for]').forEach(board => {
+    const mine = materials.filter(m => m.event_id === board.dataset.needsFor);
+    if (!mine.length) { board.innerHTML = ''; return; }
+    const row = m => {
+      const me = m.pledges.find(p => p.user_id === profile.id);
+      const faces = m.pledges.map(p => `<span class="jt-face ${p.received ? 'done' : ''} ${p.user_id === profile.id ? 'me' : ''}" title="${escapeHtml(p.display_name)}${p.received ? ' (received!)' : ' is bringing it'}">${initials(p.display_name)}</span>`).join('');
+      const action = me ? (me.received ? '<span class="jt-done">✓ Received. Huzzah!</span>' : `<button class="nd-btn nd-mine" data-unpledge="${m.id}">I’m bringing it ✓</button>`)
+        : `<button class="nd-btn" data-pledge="${m.id}">${m.pledges.length ? 'I can bring one too' : 'I can bring it!'}</button>`;
+      return `<li class="nd-item ${m.pledges.length ? 'covered' : ''}">
+        <span class="nd-name">${m.priority ? '<b class="nd-star" title="Top priority">★</b>' : ''}${escapeHtml(m.item)}</span>
+        <span class="jt-crew">${faces}</span>${action}
+        ${mod ? `<span class="nd-tools">${m.pledges.map(p => p.received ? '' : `<button data-recv="${m.id}" data-user="${p.user_id}" title="Got it from ${escapeHtml(p.display_name)}">✓ ${escapeHtml(p.display_name.split(' ')[0])}</button>`).join('')}<button class="jt-delete" data-del-need="${m.id}" aria-label="Remove ${escapeHtml(m.item)}">✕</button></span>` : ''}
+      </li>`;
+    };
+    const needs = mine.filter(m => m.category !== 'want'), wants = mine.filter(m => m.category === 'want');
+    const open = needs.filter(m => !m.pledges.length).length;
+    board.innerHTML = `
+      <div class="job-board-h">🧰 ${open ? `${open} ${open === 1 ? 'thing' : 'things'} still needed` : 'Everything needed is coming!'}</div>
+      ${needs.length ? `<div class="nd-h">Needed</div><ul class="nd-list">${needs.map(row).join('')}</ul>` : ''}
+      ${wants.length ? `<div class="nd-h">Wanted <small>(nice to have)</small></div><ul class="nd-list">${wants.map(row).join('')}</ul>` : ''}`;
+  });
+  const redraw = () => renderNeeds(mainView);
+  const act = async (fn, msg) => { try { await fn(); if (msg) flashToast(msg); } catch (err) { flashToast(err.message); } redraw(); };
+  mainView.querySelectorAll('[data-pledge]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/materials/${b.dataset.pledge}/pledge`, { method: 'POST' }), '🧰 Thank you! Your name is on it. Bring it to the event.'));
+  mainView.querySelectorAll('[data-unpledge]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/materials/${b.dataset.unpledge}/pledge`, { method: 'DELETE' }), 'No worries, someone else can bring it.'));
+  mainView.querySelectorAll('[data-recv]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/materials/${b.dataset.recv}/pledges/${b.dataset.user}/received`, { method: 'POST' }), 'Received! They won the Junk Saint stamp.'));
+  mainView.querySelectorAll('[data-del-need]').forEach(b => b.onclick = () => { if (confirm('Take this off the needs list?')) act(() => apiFetch(`/api/needs/${b.dataset.delNeed}`, { method: 'DELETE' })); });
+  mainView.querySelectorAll('.need-add').forEach(f => f.onsubmit = e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    act(async () => { await apiFetch(`/api/events/${f.dataset.event}/needs`, { method: 'POST', body: { item: d.item, category: d.category, priority: !!d.priority } }); f.reset(); }, '🧰 Added to the needs list.');
+  });
+}
+
 // ── Jobs on flyers (2026-10-12) ──
 // Tickets pinned to each event: claim one (first come, first served) and
 // your name goes on it; it also signs you up to volunteer. Moderators pin
@@ -1342,7 +1395,7 @@ async function renderJobs(mainView) {
   mainView.querySelectorAll('[data-done-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.doneJob}/claims/${b.dataset.user}/done`, { method: 'POST' }), 'Done! They got a Roustabout stamp.'));
   mainView.querySelectorAll('[data-drop-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.dropJob}/claims/${b.dataset.user}`, { method: 'DELETE' })));
   mainView.querySelectorAll('[data-delete-job]').forEach(b => b.onclick = () => { if (confirm('Remove this job from the flyer?')) act(() => apiFetch(`/api/jobs/${b.dataset.deleteJob}`, { method: 'DELETE' })); });
-  mainView.querySelectorAll('.job-add').forEach(f => f.onsubmit = e => {
+  mainView.querySelectorAll('.job-add:not(.need-add)').forEach(f => f.onsubmit = e => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(f));
     act(async () => { await apiFetch(`/api/events/${f.dataset.event}/jobs`, { method: 'POST', body: d }); f.reset(); }, '📌 Pinned to the flyer.');
