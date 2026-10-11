@@ -1084,6 +1084,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
+      <div class="job-board" data-jobs-for="${e.id}"></div>
       <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
       ${showTools ? `<details class="rl-tools"><summary>✎ Ringleader tools</summary><div class="rl-tools-body">
         <div class="post-actions">
@@ -1092,6 +1093,16 @@ async function renderEventsView(mainView, onlyEventId = null) {
           ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage crew</button>` : ''}
           ${canManage ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
         </div>
+        <form class="job-add" data-event="${e.id}">
+          <div class="job-add-h">Pin a job to this flyer</div>
+          <input name="title" maxlength="80" placeholder="The job, e.g. Bring a truck…" aria-label="Job" required autocomplete="off">
+          <div class="job-add-row">
+            <input name="shift" maxlength="40" placeholder="When, e.g. 7–9pm…" aria-label="When" autocomplete="off">
+            <label class="job-add-n">People <input name="slots" type="number" min="1" max="20" value="1" inputmode="numeric"></label>
+          </div>
+          <input name="details" maxlength="300" placeholder="Anything they should know (optional)…" aria-label="Details" autocomplete="off">
+          <button class="composer-submit">📌 Pin the job</button>
+        </form>
         <div id="rlTickets-${e.id}"></div>
       </div></details>` : ''}
       ${canManage && CREW_ASSIGNMENT_ENABLED ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
@@ -1101,7 +1112,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
   mainView.innerHTML = onlyEventId ? `
     <a class="thread-back" href="#/events">&larr; All events</a>
     <div class="post-list">${listHtml}</div>` : `
-    <h2>Events</h2><div class="post-list">${listHtml}</div>
+    <h2>Events</h2><div class="my-jobs" id="myJobs" hidden></div><div class="post-list">${listHtml}</div>
     ${composerHtml ? `<details class="event-new"><summary>+ Post a new event</summary>${composerHtml}</details>` : ''}
     <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show past events</button></div>
     <div id="archivedEvents"></div>
@@ -1117,6 +1128,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
   }));
 
   (events || []).forEach(e => { renderTicketPanel(e.id); renderVolunteerRow(e.id); });
+  renderJobs(mainView);
 
   if (canManage) {
     document.getElementById('eventComposer').addEventListener('submit', async e => {
@@ -1192,6 +1204,64 @@ async function renderEventsView(mainView, onlyEventId = null) {
     el.classList.add('open');
     btn.textContent = 'Hide past events';
     await loadArchivedEvents();
+  });
+}
+
+// ── Jobs on flyers (2026-10-12) ──
+// Tickets pinned to each event: claim one (first come, first served) and
+// your name goes on it; it also signs you up to volunteer. Moderators pin
+// jobs from the card's Ringleader fold and mark them done (= a stamp).
+async function renderJobs(mainView) {
+  let jobs;
+  try { ({ jobs } = await apiFetch('/api/jobs')); } catch (e) { return; }
+  const mod = isModerator();
+  const initials = n => escapeHtml((n || '?').trim().slice(0, 1).toUpperCase());
+  mainView.querySelectorAll('[data-jobs-for]').forEach(board => {
+    const mine = jobs.filter(j => j.event_id === board.dataset.jobsFor);
+    if (!mine.length) { board.innerHTML = ''; return; }
+    const open = mine.reduce((n, j) => n + Math.max(j.slots - j.claims.length, 0), 0);
+    board.innerHTML = `
+      <div class="job-board-h">${open ? `🎟 ${open} ${open === 1 ? 'spot' : 'spots'} open` : '🎟 Every job is covered!'}</div>
+      ${mine.map(j => {
+        const me = j.claims.find(c => c.user_id === profile.id);
+        const full = j.claims.length >= j.slots;
+        const seats = [...j.claims.map(c => `<span class="jt-face ${c.done ? 'done' : ''} ${c.user_id === profile.id ? 'me' : ''}" title="${escapeHtml(c.display_name)}${c.done ? ' (done!)' : ''}">${initials(c.display_name)}</span>`),
+          ...Array.from({ length: Math.max(j.slots - j.claims.length, 0) }, () => '<span class="jt-face empty" title="Open spot"></span>')].join('');
+        const action = me
+          ? (me.done ? '<span class="jt-done">✓ Done. Huzzah!</span>' : `<button class="action-btn" data-unclaim="${j.id}">Let it go</button>`)
+          : full ? '<span class="jt-covered">Covered!</span>' : `<button class="composer-submit" data-claim="${j.id}">Take this job</button>`;
+        return `
+        <div class="job-ticket ${full ? 'covered' : ''} ${me ? 'mine' : ''}">
+          <div class="jt-head"><span class="jt-title">${escapeHtml(j.title)}</span>${j.shift ? `<span class="jt-shift">${escapeHtml(j.shift)}</span>` : ''}</div>
+          ${j.details ? `<div class="jt-details">${escapeHtml(j.details)}</div>` : ''}
+          <div class="jt-foot"><span class="jt-crew">${seats}</span>${me && !me.done ? '<span class="jt-yours">It’s yours!</span>' : ''}${action}</div>
+          ${mod ? `<div class="jt-tools">${j.claims.map(c => `<span class="jt-tool-row">${escapeHtml(c.display_name)} ${c.done ? '✓' : `<button data-done-job="${j.id}" data-user="${c.user_id}">Mark done</button>`}<button data-drop-job="${j.id}" data-user="${c.user_id}" aria-label="Take ${escapeHtml(c.display_name)} off this job">✕</button></span>`).join('')}<button class="jt-delete" data-delete-job="${j.id}">Remove this job</button></div>` : ''}
+        </div>`;
+      }).join('')}`;
+  });
+  // You, at a glance: the jobs you've taken.
+  const mineAll = jobs.filter(j => j.claims.some(c => c.user_id === profile.id && !c.done));
+  const strip = mainView.querySelector('#myJobs');
+  if (strip) {
+    strip.hidden = !mineAll.length;
+    strip.innerHTML = `<b>You’re on:</b> ${mineAll.map(j => `<a href="#/event/${j.event_id}">${escapeHtml(j.title)}${j.shift ? ` (${escapeHtml(j.shift)})` : ''} · ${escapeHtml(j.event_title)}</a>`).join('')}`;
+  }
+  const redraw = () => renderJobs(mainView);
+  const act = async (fn, okMsg) => { try { await fn(); if (okMsg) flashToast(okMsg); } catch (err) { flashToast(err.message); } redraw(); };
+  mainView.querySelectorAll('[data-claim]').forEach(b => b.onclick = () => act(async () => {
+    b.disabled = true;
+    await apiFetch(`/api/jobs/${b.dataset.claim}/claim`, { method: 'POST' });
+    const j = jobs.find(x => x.id === b.dataset.claim);
+    if (j && !myVolunteering.has(j.event_id)) { myVolunteering.add(j.event_id); renderVolunteerRow(j.event_id); }
+  }, '🎟 It’s yours! Your name is on the flyer.'));
+  mainView.querySelectorAll('[data-unclaim]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.unclaim}/claim`, { method: 'DELETE' }), 'Off the job. Someone else can take it.'));
+  mainView.querySelectorAll('[data-done-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.doneJob}/claims/${b.dataset.user}/done`, { method: 'POST' }), 'Done! They got a Roustabout stamp.'));
+  mainView.querySelectorAll('[data-drop-job]').forEach(b => b.onclick = () => act(() => apiFetch(`/api/jobs/${b.dataset.dropJob}/claims/${b.dataset.user}`, { method: 'DELETE' })));
+  mainView.querySelectorAll('[data-delete-job]').forEach(b => b.onclick = () => { if (confirm('Remove this job from the flyer?')) act(() => apiFetch(`/api/jobs/${b.dataset.deleteJob}`, { method: 'DELETE' })); });
+  mainView.querySelectorAll('.job-add').forEach(f => f.onsubmit = e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    act(async () => { await apiFetch(`/api/events/${f.dataset.event}/jobs`, { method: 'POST', body: d }); f.reset(); }, '📌 Pinned to the flyer.');
   });
 }
 
@@ -5788,9 +5858,13 @@ let roomEditing = false;
 async function renderRoom(mainView) {
   mainView.classList.add('main-room');
   roomEditing = false;
-  const [p, { events }, layout] = await Promise.all([
-    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })), refreshLetters(), refreshNews(),
+  const [p, { events }, layout, { jobs }] = await Promise.all([
+    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })),
+    apiFetch('/api/jobs').catch(() => ({ jobs: [] })), refreshLetters(), refreshNews(),
   ]);
+  // Open job spots per event, and the soonest event (within 10 days) still short of hands.
+  const openSpots = id => jobs.filter(j => j.event_id === id).reduce((n, j) => n + Math.max(j.slots - j.claims.length, 0), 0);
+  const shortHanded = (events || []).find(e => sqlTime(e.starts_at) - Date.now() < 10 * 864e5 && openSpots(e.id) > 0);
   const upcoming = events || [];
   const request = upcoming.find(e => !myVolunteering.has(e.id));
   const latest = p.stamps[p.stamps.length - 1];
@@ -5810,7 +5884,7 @@ async function renderRoom(mainView) {
       case 'mirror': return ['Look in the Mirror', '#/profile'];
       case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/badges'];
       case 'costume': return ['Try on a Costume', '#/profile'];
-      case 'flyer': { const e = upcoming[it.n || 0]; return e ? [`${fresh(it) ? 'New flyer' : 'Flyer'}: ${e.title}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
+      case 'flyer': { const e = upcoming[it.n || 0]; const n = e ? openSpots(e.id) : 0; return e ? [`${fresh(it) ? 'New flyer' : 'Flyer'}: ${e.title}${n ? ` · ${n} job ${n === 1 ? 'spot' : 'spots'} open` : ''}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
       case 'raven': {
         if (letters.unread) {
           const f = letters.from[0];
@@ -5818,6 +5892,7 @@ async function renderRoom(mainView) {
         }
         const nf = items.find(f => f.role === 'flyer' && visible(f) && fresh(f));
         if (nf) return [`Hear the Raven (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
+        if (shortHanded) return [`Hear the Raven (jobs open at ${shortHanded.title})`, `#/event/${shortHanded.id}`];
         return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
       }
       case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
@@ -5853,6 +5928,7 @@ async function renderRoom(mainView) {
     if (letters.unread && letters.from[0]) return letters.unread === 1 ? `A letter from ${short(letters.from[0].display_name, 18)}!` : `${letters.unread} new letters!`;
     const nf = items.find(it => it.role === 'flyer' && visible(it) && fresh(it));
     if (nf) return `New flyer: ${short(flyerEvent(nf).title)}`;
+    if (shortHanded) { const n = openSpots(shortHanded.id); return `${n} ${n === 1 ? 'job' : 'jobs'} open: ${short(shortHanded.title)}`; }
     if (inner && isNew('guild')) return 'New in the Guild Hall!';
     if (isNew('courtyard')) return 'New in the Courtyard!';
     if (newStamp) return 'A new badge in the trunk!';

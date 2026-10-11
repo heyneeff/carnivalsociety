@@ -1854,3 +1854,47 @@ body.forum-docked .room-arrange-btn { right: calc(var(--room-gutter) + 80px); }
 .blast-overlay.in-room.leaving .holler-bubble { opacity: 0; transition: opacity 0.2s; }
 @media (prefers-reduced-motion: reduce) { .room-obj.cone-ringing img, .holler-head.yakking { animation: none; } }
 .blast-overlay.in-room.answered .holler-words { display: none; }
+
+/* ── Jobs on flyers (2026-10-12): ticket stubs pinned under each event ── */
+.job-board { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.job-board:empty { display: none; }
+.job-board-h { font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #9B3036; text-align: center; }
+.job-ticket { position: relative; padding: 10px 12px 10px 18px; border-radius: 8px; background: #fffaf0; color: #231712; border: 2px solid #c9a97a; box-shadow: 0 3px 0 #c9a97a; transform: rotate(-0.6deg); }
+.job-ticket:nth-child(odd) { transform: rotate(0.5deg); }
+/* the perforated stub edge */
+.job-ticket::before { content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px; border-left: 2px dashed #c9a97a; }
+.job-ticket.mine { border-color: #2F7F7A; box-shadow: 0 3px 0 #2F7F7A, 0 0 0 3px rgba(47,127,122,0.18); background: #f1faf5; }
+.job-ticket.covered:not(.mine) { opacity: 0.72; }
+.jt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.jt-title { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 16px; line-height: 1.2; color: #5A1E24; }
+.jt-shift { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #F2D16B; color: #4a2f1c; white-space: nowrap; }
+.jt-details { margin-top: 3px; font-size: 13px; line-height: 1.35; color: #6b5040; }
+.jt-foot { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jt-crew { display: inline-flex; gap: 4px; margin-right: auto; }
+.jt-face { width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center; font-family: 'Playfair Display', serif; font-weight: 800; font-size: 13px; background: #9B3036; color: #F4E8D0; border: 2px solid #5A1E24; }
+.jt-face.me { background: #2F7F7A; border-color: #1d5652; }
+.jt-face.done { box-shadow: 0 0 0 2px #F2D16B; }
+.jt-face.empty { background: transparent; border: 2px dashed #b98a55; }
+.jt-yours { font-weight: 800; font-size: 13px; color: #2F7F7A; }
+.jt-done { font-weight: 800; font-size: 13px; color: #2F7F7A; }
+.jt-covered { font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.08em; color: #9B3036; border: 2px solid #9B3036; padding: 2px 8px; border-radius: 4px; transform: rotate(-6deg); }
+.job-ticket .composer-submit { min-height: 38px; padding: 0 14px; font-size: 14px; }
+.job-ticket .action-btn { min-height: 34px; font-size: 13px; }
+.jt-tools { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #c9a97a; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: #6b5040; }
+.jt-tool-row { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 999px; background: #f3e3c0; }
+.jt-tools button { min-height: 26px; padding: 0 8px; border-radius: 999px; border: 1px solid #8F6E34; background: #fffaf0; color: #4a2f1c; font-size: 12px; font-weight: 700; cursor: pointer; }
+.jt-tools .jt-delete { margin-left: auto; color: #9B3036; border-color: #9B3036; }
+/* the add-a-job form in the Ringleader fold */
+.job-add { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 10px; background: rgba(255,250,240,0.7); border: 1px dashed #8F6E34; text-align: left; }
+.job-add-h { font-family: 'Rye', serif; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8F6E34; }
+.job-add input { min-height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid #8F6E34; background: #fffaf0; color: #231712; font-size: 14px; }
+.job-add-row { display: flex; gap: 6px; }
+.job-add-row input[name="shift"] { flex: 1; min-width: 0; }
+.job-add-n { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #4a2f1c; }
+.job-add-n input { width: 58px; }
+.job-add .composer-submit { align-self: flex-start; min-height: 38px; font-size: 14px; }
+/* "You're on:" strip under the Events heading */
+.my-jobs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; justify-content: center; margin: -10px auto 24px; padding: 10px 16px; max-width: 760px; border-radius: 12px; background: #f1faf5; color: #1d5652; border: 2px solid #2F7F7A; font-size: 14px; }
+.my-jobs[hidden] { display: none; }
+.my-jobs a { color: #1d5652; font-weight: 700; text-decoration: none; padding: 2px 10px; border-radius: 999px; background: #fffaf0; border: 1px solid #2F7F7A; }
+@media (prefers-reduced-motion: reduce) { .job-ticket, .job-ticket:nth-child(odd) { transform: none; } }

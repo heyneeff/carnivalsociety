@@ -1750,6 +1750,7 @@ async function api(request, env, url, ctx) {
     return json({ id });
   }
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
+  { const r = await jobRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
   { const r = await pushRoutes(request, env, url, user); if (r) return r; }
   { const r = await blastRoutes(request, env, url, user, ctx); if (r) return r; }
@@ -1883,6 +1884,96 @@ async function volunteerRoutes(request, env, url, user) {
        WHERE event_volunteers.event_id = ? ORDER BY event_volunteers.created_at`
     ).bind(volListMatch[1]).all();
     return json({ volunteers: results });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Jobs: tickets pinned to an event's flyer. Moderators post them; anyone
+// signed in claims one (first come, first served), which also signs them up
+// to volunteer. Marking a claim done grants the event's Roustabout stamp.
+const UPCOMING = "COALESCE(e.ends_at, e.starts_at) >= datetime('now')";
+async function jobsWithClaims(env, where, binds) {
+  const { results: jobs } = await env.DB.prepare(
+    `SELECT j.*, e.title AS event_title, e.starts_at AS event_starts FROM event_jobs j JOIN events e ON e.id = j.event_id WHERE ${where} ORDER BY e.starts_at, j.created_at`
+  ).bind(...binds).all();
+  if (!jobs.length) return [];
+  const { results: claims } = await env.DB.prepare(
+    `SELECT c.job_id, c.user_id, c.done_at, u.display_name FROM job_claims c JOIN users u ON u.id = c.user_id
+     WHERE c.job_id IN (${jobs.map(() => "?").join(",")}) ORDER BY c.created_at`
+  ).bind(...jobs.map((j) => j.id)).all();
+  return jobs.map((j) => ({
+    id: j.id, event_id: j.event_id, event_title: j.event_title, event_starts: j.event_starts,
+    title: j.title, details: j.details, shift: j.shift, slots: j.slots,
+    claims: claims.filter((c) => c.job_id === j.id).map((c) => ({ user_id: c.user_id, display_name: c.display_name, done: !!c.done_at })),
+  }));
+}
+async function jobRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/jobs" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    return json({ jobs: await jobsWithClaims(env, UPCOMING, []) });
+  }
+  if (pathname === "/api/me/jobs" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    return json({ jobs: await jobsWithClaims(env, `${UPCOMING} AND j.id IN (SELECT job_id FROM job_claims WHERE user_id = ?)`, [user.id]) });
+  }
+  const postMatch = pathname.match(/^\/api\/events\/([^/]+)\/jobs$/);
+  if (postMatch && method === "POST") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const evt = await env.DB.prepare(`SELECT e.id FROM events e WHERE e.id = ? AND ${UPCOMING}`).bind(postMatch[1]).first();
+    if (!evt) return err(404, "That event has already happened.");
+    const { title, details, shift, slots } = await body(request);
+    const t = (title || "").trim().slice(0, 80);
+    if (!t) return err(400, "Give the job a name.");
+    const n = Math.min(Math.max(parseInt(slots, 10) || 1, 1), 20);
+    const id = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO event_jobs (id, event_id, title, details, shift, slots, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(id, evt.id, t, (details || "").trim().slice(0, 300) || null, (shift || "").trim().slice(0, 40) || null, n, user.id).run();
+    return json({ id });
+  }
+  const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)$/);
+  if (jobMatch && method === "DELETE") {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    await env.DB.prepare("DELETE FROM event_jobs WHERE id = ?").bind(jobMatch[1]).run();
+    return json({ ok: true });
+  }
+  const claimMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/claim$/);
+  if (claimMatch && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const job = await env.DB.prepare(
+      `SELECT j.id, j.slots, j.event_id, (SELECT COUNT(*) FROM job_claims c WHERE c.job_id = j.id) AS taken,
+              EXISTS(SELECT 1 FROM job_claims c WHERE c.job_id = j.id AND c.user_id = ?) AS mine
+       FROM event_jobs j JOIN events e ON e.id = j.event_id WHERE j.id = ? AND ${UPCOMING}`
+    ).bind(user.id, claimMatch[1]).first();
+    if (!job) return err(404, "That job isn't open anymore.");
+    if (job.mine) return json({ ok: true });
+    if (job.taken >= job.slots) return err(409, "Somebody beat you to it. That job is covered.");
+    await env.DB.prepare("INSERT OR IGNORE INTO job_claims (job_id, user_id) VALUES (?, ?)").bind(job.id, user.id).run();
+    await env.DB.prepare("INSERT OR IGNORE INTO event_volunteers (event_id, user_id) VALUES (?, ?)").bind(job.event_id, user.id).run();
+    return json({ ok: true });
+  }
+  if (claimMatch && method === "DELETE") {
+    if (!user) return err(401, "Sign in required.");
+    await env.DB.prepare("DELETE FROM job_claims WHERE job_id = ? AND user_id = ? AND done_at IS NULL").bind(claimMatch[1], user.id).run();
+    return json({ ok: true });
+  }
+  const otherMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/claims\/([^/]+)(\/done)?$/);
+  if (otherMatch) {
+    if (!isModerator(user)) return err(403, "Moderators only.");
+    const [, jobId, userId, done] = otherMatch;
+    if (done && method === "POST") {
+      const job = await env.DB.prepare("SELECT j.event_id, j.title FROM event_jobs j JOIN job_claims c ON c.job_id = j.id WHERE j.id = ? AND c.user_id = ?").bind(jobId, userId).first();
+      if (!job) return err(404, "They're not on that job.");
+      await env.DB.prepare("UPDATE job_claims SET done_at = datetime('now') WHERE job_id = ? AND user_id = ?").bind(jobId, userId).run();
+      const r = await grantStamp(env, { userId, kind: "roustabout", eventId: job.event_id, note: `Job: ${job.title}`, grantedBy: user.id });
+      return json({ ok: true, ...r });
+    }
+    if (!done && method === "DELETE") {
+      await env.DB.prepare("DELETE FROM job_claims WHERE job_id = ? AND user_id = ?").bind(jobId, userId).run();
+      return json({ ok: true });
+    }
   }
   return null;
 }
@@ -2447,7 +2538,8 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs")) return true;
+  if ((method === "POST" || method === "DELETE") && /^\/api\/jobs\/[^/]+\/claim$/.test(pathname)) return true;
   if (pathname === "/api/chat" && (method === "GET" || method === "POST")) return true;
   if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
