@@ -451,6 +451,7 @@ function renderShell() {
       <div class="sheet-scrim ${mobileNavOpen ? 'open' : ''}" id="navScrim"></div>
       <aside class="more-sheet ${mobileNavOpen ? 'open' : ''}" aria-label="More">${sheet}</aside>
       <main class="main" id="mainView"></main>
+      ${chatShellHtml()}
       <nav class="bottomtabs" aria-label="Main">
         ${tab('#/dressing-room', 'Dressing Room', is('dressing-room', 'passport'), svg('M6 21V10a6 6 0 0 1 12 0v11z M4 21h16'))}
         ${tab('#/courtyard', 'Courtyard', is('courtyard'), svg('M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5'))}
@@ -464,16 +465,33 @@ function renderShell() {
     await apiFetch('/api/auth/signout', { method: 'POST' });
     session = false; profile = null; chapters = []; boards = []; crewEvents = []; activeCrewEventId = null;
     mobileNavOpen = false;
+    clearTimeout(chat.timer); Object.assign(chat, { messages: [], lastId: 0, here: [], open: null, unread: 0, timer: null });
+    document.body.classList.remove('chat-docked');
     render();
   };
   document.getElementById('moreBtn').onclick = () => { mobileNavOpen = !mobileNavOpen; renderShell(); };
   document.getElementById('navScrim').onclick = () => { mobileNavOpen = false; renderShell(); };
 
   renderMainView(route);
+  mountChat();
+}
+
+// Which kind of place a page is, for its cozy styling (see styles.css):
+// the forum is the big book, events are the corkboard, and so on.
+function pageKind(route) {
+  if (route === 'dressing-room') return 'room';
+  if (route === 'courtyard' || route === 'guild-hall' || route.startsWith('post/') || chapters.some(c => c.slug === route)) return 'book';
+  if (route === 'events' || route.startsWith('event/')) return 'events';
+  if (route === 'dm' || route.startsWith('dm/')) return 'letters';
+  if (route === 'profile') return 'profile';
+  if (route === 'passport') return 'passport';
+  return 'other';
 }
 
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
+  mainView.dataset.page = pageKind(route);
+  if (route.startsWith('event/')) mainView.dataset.single = '1';
   stopDMPolling();
   if (route === 'membership-success') { renderMembershipSuccess(mainView); return; }
   if (route === 'ticket-success') { renderTicketSuccess(mainView); return; }
@@ -4965,6 +4983,122 @@ async function renderDressingRoom(mainView) {
   drawMirrorBulbs(document.getElementById('drMirror'));
   if (!needsRankCelebration()) maybeShowPrize(p);
 }
+
+// ── The Green Room: live chat (polled; D1 has no push). Lives in the shell
+// so it follows you around: docked in the Dressing Room's left glow when
+// there's space, otherwise a launcher that slides it in from the left.
+const chat = { messages: [], lastId: 0, here: [], open: null, unread: 0, timer: null, busy: false };
+
+function chatShellHtml() {
+  return `
+    <button class="chat-launcher" id="chatLauncher" aria-label="Open the Green Room chat">
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>
+      <span class="chat-launcher-label">Green Room</span>
+      <span class="chat-unread" id="chatUnread" hidden></span>
+    </button>
+    <aside class="chat-panel" id="chatPanel" aria-label="The Green Room chat">
+      <div class="chat-head">
+        <div><div class="chat-title">The Green Room</div><div class="chat-here" id="chatHere"></div></div>
+        <button class="chat-close" id="chatClose" aria-label="Close chat">×</button>
+      </div>
+      <div class="chat-list" id="chatList" aria-live="polite"></div>
+      <form class="chat-form" id="chatForm">
+        <input id="chatInput" maxlength="500" autocomplete="off" placeholder="Say something to the troupe…" aria-label="Chat message">
+        <button class="chat-send" aria-label="Send">→</button>
+      </form>
+      <div class="chat-error" id="chatError" role="status"></div>
+    </aside>`;
+}
+
+function mountChat() {
+  const panel = document.getElementById('chatPanel');
+  if (!panel) return;
+  const onRoom = currentRoute() === 'dressing-room';
+  // Docked only on the room page, and only when the side glow is wide enough.
+  const sideSpace = (innerWidth - (innerHeight - 69)) / 2;
+  const docked = onRoom && innerWidth > 800 && sideSpace >= 300;
+  document.body.classList.toggle('chat-docked', docked);
+  const isOpen = docked || chat.open === true;
+  panel.classList.toggle('open', isOpen);
+  document.getElementById('chatLauncher').hidden = docked;
+  if (isOpen) chat.unread = 0;
+  drawChat();
+  document.getElementById('chatLauncher').onclick = () => { chat.open = true; mountChat(); document.getElementById('chatInput')?.focus(); };
+  document.getElementById('chatClose').onclick = () => { chat.open = false; document.body.classList.remove('chat-docked'); panel.classList.remove('open'); document.getElementById('chatLauncher').hidden = false; drawUnread(); };
+  document.getElementById('chatForm').onsubmit = async e => {
+    e.preventDefault();
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || chat.busy) return;
+    chat.busy = true;
+    try {
+      await apiFetch('/api/chat', { method: 'POST', body: { body: text } });
+      input.value = '';
+      document.getElementById('chatError').textContent = '';
+      await pollChat();
+    } catch (err) { document.getElementById('chatError').textContent = err.message; }
+    chat.busy = false;
+  };
+  document.getElementById('chatList').onclick = async e => {
+    const id = e.target.dataset?.delChat;
+    if (!id) return;
+    await apiFetch(`/api/chat/${id}`, { method: 'DELETE' });
+    chat.messages = chat.messages.filter(m => String(m.id) !== id);
+    drawChat();
+  };
+  if (!chat.timer) startChat();
+}
+
+function chatIsOpen() { return document.getElementById('chatPanel')?.classList.contains('open'); }
+
+function drawUnread() {
+  const b = document.getElementById('chatUnread');
+  if (!b) return;
+  b.hidden = !chat.unread || chatIsOpen();
+  b.textContent = chat.unread > 9 ? '9+' : chat.unread;
+}
+
+function drawChat() {
+  const list = document.getElementById('chatList');
+  if (!list) return;
+  const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  const canMod = isModerator();
+  list.innerHTML = chat.messages.length ? chat.messages.map(m => `
+    <div class="chat-msg ${m.user_id === profile.id ? 'mine' : ''} ${m.is_ringleader ? 'ringleader' : ''}">
+      <div class="chat-meta"><span class="chat-name">${escapeHtml(m.display_name)}</span>${m.is_ringleader ? '<span class="chat-tag">Ringleader</span>' : ''}<span class="chat-time">${timeAgo(m.created_at.replace(' ', 'T') + 'Z')}</span>
+        ${m.user_id === profile.id || canMod ? `<button class="chat-del" data-del-chat="${m.id}" aria-label="Delete message">×</button>` : ''}</div>
+      <div class="chat-body">${escapeHtml(m.body)}</div>
+    </div>`).join('') : '<div class="chat-empty">It’s quiet back here. Say hello to the troupe.</div>';
+  if (nearBottom || chat.justLoaded) { list.scrollTop = list.scrollHeight; chat.justLoaded = false; }
+  const here = document.getElementById('chatHere');
+  if (here) here.textContent = chat.here.length ? `${chat.here.length} here now · ${chat.here.slice(0, 4).join(', ')}${chat.here.length > 4 ? '…' : ''}` : '';
+  drawUnread();
+}
+
+async function pollChat() {
+  try {
+    const { messages, here } = await apiFetch(`/api/chat${chat.lastId ? `?after=${chat.lastId}` : ''}`);
+    if (!chat.lastId) chat.justLoaded = true;
+    if (messages.length) {
+      const fresh = messages.filter(m => m.user_id !== profile?.id);
+      if (chat.lastId && !chatIsOpen()) chat.unread += fresh.length;
+      chat.messages = [...chat.messages, ...messages].slice(-150);
+      chat.lastId = messages[messages.length - 1].id;
+    }
+    chat.here = here || [];
+    drawChat();
+  } catch (e) { /* signed out or offline: try again next tick */ }
+}
+
+function startChat() {
+  const tick = async () => {
+    if (!session) { chat.timer = null; return; }
+    if (document.visibilityState === 'visible') await pollChat();
+    chat.timer = setTimeout(tick, chatIsOpen() ? 3000 : 10000);
+  };
+  chat.timer = setTimeout(tick, 0);
+}
+window.addEventListener('resize', () => { if (session && document.getElementById('chatPanel')) mountChat(); });
 
 // ── The Room: the illustrated Dressing Room, everyone's landing page.
 // One square painting (assets/room/room_bg.jpg) with tappable objects laid

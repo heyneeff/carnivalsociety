@@ -119,6 +119,8 @@ export default {
   async scheduled(event, env, ctx) {
     await env.DB.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await env.DB.prepare("DELETE FROM password_resets WHERE expires_at < datetime('now', '-1 day')").run();
+    await env.DB.prepare("DELETE FROM chat_messages WHERE created_at < datetime('now', '-30 days')").run();
+    await env.DB.prepare("DELETE FROM chat_presence WHERE seen_at < datetime('now', '-1 day')").run();
   }
 };
 // Per-IP throttle on the unauthenticated auth endpoints (Workers rate-limit
@@ -1920,6 +1922,45 @@ async function passportRoutes(request, env, url, user) {
     if (!user) return err(401, "Sign in required.");
     return json(await passportFor(env, user.id));
   }
+  // Live chat (polled). GET ?after=<id> returns newer messages (or the last
+  // 40), and who's been here in the last minute; each poll marks you here.
+  if (pathname === "/api/chat" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const after = parseInt(url.searchParams.get("after") || "0", 10) || 0;
+    await env.DB.prepare("INSERT INTO chat_presence (user_id, seen_at) VALUES (?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET seen_at = excluded.seen_at").bind(user.id).run();
+    const sel = `SELECT m.id, m.user_id, m.body, m.created_at, u.display_name, u.rank, u.is_ringleader
+      FROM chat_messages m JOIN users u ON u.id = m.user_id`;
+    const { results } = after
+      ? await env.DB.prepare(`${sel} WHERE m.id > ? ORDER BY m.id ASC LIMIT 100`).bind(after).all()
+      : await env.DB.prepare(`SELECT * FROM (${sel} ORDER BY m.id DESC LIMIT 40) ORDER BY id ASC`).all();
+    const { results: here } = await env.DB.prepare(
+      `SELECT u.display_name FROM chat_presence p JOIN users u ON u.id = p.user_id
+       WHERE p.seen_at > datetime('now', '-60 seconds') ORDER BY p.seen_at DESC LIMIT 30`
+    ).all();
+    return json({
+      messages: results.map((r) => ({ id: r.id, user_id: r.user_id, body: r.body, created_at: r.created_at, display_name: r.display_name, rank: r.rank, is_ringleader: !!r.is_ringleader })),
+      here: here.map((h) => h.display_name),
+    });
+  }
+  if (pathname === "/api/chat" && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const text = String((await body(request)).body || "").trim();
+    if (!text) return err(400, "Say something first.");
+    if (text.length > 500) return err(400, "Keep it under 500 characters.");
+    const last = await env.DB.prepare("SELECT 1 FROM chat_messages WHERE user_id = ? AND created_at > datetime('now', '-2 seconds')").bind(user.id).first();
+    if (last) return err(429, "Easy, barker. One at a time.");
+    const res = await env.DB.prepare("INSERT INTO chat_messages (user_id, body) VALUES (?, ?)").bind(user.id, text).run();
+    return json({ id: res.meta.last_row_id });
+  }
+  const chatMatch = pathname.match(/^\/api\/chat\/(\d+)$/);
+  if (chatMatch && method === "DELETE") {
+    if (!user) return err(401, "Sign in required.");
+    const msg = await env.DB.prepare("SELECT user_id FROM chat_messages WHERE id = ?").bind(chatMatch[1]).first();
+    if (!msg) return err(404, "Not found.");
+    if (msg.user_id !== user.id && !isModerator(user)) return err(403, "Not yours to delete.");
+    await env.DB.prepare("DELETE FROM chat_messages WHERE id = ?").bind(chatMatch[1]).run();
+    return json({ ok: true });
+  }
   // The Dressing Room layout: everyone signed in reads it; Ringleaders
   // arrange it (Arrange mode in the room) and save it for everyone.
   if (pathname === "/api/room-layout" && method === "GET") {
@@ -2169,6 +2210,8 @@ async function ticketRoutes(request, env, url) {
 
 function courtyardAllowed(method, pathname) {
   if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout")) return true;
+  if (pathname === "/api/chat" && (method === "GET" || method === "POST")) return true;
+  if (method === "DELETE" && /^\/api\/chat\/\d+$/.test(pathname)) return true;
   // Boards/posts handlers themselves restrict courtyard members to the
   // Courtyard board, read-only (POST /api/posts stays blocked here).
   if (method === "GET" && (pathname === "/api/boards" || pathname === "/api/posts" || /^\/api\/posts\/[^/]+$/.test(pathname))) return true;
