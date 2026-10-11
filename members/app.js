@@ -5287,6 +5287,8 @@ function showBlast(blast, { live = false, preview = false } = {}) {
       <button class="blast-pickup">Step right up!</button>
     </div>`;
   document.body.appendChild(o);
+  // Warm up the face frames so the first mouth swap doesn't blink.
+  ['head_excited', 'head_open', 'head_wide', 'head_wink', 'head_cosmic'].forEach(f => { new Image().src = `${ROOM}${f}.png`; });
   let rig = megaphone();
   let stopBlare = startBlare(rig);
   let babble = () => {};
@@ -5313,10 +5315,16 @@ function showBlast(blast, { live = false, preview = false } = {}) {
     o.querySelector('.blast-bubble').hidden = false;
     const out = o.querySelector('.blast-body'), headImg = o.querySelector('.blast-head-art'), head = o.querySelector('.blast-head');
     const text = blast.body || '';
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { out.textContent = text; return; }
-    const mouths = ['head_open.png', 'head_wide.png', 'head_open.png', 'head_closed.png'];
+    // Neeff's own faces: pops up excited, yaks (shut / talking / shouting),
+    // signs off with a wink. Say something cosmic and he goes Cosmic Mode.
+    const cosmic = /cosm(ic|os)/i.test(`${blast.title} ${text}`);
+    const face = f => { if (headImg) headImg.src = `${ROOM}${cosmic ? 'head_cosmic' : f}.png`; };
+    if (cosmic) o.classList.add('cosmic');
+    face('head_excited');
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { out.textContent = text; face('head_wink'); return; }
+    const mouths = ['head_open', 'head_wide', 'head_open', 'head_closed'];
     let i = 0, m = 0, said = 0;
-    const done = () => { clearInterval(typing); head.classList.remove('yakking'); if (headImg) headImg.src = `${ROOM}head_closed.png`; };
+    const done = () => { clearInterval(typing); head.classList.remove('yakking'); face('head_wink'); };
     // Let the boing land, then holler: a character every 38ms, a babble
     // syllable on every other letter, mouth frames swapping as it goes.
     setTimeout(() => {
@@ -5327,7 +5335,7 @@ function showBlast(blast, { live = false, preview = false } = {}) {
         out.textContent = text.slice(0, i);
         if (ch && /[\p{L}\p{N}!?]/u.test(ch) && (said++ % 2 === 0 || ch === '!' || ch === '?')) {
           babble(ch);
-          if (headImg) headImg.src = `${ROOM}${mouths[m++ % mouths.length]}`;
+          face(mouths[m++ % mouths.length]);
         }
         if (i >= text.length) done();
       }, 38);
