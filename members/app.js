@@ -401,6 +401,7 @@ const LETTER_SVG = `<svg viewBox="0 0 40 40"><g transform="rotate(-8 20 20)"><re
 // screens, a "More" sheet for everything else, bottom tabs on phones.
 function renderShell() {
   const route = currentRoute();
+  markSeenFor(route);
   const initials = (profile?.display_name || '?').trim().slice(0, 1).toUpperCase();
   const inner = isInnerMember();
   const onGuildHallBoard = route === 'guild-hall' || chapters.some(c => c.slug === route);
@@ -411,9 +412,9 @@ function renderShell() {
 
   const primary = [
     link('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport'), sticker('vanity')),
-    link('#/courtyard', 'Courtyard', is('courtyard'), TENT_SVG),
-    link('#/events', 'Events', is('events', 'event/'), sticker('flyer_circus')),
-    inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard, sticker('book_lectern')) : '',
+    link('#/courtyard', 'Courtyard', is('courtyard'), TENT_SVG, newsDot('courtyard')),
+    link('#/events', 'Events', is('events', 'event/'), sticker('flyer_circus'), newsDot('events')),
+    inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard, sticker('book_lectern'), newsDot('guild')) : '',
     inner ? link('#/dm', 'Letters', is('dm', 'dm/'), LETTER_SVG, lettersBadge()) : '',
   ].join('');
 
@@ -431,7 +432,7 @@ function renderShell() {
     ${inner ? `
     <div class="sheet-group sheet-phone">
       <div class="sheet-label">Around the tent</div>
-      ${sheetLink('#/guild-hall', 'Guild Hall', onGuildHallBoard, '', 'the big book · inner members')}
+      ${sheetLink('#/guild-hall', 'Guild Hall', onGuildHallBoard, newsDot('guild'), 'the big book · inner members')}
     </div>` : ''}
     ${crew ? `
     <div class="sheet-group">
@@ -478,8 +479,8 @@ function renderShell() {
       ${chatShellHtml()}
       <nav class="bottomtabs" aria-label="Main">
         ${tab('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport'), svg('M6 21V10a6 6 0 0 1 12 0v11z M4 21h16'))}
-        ${tab('#/courtyard', 'Courtyard', is('courtyard'), svg('M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5'))}
-        ${tab('#/events', 'Events', is('events', 'event/'), svg('M3 21h18 M4 21 12 4l8 17 M12 4v17 M12 4l3-2'))}
+        ${tab('#/courtyard', `Courtyard${newsDot('courtyard')}`, is('courtyard'), svg('M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5'))}
+        ${tab('#/events', `Events${newsDot('events')}`, is('events', 'event/'), svg('M3 21h18 M4 21 12 4l8 17 M12 4v17 M12 4l3-2'))}
         ${inner ? tab('#/dm', `Letters${lettersBadge()}`, is('dm', 'dm/'), svg('M4 5h16v11H9l-5 4z')) : tab('#/profile', 'Me', is('profile'), svg('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0'))}
       </nav>
     </div>
@@ -562,6 +563,7 @@ function mountRoomStage(mainView, route) {
   unfoldKind = kind;
   if (!kind) {
     unfoldFrom = null;
+    roomHooks.onNews?.(); // back in the room: clear whatever you just went and saw
     // Badges live in the trunk: open it (now, or once the room has drawn).
     if (route !== 'dressing-room') { wantTrunk = true; roomHooks.openTrunk?.(); }
     return;
@@ -5459,6 +5461,37 @@ async function renderBlastView(mainView) {
 // alongside the chat poll; the room listens through roomHooks.
 let letters = { unread: 0, from: [] };
 let roomHooks = {};
+// ── What's new (2026-10-12): the room lights up where something's waiting.
+// The server says when someone last added to each place; this device
+// remembers when you last looked there.
+let news = { courtyard: null, guild: null, events: null };
+const seenKey = k => `cs-seen-${k}-${profile?.id}`;
+function seenAt(k) {
+  try { const v = localStorage.getItem(seenKey(k)); return v === null ? null : +v; } catch (e) { return Infinity; }
+}
+function markSeen(k) {
+  try { localStorage.setItem(seenKey(k), String(Date.now())); } catch (e) { /* no storage */ }
+  document.querySelectorAll(`[data-news="${k}"]`).forEach(d => { d.hidden = true; });
+}
+// First look on a device starts the clock instead of shouting about old news.
+function isNew(k, at = news[k]) {
+  const seen = seenAt(k);
+  if (seen === null) { markSeen(k); return false; }
+  return !!at && sqlTime(at) > seen;
+}
+const newsDot = k => `<span class="news-dot" data-news="${k}" ${isNew(k) ? '' : 'hidden'}></span>`;
+function markSeenFor(route) {
+  if (route === 'events' || route.startsWith('event/')) markSeen('events');
+  else if (route === 'courtyard') markSeen('courtyard');
+  else if (route === 'guild-hall' || chapters.some(c => c.slug === route)) markSeen('guild');
+}
+async function refreshNews() {
+  if (!session) return;
+  try { news = await apiFetch('/api/me/news'); } catch (e) { return; }
+  document.querySelectorAll('[data-news]').forEach(d => { d.hidden = !isNew(d.dataset.news); });
+  roomHooks.onNews?.();
+}
+
 async function refreshLetters() {
   if (!session || !isInnerMember()) return;
   try { letters = await apiFetch('/api/me/letters'); } catch (e) { return; }
@@ -5496,8 +5529,9 @@ function chatShellHtml() {
 function mountChat() {
   const panel = document.getElementById('chatPanel');
   if (!panel) return;
-  const onRoom = currentRoute() === 'dressing-room';
-  // Docked only on the room page, and only when the side glow is wide enough.
+  const route = currentRoute();
+  const onRoom = ROOM_ROUTES.includes(route) || !!unfoldKindOf(route);
+  // Docked wherever the room is the backdrop, when its side is wide enough.
   const sideSpace = (innerWidth - (innerHeight - 69)) / 2;
   const docked = onRoom && innerWidth > 800 && sideSpace >= 300;
   document.body.classList.toggle('chat-docked', docked);
@@ -5579,17 +5613,17 @@ function startChat() {
     if (!session) { chat.timer = null; return; }
     if (document.visibilityState === 'visible') {
       await pollChat();
-      if (!chatIsOpen() || n++ % 3 === 0) await refreshLetters();
+      if (!chatIsOpen() || n++ % 3 === 0) { await refreshLetters(); refreshNews(); }
       await checkBlast();
     }
     chat.timer = setTimeout(tick, chatIsOpen() ? 3000 : 10000);
   };
-  pollChat(); refreshLetters(); checkBlast();
+  pollChat(); refreshLetters(); refreshNews(); checkBlast();
   chat.timer = setTimeout(tick, 3000);
 }
 // Coming back to the tab: catch up right away instead of waiting a tick.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && session && chat.timer) { pollChat(); refreshLetters(); checkBlast(); }
+  if (document.visibilityState === 'visible' && session && chat.timer) { pollChat(); refreshLetters(); refreshNews(); checkBlast(); }
 });
 window.addEventListener('resize', () => { if (session && document.getElementById('chatPanel')) mountChat(); });
 
@@ -5636,7 +5670,7 @@ async function renderRoom(mainView) {
   mainView.classList.add('main-room');
   roomEditing = false;
   const [p, { events }, layout] = await Promise.all([
-    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })), refreshLetters(),
+    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })), refreshLetters(), refreshNews(),
   ]);
   const upcoming = events || [];
   const request = upcoming.find(e => !myVolunteering.has(e.id));
@@ -5654,7 +5688,7 @@ async function renderRoom(mainView) {
       case 'mirror': return ['Look in the Mirror', '#/profile'];
       case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/badges'];
       case 'costume': return ['Try on a Costume', '#/profile'];
-      case 'flyer': { const e = upcoming[it.n || 0]; return e ? [`Flyer: ${e.title}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
+      case 'flyer': { const e = upcoming[it.n || 0]; return e ? [`${fresh(it) ? 'New flyer' : 'Flyer'}: ${e.title}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
       case 'raven': {
         if (letters.unread) {
           const f = letters.from[0];
@@ -5662,9 +5696,9 @@ async function renderRoom(mainView) {
         }
         return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
       }
-      case 'book': return ['Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
+      case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
       case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
-      case 'exit': return ['Step out to the Courtyard', '#/courtyard'];
+      case 'exit': return [fresh(it) ? 'Step out to the Courtyard (something new!)' : 'Step out to the Courtyard', '#/courtyard'];
       case 'hatbox': return ['Open the Ringleader’s Hat Box', 'more'];
       case 'potion': return ['Drink the Strange Little Bottle', ORACLES.mercury];
       case 'stars': return ['Touch the Hanging Stars', ORACLES.field];
@@ -5684,9 +5718,22 @@ async function renderRoom(mainView) {
     if (!roomEditing && it.role === 'trunk' && newStamp && img === 'trunk_closed') {
       img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
     }
-    return { img, w, t, anim, frames };
+    // Something new waiting behind it: the object perks up.
+    const cls = !roomEditing && fresh(it) ? 'is-new' : '';
+    return { img, w, t, anim, frames, cls };
   };
-  const visible = it => roomEditing || it.role !== 'hatbox' || profile.is_ringleader;
+  // Flyers are the real upcoming events: one per event, none when it's quiet.
+  const flyerEvent = it => upcoming[it.n || 0];
+  const fresh = it => {
+    switch (it.role) {
+      case 'flyer': { const e = flyerEvent(it); return !!e && e.created_by !== profile.id && isNew('events', e.created_at); }
+      case 'book': return inner ? isNew('guild') : isNew('courtyard');
+      case 'exit': return isNew('courtyard');
+      case 'drawer': return inner && letters.unread > 0;
+      default: return false;
+    }
+  };
+  const visible = it => roomEditing || ((it.role !== 'hatbox' || profile.is_ringleader) && (it.role !== 'flyer' || !!flyerEvent(it)));
 
   const bulbs = [[9.2,19.2],[8.4,27.5],[8.8,35.6],[10.3,43.2],[15.6,13.8],[20.2,11.6],[26.5,13.9],[31.9,16.8],[34.7,23.1],[36.3,29.9],[37.1,37.1],[30.6,23.6]];
   const motes = Array.from({ length: 14 }, (_, i) => `<span class="room-mote" style="left:${(8 + (i * 61) % 84)}%;top:${(20 + (i * 37) % 60)}%;animation-delay:${(i * 0.9) % 11}s;animation-duration:${9 + (i % 5) * 2}s"></span>`).join('');
@@ -5730,10 +5777,10 @@ async function renderRoom(mainView) {
       const sel = it.id === selectedId ? ' selected' : '';
       const handle = roomEditing ? '<span class="room-handle" data-handle></span>' : '';
       if (!v.img) {
-        return `<button class="room-hot${sel}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'tabindex="-1" aria-hidden="true"'} style="left:${it.l}%;top:${it.t}%;width:${it.w}%;height:${it.h || 10}%">${roomEditing ? `<span class="room-hot-name">${escapeHtml(ROOM_ROLES[it.role] || it.role)}</span>` : ''}${handle}</button>`;
+        return `<button class="room-hot${sel}${v.cls ? ' ' + v.cls : ''}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'tabindex="-1" aria-hidden="true"'} style="left:${it.l}%;top:${it.t}%;width:${it.w}%;height:${it.h || 10}%">${roomEditing ? `<span class="room-hot-name">${escapeHtml(ROOM_ROLES[it.role] || it.role)}</span>` : ''}${handle}</button>`;
       }
       const tag = live || roomEditing ? 'button' : 'div';
-      return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
+      return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}${v.cls ? ' ' + v.cls : ''}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
         <span class="room-turn" style="${tf}">${v.frames
           ? `<span class="raven-frames ${v.frames}"><img class="rf-shut" src="${ROOM}raven_perched.png" alt="" draggable="false"><img class="rf-open" src="${ROOM}raven_squawk.png" alt="" draggable="false"></span>`
           : `<img src="${ROOM}${v.img}.png" alt="" draggable="false">`}</span>${handle}</${tag}>`;
@@ -5745,7 +5792,11 @@ async function renderRoom(mainView) {
     let out = '';
     const raven = items.find(i => i.role === 'raven'), exit = items.find(i => i.role === 'exit'), trunk = items.find(i => i.role === 'trunk');
     if ((request || letters.unread) && raven) out += `<div class="room-squawk ${letters.unread ? 'letter' : ''}" style="left:${raven.l - 6}%;top:${raven.t - 4.5}%" aria-hidden="true">${letters.unread ? 'SQUAWK! A LETTER!' : 'SQUAWK!'}</div>`;
-    if (exit) out += `<div class="room-exit-sign" style="left:${exit.l - 4}%;top:${exit.t + (exit.h || 10) - 5}%" aria-hidden="true">Courtyard →</div>`;
+    if (exit) out += `<div class="room-exit-sign${fresh(exit) ? ' is-new' : ''}" style="left:${exit.l - 4}%;top:${exit.t + (exit.h || 10) - 5}%" aria-hidden="true">Courtyard →</div>`;
+    // NEW! tags pinned to whatever has something waiting.
+    items.filter(it => visible(it) && ['flyer', 'book'].includes(it.role) && fresh(it)).forEach(it => {
+      out += `<div class="room-new" style="left:${it.l + it.w / 2}%;top:${it.t - 1.5}%" aria-hidden="true">NEW!</div>`;
+    });
     if (newStamp && trunk) out += `<div class="room-trunk-glow" style="left:${trunk.l}%;top:${trunk.t - 3}%;width:${trunk.w}%;height:${trunk.w}%" aria-hidden="true"></div>`;
     return out;
   }
@@ -6015,6 +6066,7 @@ async function renderRoom(mainView) {
   });
 
   let lettersSeen = letters.unread;
+  roomHooks.onNews = () => { if (!roomEditing && !trunkOpen) draw(); };
   roomHooks.onLetters = () => {
     if (roomEditing) return;
     if (letters.unread > lettersSeen && letters.from[0]) say(`SQUAWK! A letter from ${letters.from[0].display_name}!`);
@@ -6022,7 +6074,9 @@ async function renderRoom(mainView) {
     draw();
   };
   draw();
+  const newFlyer = items.find(it => it.role === 'flyer' && fresh(it));
   if (letters.unread && letters.from[0]) say(`SQUAWK! ${letters.unread === 1 ? 'A letter' : `${letters.unread} letters`} waiting — the raven has them.`);
+  else if (newFlyer) say(`SQUAWK! A new flyer went up: ${flyerEvent(newFlyer).title}`);
   offerRaven(mainView);
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
@@ -6031,7 +6085,7 @@ async function renderRoom(mainView) {
     const max = vp.scrollWidth - vp.clientWidth;
     if (max <= 0) return;
     vp.scrollLeft = request || letters.unread ? max : max / 2;
-    if (!wantTrunk) say('⟷ Swipe to look around · tap ✦ to see what you can touch');
+    if (!wantTrunk && !letters.unread && !newFlyer) say('⟷ Swipe to look around · tap ✦ to see what you can touch');
   });
   // Arrived via Badges: let the room settle, then spill the trunk.
   if (wantTrunk) setTimeout(() => roomHooks.openTrunk?.(), 350);

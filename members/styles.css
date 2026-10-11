@@ -1715,7 +1715,7 @@ a.letter-card:hover { border-color: var(--gold); }
 .rl-tools-body .ticket-manage > summary { cursor: pointer; font-weight: 700; }
 
 /* ── The top bar as a tent valance, tabs as painted stickers (2026-10-12) ── */
-.topbar { background: linear-gradient(180deg, #2a0f12 0%, #1d0c0c 100%); border-bottom: 2px solid var(--gold-deep); }
+.topbar { background: linear-gradient(180deg, #2a0f12 0%, #1d0c0c 100%); border-bottom: 1px solid var(--gold-deep); }
 /* scalloped valance hanging under the bar: velvet tongues with a gilt edge */
 .topbar::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 13px; pointer-events: none;
   background: radial-gradient(circle at 50% 0, #4a171c 0 9px, var(--gold-deep) 9.5px 11px, transparent 11.5px) 0 0 / 24px 13px repeat-x;
@@ -1770,3 +1770,28 @@ a.letter-card:hover { border-color: var(--gold); }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--burgundy-red); }
 .composer-submit, .action-btn, .room-plaque-btn { white-space: nowrap; }
 .post-actions { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
+
+/* ── Something new in the pipeline (2026-10-12) ── */
+.news-dot { display: inline-block; width: 9px; height: 9px; margin-left: 6px; border-radius: 50%; background: var(--glow); box-shadow: 0 0 0 2px #9B3036, 0 0 10px 2px rgba(255,214,140,0.85); vertical-align: 3px; animation: news-pulse 1.6s ease-in-out infinite; }
+.news-dot[hidden] { display: none; }
+.bottomtab .news-dot { position: absolute; margin: 0; transform: translate(18px, -26px); }
+.bottomtab { position: relative; }
+@keyframes news-pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: 0.75; } }
+.bottomtab .news-dot { animation: none; }
+/* room objects perk up: flyers flap, the book glows, the sign swings */
+@keyframes rm-new { 0%,100% { transform: rotate(0) translateY(0); } 20% { transform: rotate(-5deg) translateY(-3px); } 40% { transform: rotate(4deg) translateY(-1px); } 60% { transform: rotate(-2deg); } }
+.room-obj.is-new img { animation: rm-new 1.8s ease-in-out infinite; transform-origin: 50% 10%; filter: drop-shadow(0 0 10px rgba(255,214,140,0.9)) drop-shadow(0 4px 4px rgba(0,0,0,0.45)); }
+.room-hot.is-new { background: radial-gradient(ellipse, rgba(255,214,140,0.3), transparent 70%); animation: room-glow 1.6s ease-in-out infinite; }
+.room-new { position: absolute; z-index: 3; transform: translate(-50%, -100%) rotate(-6deg); padding: 0.15em 0.5em; font-family: 'Rye', serif; font-size: clamp(9px, 1.35vh, 13px); letter-spacing: 0.06em; color: #F4E8D0; background: #9B3036; border: 2px solid #F4E8D0; border-radius: 4px; box-shadow: 0 2px 0 rgba(0,0,0,0.4), 0 0 12px rgba(255,214,140,0.6); pointer-events: none; animation: room-new-tag 1.2s ease-in-out infinite; }
+@keyframes room-new-tag { 0%,100% { transform: translate(-50%, -100%) rotate(-6deg) scale(1); } 50% { transform: translate(-50%, -100%) rotate(-3deg) scale(1.1); } }
+.room-exit-sign.is-new { animation: sign-swing 1.4s ease-in-out infinite; transform-origin: 50% -40%; box-shadow: 0 3px 0 rgba(0,0,0,0.35), 0 0 14px rgba(255,214,140,0.85); }
+@keyframes sign-swing { 0%,100% { transform: rotate(3deg); } 50% { transform: rotate(-6deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .news-dot, .room-obj.is-new img, .room-hot.is-new, .room-new, .room-exit-sign.is-new { animation: none; }
+}
+
+/* ── The Green Room fills the room's left wing, flush to the painting ── */
+body { --room-gutter: calc((100vw - (100vh - 69px)) / 2); }
+body.chat-docked .chat-panel { top: 69px; bottom: 0; width: min(480px, var(--room-gutter)); left: calc(var(--room-gutter) - min(480px, var(--room-gutter))); border: none; border-right: 3px solid var(--gold-deep); border-radius: 0; box-shadow: inset -14px 0 22px -8px rgba(0,0,0,0.45), 6px 0 18px rgba(0,0,0,0.35); }
+body.chat-docked .chat-head { padding-top: 20px; }
+body.chat-docked .unfold { left: var(--room-gutter); }

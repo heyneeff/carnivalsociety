@@ -2135,6 +2135,18 @@ async function passportRoutes(request, env, url, user) {
     return json(await passportFor(env, user.id));
   }
   // Unread letters (DMs) for the raven and the Messages badges.
+  // What's new: the latest thing someone else added in each place. The
+  // client remembers when you last looked (per device) and lights up the room.
+  if (pathname === "/api/me/news" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const row = await env.DB.prepare(
+      `SELECT
+         (SELECT MAX(p.created_at) FROM posts p JOIN boards b ON b.id = p.board_id WHERE b.slug = ? AND p.author_id != ?) AS courtyard,
+         (SELECT MAX(p.created_at) FROM posts p JOIN boards b ON b.id = p.board_id WHERE b.slug != ? AND p.author_id != ?) AS guild,
+         (SELECT MAX(created_at) FROM events WHERE COALESCE(ends_at, starts_at) >= datetime('now') AND COALESCE(created_by, '') != ?) AS events`
+    ).bind(COURTYARD_SLUG, user.id, COURTYARD_SLUG, user.id, user.id).first();
+    return json({ courtyard: row.courtyard, guild: isInner(user) ? row.guild : null, events: row.events });
+  }
   if (pathname === "/api/me/letters" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const { results } = await env.DB.prepare(
@@ -2435,7 +2447,7 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news")) return true;
   if (pathname === "/api/chat" && (method === "GET" || method === "POST")) return true;
   if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
