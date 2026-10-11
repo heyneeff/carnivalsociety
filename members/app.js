@@ -5314,9 +5314,95 @@ async function renderRoom(mainView) {
     const el = e.target.closest('[data-item]');
     if (!el) return;
     const it = items.find(i => i.id === el.dataset.item);
+    if (it.role === 'trunk') { openTrunk(el, it); return; }
     const [, href] = behave(it);
     if (href) go(el, it, href); else quiet[it.role]?.(el);
   });
+
+  // ── The trunk: badges fly out and display across the room. ──
+  let trunkOpen = false;
+  function openTrunk(trunkEl, trunkItem) {
+    if (trunkOpen) return;
+    trunkOpen = true;
+    verb.classList.remove('show');
+    const counts = {}, lastOf = {};
+    p.stamps.forEach(st => { counts[st.kind] = (counts[st.kind] || 0) + 1; lastOf[st.kind] = st; });
+    const newest = latest && newStamp ? latest.kind : null;
+    try { if (latest) localStorage.setItem('cs-prize-seen-' + profile.id, latest.id); } catch (e) { /* ignore */ }
+    // Lid opens.
+    const img = trunkEl.querySelector('img');
+    if (img && trunkItem.img === 'trunk_closed') {
+      img.src = `${ROOM}trunk_open.png`;
+      trunkEl.style.top = `${trunkItem.t + trunkItem.w / ROOM_ASSETS.trunk_closed - trunkItem.w / ROOM_ASSETS.trunk_open}%`;
+    }
+    // Two gentle rows across the middle of the room; newest flies last.
+    const slots = [[20, 26], [38.5, 22], [57, 22], [75.5, 26], [20, 50], [38.5, 46], [57, 46], [75.5, 50]];
+    const kinds = [...BADGE_ORDER, 'mystery'];
+    if (newest) { kinds.splice(kinds.indexOf(newest), 1); kinds.push(newest); }
+    const sr = scene.getBoundingClientRect(), tr = trunkEl.getBoundingClientRect();
+    const tx = tr.left + tr.width / 2 - sr.left, ty = tr.top + tr.height * 0.3 - sr.top;
+    const layer = document.createElement('div');
+    layer.className = 'trunk-display';
+    const progress = p.next ? `
+      <div class="td-progress" role="img" aria-label="${p.counts.total} of 3 stamps, ${p.counts.roustabouts} of 2 shifts toward Apprentice">
+        <span class="td-rank">${escapeHtml(rankLabel(p.user.rank))}</span><span class="td-arrow">→ Apprentice</span>
+        <span class="td-pips">${[0, 1, 2].map(i => `<i class="${i < p.counts.total ? 'on' : ''}"></i>`).join('')}<em>stamps</em></span>
+        <span class="td-pips">${[0, 1].map(i => `<i class="${i < p.counts.roustabouts ? 'on' : ''}"></i>`).join('')}<em>shifts</em></span>
+      </div>` : `<div class="td-progress"><span class="td-rank">${escapeHtml(p.user.is_ringleader ? 'Ringleader' : rankLabel(p.user.rank))}</span><span class="td-arrow">${p.counts.total} stamps won</span></div>`;
+    layer.innerHTML = `<div class="td-dim"></div>${progress}` + kinds.map((k, i) => {
+      const [x, y] = slots[BADGE_ORDER.concat('mystery').indexOf(k)];
+      const won = k !== 'mystery' && counts[k];
+      const b = BADGES[k];
+      const dx = tx - (x / 100) * sr.width, dy = ty - (y / 100) * sr.height;
+      return `<button class="td-badge ${won ? 'won' : 'ghost'} ${k === newest ? 'newest' : ''}" data-kind="${k}" style="left:${x}%;top:${y}%;--dx:${dx.toFixed(0)}px;--dy:${dy.toFixed(0)}px;--delay:${(i * 0.12).toFixed(2)}s;${b ? `--badge:${b.color}` : ''}" aria-label="${escapeHtml(b ? b.name : 'Mystery prize')}${won ? ', won' : ', not yet won'}">
+        <span class="td-patch">${b ? badgeIcon(k, 34) : '<span class="td-q">?</span>'}${won > 1 ? `<span class="td-count">×${won}</span>` : ''}</span>
+        <span class="td-name">${escapeHtml(b ? b.name : '???')}</span>
+        ${k === newest ? '<span class="td-new">NEW!</span>' : ''}
+      </button>`;
+    }).join('');
+    scene.appendChild(layer);
+    void layer.offsetWidth; // commit the start positions, then let them fly
+    setTimeout(() => layer.classList.add('out'), 30);
+
+    // Story plaque + ways out.
+    const plaque = document.createElement('div');
+    plaque.className = 'room-plaque trunk-plaque';
+    plaque.setAttribute('role', 'status');
+    const tell = k => {
+      layer.querySelectorAll('.td-badge').forEach(n => n.classList.toggle('picked', n.dataset.kind === k));
+      const b = BADGES[k], st = lastOf[k];
+      const title = b ? b.name : '???';
+      const line = !b ? 'Some prizes are a surprise. Keep showing up.'
+        : st ? `“${b.motto}” — ${st.event_title ? escapeHtml(st.event_title) + ', ' : ''}${new Date(sqlTime(st.created_at)).toLocaleDateString()}${counts[k] > 1 ? ` · won ${counts[k]} times` : ''}`
+        : `Not won yet. ${b.how}`;
+      plaque.querySelector('.room-plaque-title').textContent = title;
+      plaque.querySelector('.room-plaque-line').innerHTML = line;
+    };
+    plaque.innerHTML = `
+      <div class="room-plaque-title">The Steamer Trunk</div>
+      <div class="room-plaque-line">${p.stamps.length ? 'Every prize you’ve won, out on display. Tap one to hear its story.' : 'Empty so far — every carnie starts somewhere. Work a shift to win your first.'}</div>
+      <div class="td-actions"><button class="room-plaque-btn" data-td="passport">Open the passport book →</button><button class="room-plaque-btn td-close" data-td="close">Put it all back</button></div>`;
+    mainView.appendChild(plaque);
+    layer.addEventListener('click', e => {
+      const b = e.target.closest('.td-badge');
+      if (b) tell(b.dataset.kind); else close();
+    });
+    plaque.addEventListener('click', e => {
+      if (e.target.dataset.td === 'passport') { location.hash = '#/passport'; }
+      if (e.target.dataset.td === 'close') close();
+    });
+    if (newest) setTimeout(() => tell(newest), 900 + kinds.length * 120);
+    const vp = document.getElementById('roomViewport');
+    vp.scrollTo({ left: (vp.scrollWidth - vp.clientWidth) / 2, behavior: 'smooth' });
+
+    function close() {
+      if (!trunkOpen) return;
+      layer.classList.remove('out');
+      layer.classList.add('closing');
+      plaque.remove();
+      setTimeout(() => { layer.remove(); trunkOpen = false; newStamp = false; draw(); }, 650);
+    }
+  }
 
   // ✦ reveal: one short label per kind of thing, for a few seconds.
   const labels = document.getElementById('roomLabels');
