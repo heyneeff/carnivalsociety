@@ -404,7 +404,7 @@ function renderShell() {
   const link = (href, label, active, extra = '') => `<a class="topnav-link ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}>${label}${extra}</a>`;
 
   const primary = [
-    link('#/dressing-room', 'Dressing Room', is('dressing-room', 'passport')),
+    link('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport')),
     link('#/courtyard', 'Courtyard', is('courtyard')),
     link('#/events', 'Events', is('events', 'event/')),
     inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard) : '',
@@ -419,7 +419,7 @@ function renderShell() {
     <div class="sheet-group">
       <div class="sheet-label">You</div>
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
-      ${sheetLink('#/passport', 'Passport &amp; prizes', is('passport'), '', 'the steamer trunk')}
+      ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
       ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
     </div>
     ${inner ? `
@@ -471,7 +471,7 @@ function renderShell() {
       <main class="main" id="mainView"></main>
       ${chatShellHtml()}
       <nav class="bottomtabs" aria-label="Main">
-        ${tab('#/dressing-room', 'Dressing Room', is('dressing-room', 'passport'), svg('M6 21V10a6 6 0 0 1 12 0v11z M4 21h16'))}
+        ${tab('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport'), svg('M6 21V10a6 6 0 0 1 12 0v11z M4 21h16'))}
         ${tab('#/courtyard', 'Courtyard', is('courtyard'), svg('M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5'))}
         ${tab('#/events', 'Events', is('events', 'event/'), svg('M3 21h18 M4 21 12 4l8 17 M12 4v17 M12 4l3-2'))}
         ${inner ? tab('#/dm', `Letters${lettersBadge()}`, is('dm', 'dm/'), svg('M4 5h16v11H9l-5 4z')) : tab('#/profile', 'Me', is('profile'), svg('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0'))}
@@ -514,12 +514,15 @@ function pageKind(route) {
 // and folds back into it on close. Ringleader tools stay full pages.
 const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
 let roomStage = null, roomStageAt = 0, unfoldKind = null, unfoldFrom = null;
+// Routes that are the room itself; #/badges (old #/passport) opens the trunk.
+const ROOM_ROUTES = ['dressing-room', 'badges', 'passport'];
+let wantTrunk = false;
 function unfoldKindOf(route) {
   if (route === 'tickets') return 'tickets';
   if (route === 'blast') return 'blast';
   if (route === 'courtyard') return 'courtyard';
   const k = pageKind(route);
-  return ['forum', 'events', 'letters', 'profile', 'passport'].includes(k) ? k : null;
+  return ['forum', 'events', 'letters', 'profile'].includes(k) ? k : null;
 }
 // Where the current page is drawn: the unfolded card, or the main column.
 const pageView = () => document.querySelector('.unfold-body') || document.getElementById('mainView');
@@ -527,7 +530,7 @@ const pageView = () => document.querySelector('.unfold-body') || document.getEle
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
   stopDMPolling();
-  if (route === 'dressing-room' || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
+  if (ROOM_ROUTES.includes(route) || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
   roomStage = null; unfoldKind = null; roomHooks = {};
   mainView.dataset.page = pageKind(route);
   if (route.startsWith('event/')) mainView.dataset.single = '1';
@@ -537,7 +540,7 @@ function renderMainView(route) {
 function mountRoomStage(mainView, route) {
   mainView.dataset.page = 'room';
   mainView.classList.add('main-room');
-  const kind = route === 'dressing-room' ? null : unfoldKindOf(route);
+  const kind = ROOM_ROUTES.includes(route) ? null : unfoldKindOf(route);
   // Reuse the live room while you come and go; rebuild it after two minutes.
   if (!roomStage || Date.now() - roomStageAt > 120e3) {
     roomHooks = {};
@@ -551,7 +554,12 @@ function mountRoomStage(mainView, route) {
   mainView.classList.toggle('unfolded', !!kind);
   const again = kind && kind === unfoldKind;
   unfoldKind = kind;
-  if (!kind) { unfoldFrom = null; return; }
+  if (!kind) {
+    unfoldFrom = null;
+    // Badges live in the trunk: open it (now, or once the room has drawn).
+    if (route !== 'dressing-room') { wantTrunk = true; roomHooks.openTrunk?.(); }
+    return;
+  }
 
   const u = document.createElement('div');
   u.className = 'unfold';
@@ -605,7 +613,6 @@ function renderPage(mainView, route) {
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
-  if (route === 'passport') { renderDressingRoom(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
   if (route === 'blast') { renderBlastView(mainView); return; }
   if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
@@ -5020,130 +5027,7 @@ function badgeIcon(kind, size = 28) {
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
 }
 
-function passportProgressText(p) {
-  if (!p.next) return p.user.is_ringleader ? 'Ringleader.' : `${rankLabel(p.user.rank)} of the guild.`;
-  const { stamps_needed, roustabouts_needed } = p.next;
-  if (!stamps_needed && !roustabouts_needed) return 'Apprentice is yours — refresh to step inside.';
-  const parts = [];
-  if (roustabouts_needed) parts.push(`${roustabouts_needed} more shift${roustabouts_needed > 1 ? 's' : ''}`);
-  const otherNeeded = Math.max(0, stamps_needed - roustabouts_needed);
-  if (otherNeeded) parts.push(`${otherNeeded} more stamp${otherNeeded > 1 ? 's' : ''}`);
-  return `${parts.join(' and ')} and you're an Apprentice`;
-}
 function sqlTime(t) { return Date.parse(String(t).replace(' ', 'T') + 'Z'); }
-
-// ── Dressing Room: everyone's landing page. A vanity mirror (you) over a
-// cozy prize booth where your badges live. Badges are never compared.
-async function renderDressingRoom(mainView) {
-  mainView.innerHTML = `<div class="placeholder-note">Lighting the bulbs…</div>`;
-  const [p, { events }, { troupe }] = await Promise.all([
-    apiFetch('/api/me/passport'),
-    apiFetch('/api/events'),
-    apiFetch('/api/me/troupe').catch(() => ({ troupe: [] })),
-  ]);
-  const counts = {};
-  const lastOf = {};
-  p.stamps.forEach(s => { counts[s.kind] = (counts[s.kind] || 0) + 1; lastOf[s.kind] = s; });
-  const rank = p.user.is_ringleader ? 'Ringleader' : rankLabel(p.user.rank);
-  const chapter = chapters.find(c => c.id === profile.home_chapter_id);
-  const acts = (profile.skills || '').split(',').map(x => x.trim()).filter(Boolean);
-  const nextEvent = (events || [])[0];
-  const volunteering = nextEvent && myVolunteering.has(nextEvent.id);
-
-  const nextStep = p.next ? `
-    <section class="dr-next" aria-label="Your next step">
-      <div class="dr-kicker">Your next step</div>
-      <div class="dr-next-title">${escapeHtml(passportProgressText(p))}</div>
-      <div class="dr-strip" role="img" aria-label="${p.counts.total} of 3 stamps, ${p.counts.roustabouts} of 2 shifts">
-        ${[0, 1, 2].map(i => {
-          const st = p.stamps[i];
-          return st ? `<span class="dr-cell on">${escapeHtml(BADGES[st.kind].name)}</span>` : `<span class="dr-cell">Stamp ${i + 1}</span>`;
-        }).join('')}
-      </div>
-      <div class="dr-shifts">Shifts worked: <strong>${Math.min(p.counts.roustabouts, 2)} of 2</strong></div>
-      ${nextEvent ? `<div class="dr-next-event">Next up: <strong>${escapeHtml(nextEvent.title)}</strong> · ${escapeHtml(formatEventDate(nextEvent.starts_at))}</div>
-        <a class="dr-cta" href="#/event/${nextEvent.id}">${volunteering ? "✓ You're volunteering — see details" : 'Volunteer for it'}</a>`
-        : `<div class="dr-next-event">No events posted yet. Keep an eye on the Courtyard.</div>`}
-    </section>` : (nextEvent ? `
-    <section class="dr-next" aria-label="Next up">
-      <div class="dr-kicker">Next up</div>
-      <div class="dr-next-title">${escapeHtml(nextEvent.title)}</div>
-      <div class="dr-next-event">${escapeHtml(formatEventDate(nextEvent.starts_at))}${nextEvent.location ? ' · ' + escapeHtml(nextEvent.location) : ''}</div>
-      <a class="dr-cta" href="#/event/${nextEvent.id}">${volunteering ? "✓ You're volunteering" : 'Volunteer for it'}</a>
-    </section>` : '');
-
-  const slots = [...BADGE_ORDER, 'mystery'];
-  const shelf = slots.map(k => {
-    if (k === 'mystery') return `<button class="booth-prize unwon" data-prize="mystery" aria-label="Mystery prize, not yet won"><span class="booth-q">?</span></button>`;
-    const won = counts[k] || 0;
-    return `<button class="booth-prize ${won ? 'won' : 'unwon'}" data-prize="${k}" style="--badge:${BADGES[k].color}" aria-label="${escapeHtml(BADGES[k].name)}${won ? ', won' : ', not yet won'}">
-      ${badgeIcon(k, 30)}${won > 1 ? `<span class="booth-count">×${won}</span>` : ''}</button>`;
-  }).join('');
-  const firstWon = BADGE_ORDER.find(k => counts[k]) || 'roustabout';
-
-  const troupeHtml = troupe.length
-    ? `<div class="dr-troupe">${troupe.map(t => `
-        <div class="dr-mate"><span class="dr-mate-avatar">${escapeHtml((t.display_name || '?').slice(0, 1).toUpperCase())}</span>
-        <span class="dr-mate-name">${escapeHtml(t.display_name)}</span></div>`).join('')}</div>`
-    : `<p class="dr-muted">Work a shift and the folks beside you show up here.</p>`;
-
-  mainView.innerHTML = `
-    <div class="dressing-room">
-      <div class="dr-title">~ Your Passport ~</div>
-      <section class="dr-mirror" id="drMirror" aria-label="You">
-        <div class="dr-bulbs" aria-hidden="true"></div>
-        <div class="dr-glass">
-          <div class="dr-avatar">${escapeHtml((profile.display_name || '?').slice(0, 1).toUpperCase())}</div>
-          <h1 class="dr-name">${escapeHtml(profile.display_name)}</h1>
-          <div class="dr-meta"><span class="dr-rank">${escapeHtml(rank)}</span>${chapter ? `<span>${escapeHtml(chapter.name)} chapter</span>` : ''}</div>
-          ${acts.length ? `<div class="dr-acts">${acts.map(a => `<span class="dr-act">${escapeHtml(a)}</span>`).join('')}</div>`
-            : `<a class="dr-link" href="#/profile">Pick your acts</a>`}
-        </div>
-      </section>
-
-      ${nextStep}
-
-      <section class="booth" aria-label="Your prize booth">
-        <div class="booth-awning" aria-hidden="true">${'<span></span>'.repeat(8)}</div>
-        <div class="booth-valance" aria-hidden="true">${'<span></span>'.repeat(8)}</div>
-        <div class="booth-body">
-          <div class="booth-lights" aria-hidden="true">${Array.from({ length: 9 }, (_, i) => `<span class="cs-bulb" style="animation-delay:${(i * 0.25).toFixed(2)}s"></span>`).join('')}</div>
-          <div class="booth-title">Prizes won</div>
-          <div class="booth-hint">Tap a prize to hear its story</div>
-          <div class="booth-shelves">${shelf}</div>
-          <div class="booth-story" id="boothStory" aria-live="polite"></div>
-        </div>
-      </section>
-
-      <section class="dr-section" aria-label="Your troupe">
-        <h2 class="dr-h2">Your troupe</h2>
-        <p class="dr-muted">The folks you've worked beside. Earned, not picked.</p>
-        ${troupeHtml}
-      </section>
-
-      <a class="dr-edit" href="#/profile">Edit your profile</a>
-    </div>`;
-
-  const story = document.getElementById('boothStory');
-  const tell = kind => {
-    mainView.querySelectorAll('.booth-prize').forEach(b => b.classList.toggle('picked', b.dataset.prize === kind));
-    if (kind === 'mystery') {
-      story.innerHTML = `<div class="booth-story-name">???</div><div class="booth-story-line">Some prizes are a surprise. Keep showing up.</div>`;
-      return;
-    }
-    const b = BADGES[kind];
-    const st = lastOf[kind];
-    story.innerHTML = st
-      ? `<div class="booth-story-name">${escapeHtml(b.name)}</div><div class="booth-story-line">“${escapeHtml(b.motto)}”</div>
-         <div class="booth-story-meta">${st.event_title ? escapeHtml(st.event_title) + ' · ' : ''}${escapeHtml(new Date(sqlTime(st.created_at)).toLocaleDateString())}${counts[kind] > 1 ? ` · won ${counts[kind]} times` : ''}</div>`
-      : `<div class="booth-story-name">${escapeHtml(b.name)}</div><div class="booth-story-line">Not won yet. ${escapeHtml(b.how)}</div><div class="booth-story-meta">Still on the top shelf.</div>`;
-  };
-  mainView.querySelectorAll('.booth-prize').forEach(btn => btn.addEventListener('click', () => tell(btn.dataset.prize)));
-  tell(firstWon);
-
-  drawMirrorBulbs(document.getElementById('drMirror'));
-  if (!needsRankCelebration()) maybeShowPrize(p);
-}
 
 // ── The raven on your phone: installable app + web push. The push carries
 // nothing; sw.js fetches what's waiting and squawks it. iPhones only allow
@@ -5762,7 +5646,7 @@ async function renderRoom(mainView) {
   const behave = it => {
     switch (it.role) {
       case 'mirror': return ['Look in the Mirror', '#/profile'];
-      case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/passport'];
+      case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/badges'];
       case 'costume': return ['Try on a Costume', '#/profile'];
       case 'flyer': { const e = upcoming[it.n || 0]; return e ? [`Flyer: ${e.title}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
       case 'raven': {
@@ -5909,6 +5793,7 @@ async function renderRoom(mainView) {
   // ── The trunk: badges fly out and display across the room. ──
   let trunkOpen = false;
   function openTrunk(trunkEl, trunkItem) {
+    wantTrunk = false;
     if (trunkOpen) return;
     trunkOpen = true;
     verb.classList.remove('show');
@@ -5968,14 +5853,13 @@ async function renderRoom(mainView) {
     plaque.innerHTML = `
       <div class="room-plaque-title">The Steamer Trunk</div>
       <div class="room-plaque-line">${p.stamps.length ? 'Every prize you’ve won, out on display. Tap one to hear its story.' : 'Empty so far — every carnie starts somewhere. Work a shift to win your first.'}</div>
-      <div class="td-actions"><button class="room-plaque-btn" data-td="passport">Open the passport book →</button><button class="room-plaque-btn td-close" data-td="close">Put it all back</button></div>`;
+      <div class="td-actions"><button class="room-plaque-btn td-close" data-td="close">Put it all back</button></div>`;
     mainView.appendChild(plaque);
     layer.addEventListener('click', e => {
       const b = e.target.closest('.td-badge');
       if (b) tell(b.dataset.kind); else close();
     });
     plaque.addEventListener('click', e => {
-      if (e.target.dataset.td === 'passport') { location.hash = '#/passport'; }
       if (e.target.dataset.td === 'close') close();
     });
     if (newest) setTimeout(() => tell(newest), 900 + kinds.length * 120);
@@ -5988,9 +5872,15 @@ async function renderRoom(mainView) {
       layer.classList.add('closing');
       plaque.remove();
       setTimeout(() => { layer.remove(); trunkOpen = false; newStamp = false; draw(); }, 650);
+      // Back to plain room, quietly, so the Badges link works again.
+      if (/^#\/(badges|passport)$/.test(location.hash)) history.replaceState(null, '', '#/dressing-room');
     }
   }
 
+  roomHooks.openTrunk = () => {
+    const el = host.querySelector('[data-role="trunk"]'), it = items.find(i => i.role === 'trunk');
+    if (el && it) openTrunk(el, it);
+  };
   // ✦ reveal: one short label per kind of thing, for a few seconds.
   const labels = document.getElementById('roomLabels');
   document.getElementById('roomReveal').addEventListener('click', () => {
@@ -6135,8 +6025,10 @@ async function renderRoom(mainView) {
     const max = vp.scrollWidth - vp.clientWidth;
     if (max <= 0) return;
     vp.scrollLeft = request || letters.unread ? max : max / 2;
-    say('⟷ Swipe to look around · tap ✦ to see what you can touch');
+    if (!wantTrunk) say('⟷ Swipe to look around · tap ✦ to see what you can touch');
   });
+  // Arrived via Badges: let the room settle, then spill the trunk.
+  if (wantTrunk) setTimeout(() => roomHooks.openTrunk?.(), 350);
 }
 
 // A one-time (per device) invitation in the room for the raven to follow you.
@@ -6193,75 +6085,7 @@ function openBookToward(bookEl, href) {
   }, 700);
 }
 
-// One continuous ring of vanity bulbs traced around the real mirror size:
-// up the arch, down both sides, across the bottom; the chase runs the ring.
-function drawMirrorBulbs(mirror) {
-  if (!mirror) return;
-  const host = mirror.querySelector('.dr-bulbs');
-  const draw = () => {
-    if (!document.body.contains(mirror)) { window.removeEventListener('resize', draw); return; }
-    const W = mirror.clientWidth, H = mirror.clientHeight, inset = 13;
-    const archR = Math.min(W / 2, 170);
-    const cx = W / 2, rx = cx - inset, cy = archR, ry = archR - inset;
-    const pts = [];
-    const nArch = Math.max(9, Math.round((Math.PI * (rx + ry) / 2) / 34));
-    for (let i = 0; i <= nArch; i++) { const a = Math.PI - (Math.PI * i) / nArch; pts.push([cx + rx * Math.cos(a), cy - ry * Math.sin(a)]); }
-    const sideTop = cy + 28, sideBottom = H - inset - 26;
-    const nSide = Math.max(1, Math.round((sideBottom - sideTop) / 38));
-    const side = Array.from({ length: nSide + 1 }, (_, i) => sideTop + ((sideBottom - sideTop) * i) / nSide);
-    side.forEach(y => pts.push([W - inset, y]));
-    const nBottom = Math.max(3, Math.round((W - 2 * inset) / 38));
-    for (let i = 1; i < nBottom; i++) pts.push([W - inset - ((W - 2 * inset) * i) / nBottom, H - inset]);
-    side.slice().reverse().forEach(y => pts.push([inset, y]));
-    const period = 2.4;
-    host.innerHTML = pts.map(([x, y], i) => `<span class="cs-bulb" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;animation-delay:${((i * period) / pts.length).toFixed(2)}s"></span>`).join('');
-  };
-  draw();
-  window.addEventListener('resize', draw);
-}
 
-// "Winner!" moment for a stamp you haven't seen yet. Remembered per device
-// (localStorage) — a missed one just shows on the next visit; no storage, no show.
-function maybeShowPrize(p) {
-  const latest = p.stamps[p.stamps.length - 1];
-  if (!latest) return;
-  const key = 'cs-prize-seen-' + profile.id;
-  let seen;
-  try { seen = localStorage.getItem(key); } catch (e) { return; }
-  const markSeen = () => { try { localStorage.setItem(key, latest.id); } catch (e) { /* ignore */ } };
-  if (seen === latest.id) return;
-  if (Date.now() - sqlTime(latest.created_at) > 7 * 864e5) { markSeen(); return; }
-  renderPrizeMoment(latest, p, markSeen);
-}
-
-function renderPrizeMoment(stamp, p, done) {
-  const b = BADGES[stamp.kind];
-  const overlay = document.createElement('div');
-  overlay.className = 'prize-moment';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-label', `You won ${b.name}`);
-  const balloons = ['#C77B8A', '#DFBE7D', '#4E8C82', '#8B5FA3', '#C97C3D'].map((c, i) =>
-    `<span class="pm-balloon" style="--c:${c};--x:${8 + i * 19}%;--d:${(i * 0.35).toFixed(2)}s"></span>`).join('');
-  overlay.innerHTML = `
-    <div class="pm-card">
-      <div class="pm-lights" aria-hidden="true">${Array.from({ length: 8 }, (_, i) => `<span class="cs-bulb" style="animation-delay:${(i * 0.2).toFixed(1)}s"></span>`).join('')}</div>
-      <div class="pm-balloons" aria-hidden="true">${balloons}</div>
-      <div class="pm-winner">Winner!</div>
-      <div class="pm-sub">A prize for your Dressing Room</div>
-      <div class="pm-patch" style="--badge:${b.color}">${badgeIcon(stamp.kind, 46)}<span>${escapeHtml(b.name)}</span></div>
-      <div class="pm-motto">“${escapeHtml(b.motto)}”</div>
-      <div class="pm-ticket">
-        <span class="pm-ticket-top">Admit one</span>
-        <span class="pm-ticket-main">${escapeHtml(p.next ? passportProgressText(p) : (stamp.event_title || 'Added to your shelf'))}</span>
-      </div>
-      <button class="pm-btn" id="pmDone">Put it on my shelf</button>
-    </div>`;
-  document.body.appendChild(overlay);
-  const close = () => { done(); overlay.remove(); };
-  overlay.querySelector('#pmDone').addEventListener('click', close);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('#pmDone').focus();
-}
 
 // Moderator view of someone's passport + hand-granted stamps (Directory).
 async function openPassportModal(userId) {
