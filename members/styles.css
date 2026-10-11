@@ -1588,45 +1588,48 @@ body.chat-docked .chat-close { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .forum-note { animation: none; } .thread-card, .forum-tab, .forum-btn { transition: none; } }
 
-/* ══════════════ BLAST: the ringing telephone (2026-10-11) ══════════════ */
-@keyframes blast-shake { 0%,100% { transform: rotate(0) translateY(0); } 10% { transform: rotate(-9deg) translateY(-6px); } 20% { transform: rotate(8deg) translateY(-2px); } 30% { transform: rotate(-7deg) translateY(-6px); } 40% { transform: rotate(6deg); } 50% { transform: rotate(0); } }
-@keyframes blast-handset { 0%,100% { transform: translateY(0) rotate(0); } 15% { transform: translateY(-14px) rotate(-5deg); } 30% { transform: translateY(-4px) rotate(4deg); } 45% { transform: translateY(-12px) rotate(-3deg); } 60% { transform: translateY(0); } }
+/* ══════════════ BLAST: the barker's cone (2026-10-11) ══════════════ */
+@keyframes blast-shake { 0%,100% { transform: rotate(0) translateY(0); } 10% { transform: rotate(-7deg) translateY(-6px); } 20% { transform: rotate(6deg) translateY(-2px); } 30% { transform: rotate(-5deg) translateY(-6px); } 40% { transform: rotate(4deg); } 50% { transform: rotate(0); } }
 @keyframes blast-word { 0%,100% { transform: scale(0.8) rotate(-8deg); opacity: 0; } 15%,60% { transform: scale(1.1) rotate(-8deg); opacity: 1; } }
-@keyframes blast-in { from { transform: translateY(120%) rotate(-12deg); } 70% { transform: translateY(-6%) rotate(4deg); } to { transform: none; } }
+@keyframes cone-peek { 0%,100% { translate: 0 0; } 50% { translate: 0 -7%; } }
+@keyframes cone-squash { 0% { transform: scale(1); } 30% { transform: scale(1.08, 0.9); } 60% { transform: scale(0.96, 1.05); } 100% { transform: scale(1); } }
 @keyframes blast-jaw { 0%,100% { transform: translateY(0); } 50% { transform: translateY(9px); } }
-@keyframes blast-bubble-in { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
-.blast-overlay { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: center; justify-content: center; padding: 16px; background: radial-gradient(ellipse at 50% 45%, rgba(91,30,36,0.94), rgba(20,8,6,0.97)); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-.blast-stage { position: relative; width: min(560px, 100%); min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
-.blast-mute { position: absolute; top: -6px; right: 0; width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--gold); background: rgba(20,12,10,0.8); font-size: 20px; cursor: pointer; }
-.blast-ring-words { position: absolute; top: 8%; left: 0; right: 0; display: flex; justify-content: space-between; pointer-events: none; }
-.blast-ring-words span { font-family: 'Playfair Display', serif; font-weight: 800; font-size: clamp(28px, 7vw, 44px); color: #FFE2A0; text-shadow: 0 4px 0 #9B3036, 0 0 20px rgba(255,214,140,0.6); animation: blast-word 0.9s ease-in-out infinite; }
-.blast-ring-words span:last-child { animation-delay: 0.45s; transform: rotate(8deg); }
-.blast-phone { width: min(240px, 60vw); position: relative; }
-.blast-phone img, .blast-phone-svg { width: 100%; height: auto; display: block; }
-.blast-phone .blast-art + .blast-phone-svg { display: none; }
-.blast-overlay.ringing .blast-phone { animation: blast-shake 0.55s ease-in-out infinite; }
-.blast-overlay.ringing .blast-handset { animation: blast-handset 0.55s ease-in-out infinite; transform-origin: 100px 60px; }
+@keyframes blast-bubble-in { from { transform: translateY(20px) scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.blast-overlay { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; background: radial-gradient(ellipse at 50% 55%, rgba(91,30,36,0.94), rgba(20,8,6,0.97)); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.blast-stage { position: relative; width: min(560px, 100%); padding-top: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.blast-mute { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--gold); background: rgba(20,12,10,0.8); font-size: 20px; cursor: pointer; }
+.blast-ring-words { position: absolute; top: 40px; left: 0; right: 0; display: flex; justify-content: space-between; pointer-events: none; }
+.blast-ring-words span { font-family: 'Playfair Display', serif; font-weight: 800; font-size: clamp(26px, 6.5vw, 42px); color: #FFE2A0; text-shadow: 0 4px 0 #9B3036, 0 0 20px rgba(255,214,140,0.6); animation: blast-word 0.9s ease-in-out infinite; }
+.blast-ring-words span:last-child { animation-delay: 0.45s; }
+/* the cone: back layer, then the head in a slot that ends at the rim, then the front */
+.blast-cone { position: relative; width: min(250px, 60vw); aspect-ratio: 1; margin-top: 60px; padding: 0; border: 0; background: none; cursor: pointer; transform-origin: 50% 90%; }
+.cone-layer { position: absolute; inset: 0; pointer-events: none; }
+.cone-l-back { z-index: 1; } .cone-l-front { z-index: 3; }
+.cone-layer svg, .cone-layer img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cone-layer .blast-art + svg { display: none; }
+.cone-slot { position: absolute; left: 0; right: 0; bottom: 74%; height: 100%; overflow: hidden; z-index: 2; pointer-events: none; }
+.blast-head { position: absolute; bottom: 0; left: 19%; width: 62%; transform: translateY(58%); transition: transform 0.55s cubic-bezier(.2,1.7,.4,1); }
+.blast-head img, .blast-head-svg { width: 100%; height: auto; display: block; }
+.blast-head .blast-art + .blast-head-svg { display: none; }
+.blast-overlay.ringing .blast-cone { animation: blast-shake 0.6s ease-in-out infinite; }
+.blast-overlay.ringing .blast-head { animation: cone-peek 0.3s ease-in-out infinite; }
+.blast-overlay.answered .blast-cone { margin-top: 0; animation: cone-squash 0.45s ease-out; cursor: default; }
+.blast-overlay.answered .blast-head { transform: translateY(0); }
+.blast-head.yakking { animation: td-bob 0.5s ease-in-out infinite; }
+.blast-head.yakking .blast-jaw { animation: blast-jaw 0.16s ease-in-out infinite; }
 .blast-caller { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 20px; color: var(--cream); }
 .blast-pickup { min-height: 58px; padding: 0 34px; border-radius: 999px; border: 4px solid #FFE2A0; background: #2F7F7A; color: #fffaf0; font-weight: 800; font-size: 22px; cursor: pointer; box-shadow: 0 6px 0 #1d5652, 0 0 30px rgba(143,209,158,0.5); animation: td-bob 0.9s ease-in-out infinite; }
 .blast-overlay.answered .blast-ring-words, .blast-overlay.answered .blast-pickup, .blast-overlay.answered .blast-caller { display: none; }
-.blast-overlay.answered .blast-phone { width: min(120px, 30vw); opacity: 0.85; }
-.blast-call { display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 6px; width: 100%; text-align: left; }
-.blast-call[hidden] { display: none; }
-.blast-head { width: min(180px, 38vw); animation: blast-in 0.6s cubic-bezier(.2,1.4,.4,1) both; transform-origin: 50% 100%; }
-.blast-head img, .blast-head-svg { width: 100%; height: auto; display: block; }
-.blast-head .blast-art + .blast-head-svg { display: none; }
-.blast-head.yakking .blast-jaw { animation: blast-jaw 0.16s ease-in-out infinite; }
-.blast-head.yakking { animation: blast-in 0.6s cubic-bezier(.2,1.4,.4,1) both, td-bob 0.5s ease-in-out infinite 0.6s; }
-.blast-bubble { position: relative; margin-bottom: 40%; padding: 16px 18px; border-radius: 22px 22px 22px 4px; background: #fff7e2; color: #231712; border: 4px solid #231712; box-shadow: 6px 6px 0 #9B3036; animation: blast-bubble-in 0.35s 0.35s cubic-bezier(.2,1.4,.4,1) both; cursor: pointer; }
+.blast-overlay.answered .blast-stage { padding-top: 52px; }
+/* the speech bubble, above the cone, tail pointing down at the head */
+.blast-bubble { position: relative; width: 100%; box-sizing: border-box; margin-bottom: min(150px, 36vw); padding: 16px 18px; border-radius: 22px; background: #fff7e2; color: #231712; border: 4px solid #231712; box-shadow: 6px 6px 0 #9B3036; text-align: left; animation: blast-bubble-in 0.35s 0.3s cubic-bezier(.2,1.4,.4,1) both; cursor: pointer; }
+.blast-bubble[hidden] { display: none; }
+.blast-bubble::after { content: ''; position: absolute; left: 50%; bottom: -22px; margin-left: -14px; border: 14px solid transparent; border-top: 18px solid #231712; border-bottom: 0; }
 .blast-title { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 20px; color: #9B3036; margin-bottom: 6px; }
 .blast-body { font-size: 16.5px; line-height: 1.5; white-space: pre-wrap; min-height: 1.5em; overflow-wrap: anywhere; }
 .blast-btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-@media (max-width: 560px) {
-  .blast-call { grid-template-columns: 1fr; justify-items: center; }
-  .blast-bubble { margin-bottom: 0; border-radius: 22px; order: -1; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .blast-overlay.ringing .blast-phone, .blast-overlay.ringing .blast-handset, .blast-ring-words span, .blast-head, .blast-head.yakking .blast-jaw, .blast-bubble, .blast-pickup { animation: none !important; }
+  .blast-overlay .blast-cone, .blast-overlay .blast-head, .blast-ring-words span, .blast-head.yakking .blast-jaw, .blast-bubble, .blast-pickup { animation: none !important; transition: none !important; }
 }
 /* composer */
 .blast-form { position: relative; display: flex; flex-direction: column; gap: 16px; }

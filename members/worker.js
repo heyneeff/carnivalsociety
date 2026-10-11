@@ -1934,7 +1934,7 @@ async function blastRoutes(request, env, url, user, ctx) {
     await env.DB.prepare("UPDATE blasts SET recipients = ? WHERE id = ?").bind(n, blastId).run();
     await env.DB.prepare(
       "INSERT OR IGNORE INTO notifications (user_id, kind, title, body, url, ref) SELECT user_id, 'blast', ?, ?, ?, ? FROM blast_receipts WHERE blast_id = ?"
-    ).bind(`☎ RING RING! ${t}`, b.length > 140 ? b.slice(0, 137) + "…" : b, "#/dressing-room", `blast:${blastId}`, blastId).run();
+    ).bind(`📣 HEAR YE! ${t}`, b.length > 140 ? b.slice(0, 137) + "…" : b, "#/dressing-room", `blast:${blastId}`, blastId).run();
     if (post_to_courtyard) {
       const yard = await env.DB.prepare("SELECT id FROM boards WHERE slug = 'courtyard'").first();
       if (yard) await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, title, body) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), yard.id, user.id, t, b).run();

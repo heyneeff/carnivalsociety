@@ -431,7 +431,7 @@ function renderShell() {
     ${profile?.is_ringleader ? `
     <div class="sheet-group">
       <div class="sheet-label">Ringleader</div>
-      ${sheetLink('#/blast', '☎ Ring Everyone (Blast)', is('blast'))}
+      ${sheetLink('#/blast', '📣 Holler at Everyone (Blast)', is('blast'))}
       ${sheetLink('#/directory', 'Directory', is('directory'), newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : '')}
       ${sheetLink('#/checkin', 'Door Check-in', is('checkin', 'checkin/'))}
       ${sheetLink('#/impact', 'Impact Log', is('impact'))}
@@ -5126,12 +5126,14 @@ const RAVEN_RESULT = {
   error: 'Something went wrong teaching the raven your address. Try again in a moment.',
 };
 
-// ── BLAST: the Ringleader rings everyone's telephone ──────────────────
-// Unseen blasts ring in the app: an obnoxious shaking telephone (with a
-// synthesized bell + buzz), you pick up, and the Ringleader's head pops in
-// yakking while the message types out. Neeff's art drops in when these
-// files exist (else hand-built stand-ins): assets/room/telephone_ringing.png,
-// telephone_still.png, head_closed.png, head_open.png, head_wide.png.
+// ── BLAST: the Ringleader hollers through the barker cone ──────────────
+// Unseen blasts arrive in the app: a striped barker's cone blares a fanfare
+// with the top hat peeking out. Tap it and the Ringleader's head springs up
+// out of the cone (boing!) and hollers the message, babbling as it types.
+// Neeff's art drops in when these files exist (else hand-built stand-ins):
+// assets/room/cone_back.png + cone_front.png (the cone, mouth up, as two
+// layers so the head sits inside it), head_closed.png, head_open.png,
+// head_wide.png.
 let blastShowing = null;
 async function checkBlast() {
   if (!session || blastShowing) return;
@@ -5142,44 +5144,126 @@ async function checkBlast() {
 }
 
 const soundOff = () => { try { return localStorage.getItem('cs-sound-off') === '1'; } catch (e) { return false; } };
-// An old-fashioned bell ring: two clanging tones with a fast tremolo, in
-// bursts, until you pick up. Browsers only allow sound after you've touched
-// the page, so it may stay silent until then (the telephone still shakes).
-function startRing() {
-  if (soundOff()) return () => {};
+
+// One little sound rig per blast: everything runs through a "megaphone"
+// (soft clipping + a tinny bandpass), so the fanfare, the boing and the
+// babble all sound like they're coming out of the cone. Browsers only allow
+// sound after you've touched the page, so the fanfare may stay silent until
+// then (the cone still shakes); the babble starts on your tap, so it plays.
+function megaphone() {
+  if (soundOff()) return null;
   let ctx;
-  try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return () => {}; }
+  try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
   ctx.resume?.();
-  const master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
-  const tremolo = ctx.createOscillator(); tremolo.type = 'square'; tremolo.frequency.value = 22;
-  const tremoloDepth = ctx.createGain(); tremoloDepth.gain.value = 0.5;
-  const ringGain = ctx.createGain(); ringGain.gain.value = 0.5;
-  tremolo.connect(tremoloDepth).connect(ringGain.gain);
-  const tones = [1250, 1650].map(f => { const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.connect(ringGain); o.start(); return o; });
-  ringGain.connect(master); tremolo.start();
+  const drive = ctx.createWaveShaper();
+  const curve = new Float32Array(1024);
+  for (let i = 0; i < curve.length; i++) { const x = (i / 512) - 1; curve[i] = Math.tanh(3.5 * x); }
+  drive.curve = curve;
+  const horn = ctx.createBiquadFilter(); horn.type = 'bandpass'; horn.frequency.value = 1500; horn.Q.value = 0.7;
+  const out = ctx.createGain(); out.gain.value = 0.45;
+  drive.connect(horn).connect(out).connect(ctx.destination);
+  let closed = false;
+  return { ctx, input: drive, close() { if (closed) return; closed = true; ctx.close().catch(() => {}); } };
+}
+
+// The blare: a circus "ta-ta-ta-TAAA" on a brassy sawtooth, in bursts,
+// until you tap. Returns a stopper (safe to call twice).
+function startBlare(rig) {
+  if (!rig) return () => {};
+  const { ctx, input } = rig;
   let on = true;
+  const note = (f, t, d) => {
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t);
+    o.frequency.linearRampToValueAtTime(f * 1.01, t + d);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5, t + 0.015);
+    g.gain.setValueAtTime(0.5, t + d * 0.8); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    o.connect(g).connect(input); o.start(t); o.stop(t + d + 0.02);
+  };
   const burst = () => {
-    const now = ctx.currentTime;
-    master.gain.cancelScheduledValues(now);
-    master.gain.setValueAtTime(0.16, now); master.gain.setValueAtTime(0.16, now + 0.9); master.gain.linearRampToValueAtTime(0, now + 0.95);
-    if (navigator.vibrate) navigator.vibrate([200, 80, 200, 80, 200]);
+    const t = ctx.currentTime + 0.02;
+    [[392, 0, 0.11], [523, 0.14, 0.11], [659, 0.28, 0.11], [784, 0.42, 0.45]].forEach(([f, at, d]) => note(f, t + at, d));
+    if (navigator.vibrate) navigator.vibrate([90, 50, 90, 50, 90, 50, 300]);
   };
   burst();
-  const timer = setInterval(() => { if (on) burst(); }, 2200);
-  return () => {
-    if (!on) return; // already stopped (pick up, then close)
-    on = false; clearInterval(timer);
-    try { master.gain.setValueAtTime(0, ctx.currentTime); tones.forEach(o => o.stop()); tremolo.stop(); ctx.close().catch(() => {}); } catch (e) { /* ignore */ }
+  const timer = setInterval(() => { if (on) burst(); }, 2400);
+  return () => { on = false; clearInterval(timer); };
+}
+
+// Boing: the spring that launches the head out of the cone.
+function playBoing(rig) {
+  if (!rig) return;
+  const { ctx, input } = rig, t = ctx.currentTime;
+  const o = ctx.createOscillator(); o.type = 'triangle';
+  o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(520, t + 0.18);
+  const wob = ctx.createOscillator(); wob.frequency.value = 26;
+  const wobDepth = ctx.createGain(); wobDepth.gain.value = 40;
+  wob.connect(wobDepth).connect(o.frequency);
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+  o.connect(g).connect(input); o.start(t); wob.start(t); o.stop(t + 0.5); wob.stop(t + 0.5);
+}
+
+// Barker babble, adapted from Boomy's babble in BYOB (listener.html,
+// playBabble): one sound per typed character. Boomy beatboxes; the barker
+// talks — a buzzy voice shaped into random vowels (two formant filters),
+// pitch wandering like speech, up on "!" and "?", with Boomy's radio-static
+// crackle now and then for megaphone grit.
+function makeBabbler(rig) {
+  if (!rig) return () => {};
+  const { ctx, input } = rig;
+  const VOWELS = [[730, 1090], [570, 840], [300, 2290], [440, 1020], [660, 1700], [400, 1900]];
+  let pitch = 200, n = 0;
+  const crackle = t => {
+    const dur = 0.04 + Math.random() * 0.04;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buf.getChannelData(0); let burst = false;
+    for (let i = 0; i < d.length; i++) { if (Math.random() < 0.08) burst = !burst; d[i] = burst ? Math.random() * 2 - 1 : 0; }
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(g).connect(input); src.start(t);
+  };
+  return ch => {
+    const t = ctx.currentTime; n++;
+    if (n % 11 === 0) crackle(t);
+    const dur = 0.065 + Math.random() * 0.05;
+    pitch = Math.min(290, Math.max(150, pitch + (Math.random() - 0.5) * 70));
+    const lift = ch === '!' ? 1.35 : ch === '?' ? 1.25 : 1;
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(pitch * lift, t);
+    o.frequency.linearRampToValueAtTime(pitch * lift * (ch === '?' ? 1.15 : Math.random() < 0.5 ? 1.06 : 0.92), t + dur);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.9, t + 0.008);
+    env.gain.setValueAtTime(0.9, t + dur * 0.6); env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    const [f1, f2] = VOWELS[Math.floor(Math.random() * VOWELS.length)];
+    [[f1, 7, 1], [f2, 9, 0.6]].forEach(([f, q, v]) => {
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+      const lvl = ctx.createGain(); lvl.gain.value = v * 3;
+      o.connect(bp).connect(lvl).connect(env);
+    });
+    env.connect(input); o.start(t); o.stop(t + dur + 0.02);
   };
 }
 
-const TELEPHONE_SVG = `<svg class="blast-phone-svg" viewBox="0 0 200 170" aria-hidden="true">
-  <path d="M30 150 L45 85 Q100 60 155 85 L170 150 Z" fill="#9B3036" stroke="#231712" stroke-width="5" stroke-linejoin="round"/>
-  <circle cx="100" cy="112" r="28" fill="#F4E8D0" stroke="#231712" stroke-width="5"/>
-  <circle cx="100" cy="112" r="9" fill="#C8A05A" stroke="#231712" stroke-width="3"/>
-  ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => { const a = (i / 8) * Math.PI * 2; return `<circle cx="${100 + Math.cos(a) * 19}" cy="${112 + Math.sin(a) * 19}" r="4" fill="#231712"/>`; }).join('')}
-  <g class="blast-handset"><path d="M25 62 Q100 20 175 62 L168 78 Q100 46 32 78 Z" fill="#7A2E34" stroke="#231712" stroke-width="5" stroke-linejoin="round"/>
-  <rect x="14" y="58" width="34" height="22" rx="9" fill="#9B3036" stroke="#231712" stroke-width="5"/><rect x="152" y="58" width="34" height="22" rx="9" fill="#9B3036" stroke="#231712" stroke-width="5"/></g>
+// Stand-in barker's cone, mouth up: the dark inside is drawn behind the head,
+// the striped body and gold lip in front of it, so the head rises out of it.
+const CONE_STRIPES = (() => {
+  let s = '';
+  for (let i = 0; i < 8; i++) {
+    const tx = x => 15 + (170 * x) / 8, bx = x => 84 + (32 * x) / 8;
+    s += `<path d="M${tx(i)} 40 L${tx(i + 1)} 40 L${bx(i + 1)} 168 L${bx(i)} 168 Z" fill="${i % 2 ? '#F4E8D0' : '#9B3036'}"/>`;
+  }
+  return s;
+})();
+const CONE_BACK_SVG = `<svg class="cone-back" viewBox="0 0 200 200" aria-hidden="true">
+  <ellipse cx="100" cy="40" rx="85" ry="24" fill="#2a1410" stroke="#231712" stroke-width="5"/>
+  <ellipse cx="100" cy="44" rx="70" ry="16" fill="#140806"/>
+</svg>`;
+const CONE_FRONT_SVG = `<svg class="cone-front" viewBox="0 0 200 200" aria-hidden="true">
+  <clipPath id="coneBody"><path d="M15 40 A85 24 0 0 0 185 40 L116 168 L84 168 Z"/></clipPath>
+  <g clip-path="url(#coneBody)"><rect x="0" y="0" width="200" height="200" fill="#9B3036"/>${CONE_STRIPES}</g>
+  <path d="M15 40 A85 24 0 0 0 185 40 L116 168 L84 168 Z" fill="none" stroke="#231712" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M15 40 A85 24 0 0 0 185 40" fill="none" stroke="#C8A05A" stroke-width="9" stroke-linecap="round"/>
+  <path d="M15 40 A85 24 0 0 0 185 40" fill="none" stroke="#231712" stroke-width="2.5"/>
+  <rect x="80" y="164" width="40" height="22" rx="7" fill="#C8A05A" stroke="#231712" stroke-width="5"/>
 </svg>`;
 // Stand-in Ringleader head (top hat, curled moustache, a jaw that flaps).
 const HEAD_SVG = `<svg class="blast-head-svg" viewBox="0 0 160 190" aria-hidden="true">
@@ -5198,60 +5282,77 @@ function showBlast(blast, { live = false, preview = false } = {}) {
   const o = document.createElement('div');
   o.className = 'blast-overlay ringing';
   o.setAttribute('role', 'dialog');
-  o.setAttribute('aria-label', `Incoming blast from ${blast.sender || 'the Ringleader'}`);
+  o.setAttribute('aria-label', `A holler from ${blast.sender || 'the Ringleader'}`);
   o.innerHTML = `
     <div class="blast-stage">
-      <button class="blast-mute" aria-label="Sound on or off">${soundOff() ? '🔕' : '🔔'}</button>
-      <div class="blast-ring-words" aria-hidden="true"><span>RING</span><span>RING!</span></div>
-      <div class="blast-phone">${artOr('telephone_ringing.png', TELEPHONE_SVG, 'blast-phone-art')}</div>
-      <div class="blast-caller">☎ ${escapeHtml(blast.sender || 'The Ringleader')} is calling!</div>
-      <button class="blast-pickup">Pick up!</button>
-      <div class="blast-call" hidden>
-        <div class="blast-head">${artOr('head_closed.png', HEAD_SVG, 'blast-head-art')}</div>
-        <div class="blast-bubble">
-          <div class="blast-title">${escapeHtml(blast.title)}</div>
-          <div class="blast-body" aria-live="polite"></div>
-          <div class="blast-btns">
-            ${blast.url && blast.url !== '#/dressing-room' ? `<button class="forum-btn" data-go>Take me there</button>` : ''}
-            <button class="forum-btn ghost" data-done>${preview ? 'Close preview' : 'Got it!'}</button>
-          </div>
+      <button class="blast-mute" aria-label="Sound on or off">${soundOff() ? '🔇' : '🔊'}</button>
+      <div class="blast-ring-words" aria-hidden="true"><span>HEAR YE!</span><span>HEAR YE!</span></div>
+      <div class="blast-bubble" hidden>
+        <div class="blast-title">${escapeHtml(blast.title)}</div>
+        <div class="blast-body" aria-live="polite"></div>
+        <div class="blast-btns">
+          ${blast.url && blast.url !== '#/dressing-room' ? `<button class="forum-btn" data-go>Take me there</button>` : ''}
+          <button class="forum-btn ghost" data-done>${preview ? 'Close preview' : 'Got it!'}</button>
         </div>
       </div>
+      <button class="blast-cone" aria-label="Step right up and hear the message">
+        <span class="cone-layer cone-l-back">${artOr('cone_back.png', CONE_BACK_SVG, 'cone-art')}</span>
+        <span class="cone-slot"><span class="blast-head">${artOr('head_closed.png', HEAD_SVG, 'blast-head-art')}</span></span>
+        <span class="cone-layer cone-l-front">${artOr('cone_front.png', CONE_FRONT_SVG, 'cone-art')}</span>
+      </button>
+      <div class="blast-caller">📣 ${escapeHtml(blast.sender || 'The Ringleader')} has something to holler!</div>
+      <button class="blast-pickup">Step right up!</button>
     </div>`;
   document.body.appendChild(o);
-  let stopRing = startRing();
+  let rig = megaphone();
+  let stopBlare = startBlare(rig);
+  let babble = () => {};
   const mute = o.querySelector('.blast-mute');
   mute.onclick = () => {
     const off = !soundOff();
     try { localStorage.setItem('cs-sound-off', off ? '1' : '0'); } catch (e) { /* ignore */ }
-    mute.textContent = off ? '🔕' : '🔔';
-    stopRing(); stopRing = off ? () => {} : startRing();
+    mute.textContent = off ? '🔇' : '🔊';
+    stopBlare(); rig?.close(); rig = megaphone();
+    if (o.classList.contains('ringing')) stopBlare = startBlare(rig);
+    else { stopBlare = () => {}; babble = makeBabbler(rig); }
   };
-  const finish = () => { stopRing(); o.remove(); blastShowing = null; };
-  o.querySelector('.blast-pickup').onclick = () => {
-    stopRing();
+  let typing = null;
+  const finish = () => { stopBlare(); clearInterval(typing); rig?.close(); o.remove(); blastShowing = null; };
+  const answer = () => {
+    if (!o.classList.contains('ringing')) return;
+    stopBlare();
     if (live && blast.id) apiFetch(`/api/me/blast/${blast.id}/seen`, { method: 'POST' }).catch(() => {});
+    // A fresh rig born from this tap, so iPhones let the babble play.
+    rig?.close(); rig = megaphone();
+    playBoing(rig);
+    babble = makeBabbler(rig);
     o.classList.remove('ringing'); o.classList.add('answered');
-    const phoneImg = o.querySelector('.blast-phone-art');
-    if (phoneImg) phoneImg.src = `${ROOM}telephone_still.png`;
-    o.querySelector('.blast-call').hidden = false;
-    // Type the message out while the head yaks.
+    o.querySelector('.blast-bubble').hidden = false;
     const out = o.querySelector('.blast-body'), headImg = o.querySelector('.blast-head-art'), head = o.querySelector('.blast-head');
     const text = blast.body || '';
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) { out.textContent = text; return; }
-    let i = 0;
-    head.classList.add('yakking');
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { out.textContent = text; return; }
     const mouths = ['head_open.png', 'head_wide.png', 'head_open.png', 'head_closed.png'];
-    let m = 0;
-    const yak = setInterval(() => { if (headImg) headImg.src = `${ROOM}${mouths[m++ % mouths.length]}`; }, 120);
-    const type = setInterval(() => {
-      i += 2;
-      out.textContent = text.slice(0, i);
-      if (i >= text.length) { clearInterval(type); clearInterval(yak); head.classList.remove('yakking'); if (headImg) headImg.src = `${ROOM}head_closed.png`; }
-    }, 28);
-    o.querySelector('.blast-bubble').onclick = e => { if (!e.target.closest('button')) { i = text.length; } };
+    let i = 0, m = 0, said = 0;
+    const done = () => { clearInterval(typing); head.classList.remove('yakking'); if (headImg) headImg.src = `${ROOM}head_closed.png`; };
+    // Let the boing land, then holler: a character every 38ms, a babble
+    // syllable on every other letter, mouth frames swapping as it goes.
+    setTimeout(() => {
+      if (!o.isConnected) return;
+      head.classList.add('yakking');
+      typing = setInterval(() => {
+        const ch = text[i++];
+        out.textContent = text.slice(0, i);
+        if (ch && /[\p{L}\p{N}!?]/u.test(ch) && (said++ % 2 === 0 || ch === '!' || ch === '?')) {
+          babble(ch);
+          if (headImg) headImg.src = `${ROOM}${mouths[m++ % mouths.length]}`;
+        }
+        if (i >= text.length) done();
+      }, 38);
+    }, 450);
+    o.querySelector('.blast-bubble').onclick = e => { if (!e.target.closest('button')) { i = text.length; out.textContent = text; done(); } };
   };
+  o.querySelector('.blast-pickup').onclick = answer;
+  o.querySelector('.blast-cone').onclick = answer;
   o.addEventListener('click', e => {
     if (e.target.dataset.done !== undefined) finish();
     if (e.target.dataset.go !== undefined) { finish(); location.hash = blast.url; }
@@ -5266,12 +5367,12 @@ async function renderBlastView(mainView) {
   const eventOpts = (events || []).map(e => `<option value="${e.id}">${escapeHtml(e.title)} · ${escapeHtml(formatEventDate(e.starts_at))}</option>`).join('');
   mainView.innerHTML = `
     <div class="forum">
-      <div class="forum-banner">☎<span>Ring Everyone</span></div>
+      <div class="forum-banner">📣<span>Holler at Everyone</span></div>
       <div class="forum-sheet blast-sheet">
         <form id="blastForm" class="blast-form">
           <label class="blast-field">Headline<input name="title" maxlength="120" required placeholder="Tent raising Saturday — all hands!"></label>
-          <label class="blast-field">Your message<textarea name="body" maxlength="1500" required placeholder="Say it in your voice. It types out under your yakking head."></textarea><small id="blastCount">0 / 1500</small></label>
-          <fieldset class="blast-field"><legend>Who gets rung</legend>
+          <label class="blast-field">Your message<textarea name="body" maxlength="1500" required placeholder="Say it in your voice. It types out while your head hollers it from the cone."></textarea><small id="blastCount">0 / 1500</small></label>
+          <fieldset class="blast-field"><legend>Who hears it</legend>
             <div class="blast-aud">
               ${[['all', 'Everyone'], ['inner', 'Inner members'], ['courtyard', 'Courtyard members'], ['chapter', 'A chapter'], ['city', 'A city'], ['event', 'An event’s crew']].map(([v, l], i) =>
                 `<label class="blast-pill"><input type="radio" name="aud" value="${v}" ${i === 0 ? 'checked' : ''}><span>${l}</span></label>`).join('')}
@@ -5283,7 +5384,7 @@ async function renderBlastView(mainView) {
           </fieldset>
           <label class="blast-field">“Take me there” button<select name="link"><option value="">No button</option><option value="#/events">The corkboard (events)</option><option value="#/courtyard">The Courtyard</option>${(events || []).map(e => `<option value="#/event/${e.id}">${escapeHtml(e.title)}</option>`).join('')}</select></label>
           <label class="blast-check"><input type="checkbox" name="post" checked> Also pin it up in the Courtyard</label>
-          <div class="blast-actions"><button type="button" class="forum-btn ghost" id="blastPreview">Preview the ring</button><button class="forum-btn blast-send">☎ RING THEM</button></div>
+          <div class="blast-actions"><button type="button" class="forum-btn ghost" id="blastPreview">Preview the holler</button><button class="forum-btn blast-send">📣 HOLLER IT</button></div>
           <div class="forum-note-err" id="blastErr" role="status"></div>
         </form>
         <h3 class="blast-hist-h">Past blasts</h3>
@@ -5305,7 +5406,7 @@ async function renderBlastView(mainView) {
     reachTimer = setTimeout(async () => {
       try {
         const { recipients, phones } = await apiFetch('/api/blasts/preview', { method: 'POST', body: { audience: audience() } });
-        document.getElementById('blastReach').textContent = `Rings ${recipients} member${recipients === 1 ? '' : 's'} · ${phones} with the raven on their phone`;
+        document.getElementById('blastReach').textContent = `Reaches ${recipients} member${recipients === 1 ? '' : 's'} · ${phones} with the raven on their phone`;
       } catch (e) { document.getElementById('blastReach').textContent = e.message; }
     }, 250);
   };
@@ -5322,14 +5423,14 @@ async function renderBlastView(mainView) {
   form.addEventListener('submit', async e => {
     e.preventDefault();
     const reach = document.getElementById('blastReach').textContent;
-    if (!confirm(`${reach}. Ring them now?`)) return;
+    if (!confirm(`${reach}. Holler at them now?`)) return;
     const btn = form.querySelector('.blast-send'); btn.disabled = true;
     try {
       const r = await apiFetch('/api/blasts', { method: 'POST', body: { title: form.title.value, body: form.body.value, audience: audience(), url: form.link.value || null, post_to_courtyard: form.post.checked } });
       form.reset(); updateReach();
       document.getElementById('blastErr').textContent = '';
       drawHistory();
-      const t = document.createElement('div'); t.className = 'room-toast show'; t.textContent = `☎ Ringing ${r.recipients} members (${r.phones} phones)!`;
+      const t = document.createElement('div'); t.className = 'room-toast show'; t.textContent = `📣 Hollering at ${r.recipients} members (${r.phones} phones)!`;
       document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
     } catch (err) { document.getElementById('blastErr').textContent = err.message; }
     btn.disabled = false;
@@ -5340,8 +5441,8 @@ async function renderBlastView(mainView) {
       <div class="blast-past">
         <div class="thread-title">${escapeHtml(b.title)}</div>
         <div class="thread-meta">${escapeHtml(b.audience?.label || b.audience?.type || '')} · ${timeAgo(sqlIso(b.created_at))}</div>
-        <div class="blast-picked"><b>${b.seen}</b> of ${b.recipients} picked up<span class="blast-bar"><i style="width:${b.recipients ? Math.round((b.seen / b.recipients) * 100) : 0}%"></i></span></div>
-      </div>`).join('') : '<div class="forum-empty">No blasts yet. The telephone is waiting.</div>';
+        <div class="blast-picked"><b>${b.seen}</b> of ${b.recipients} heard it<span class="blast-bar"><i style="width:${b.recipients ? Math.round((b.seen / b.recipients) * 100) : 0}%"></i></span></div>
+      </div>`).join('') : '<div class="forum-empty">No hollers yet. The cone is waiting.</div>';
   }
   drawHistory();
 }
