@@ -1831,3 +1831,7 @@ body.forum-docked .room-arrange-btn { right: calc(var(--room-gutter) + 80px); }
 /* Cosmic Mode: say "cosmic" or "cosmos" in a holler */
 .blast-overlay.cosmic .blast-head img { filter: drop-shadow(0 0 10px rgba(255,106,213,0.9)) drop-shadow(0 0 22px rgba(106,213,255,0.7)); }
 .blast-overlay.cosmic { background: radial-gradient(ellipse at 50% 60%, rgba(120,40,140,0.85), rgba(20,8,30,0.97) 70%); }
+/* the painted cone (Neeff's sheet): a tall megaphone, bell up */
+.blast-cone { width: min(250px, 60vw); aspect-ratio: 320 / 432; }
+.blast-head { left: 23%; width: 54%; }
+.cone-layer img.cone-art { object-fit: contain; }
