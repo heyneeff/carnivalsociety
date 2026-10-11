@@ -5,6 +5,35 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Carnival Society International</title>
+<meta name="description" content="A guild network teaching carnival trade skills and throwing carnivals — chapters in Denver, Boulder, and Los Angeles. Classes in tent craft, sign painting, sewing, and performance.">
+<link rel="canonical" href="https://carnivalsociety.org/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Carnival Society International">
+<meta property="og:description" content="A guild network teaching carnival trade skills and throwing carnivals — chapters in Denver, Boulder, and Los Angeles.">
+<meta property="og:url" content="https://carnivalsociety.org/">
+<meta property="og:image" content="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Carnival Society International">
+<meta name="twitter:description" content="A guild network teaching carnival trade skills and throwing carnivals — chapters in Denver, Boulder, and Los Angeles.">
+<meta name="twitter:image" content="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "NGO",
+  "name": "Carnival Society International",
+  "url": "https://carnivalsociety.org/",
+  "logo": "https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-07.png",
+  "areaServed": [
+    { "@type": "City", "name": "Denver, CO" },
+    { "@type": "City", "name": "Boulder, CO" },
+    { "@type": "City", "name": "Los Angeles, CA" }
+  ],
+  "sameAs": [
+    "https://divinersguild.net",
+    "https://guerrillaconcerto.com"
+  ]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&display=swap" rel="stylesheet">
@@ -23,6 +52,11 @@
   }
   *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
   html { scroll-behavior: smooth; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
   body {
     background: var(--cream);
     color: var(--ink);
@@ -274,7 +308,7 @@ font-family: 'Cormorant Garamond', serif;
 font-style: italic; font-size: 0.78rem;
 letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold-deep);
 }
-.field input, .field textarea {
+.field input, .field textarea, .field select {
 font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; color: var(--ink);
 background: transparent; border: 0;
 border-bottom: 1px solid rgba(139,110,52,0.5);
@@ -282,8 +316,14 @@ padding: 0.5rem 0; outline: none;
 transition: border-color 0.3s ease; resize: vertical;
 }
 .field input::placeholder, .field textarea::placeholder { color: rgba(74,56,24,0.45); font-style: italic; }
-.field input:focus, .field textarea:focus { border-color: var(--burgundy); }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--burgundy); }
 .field textarea { min-height: 90px; line-height: 1.5; }
+.field select { cursor: pointer; }
+.field-note { font-style: italic; font-size: 0.85rem; color: var(--ink-soft); line-height: 1.4; margin-top: -0.75rem; }
+.field-row { display: flex; gap: 1.25rem; }
+.field-row .field { flex: 1; }
+.disclosure { max-width: 620px; margin: 0 auto 2.5rem; text-align: center; font-style: italic; font-size: 0.92rem; color: var(--ink-soft); line-height: 1.5; }
+.disclosure strong { font-style: normal; color: var(--burgundy); font-family: 'Playfair Display', serif; }
 .btn-dark {
 align-self: center; margin-top: 0.5rem;
 padding: 1rem 2.75rem; border: 1px solid var(--burgundy);
@@ -310,6 +350,14 @@ font-family: 'Playfair Display', serif; font-style: italic; font-weight: 400;
 color: var(--burgundy); display: block; margin-bottom: 0.75rem; letter-spacing: 0.04em;
 }
 form.sent { display: none; }
+
+/* DONATE A VEHICLE */
+.donate { background: var(--cream-soft); color: var(--ink); padding: 6rem 2rem; position: relative; text-align: center; }
+.donate .section-label { color: var(--gold-deep); }
+.donate .section-title { color: var(--burgundy-red); }
+.donate .section-title em { color: var(--gold); font-style: italic; }
+.donate .section-kicker { color: var(--ink-soft); }
+.donate .section-kicker em { color: var(--burgundy); font-style: normal; }
 form.sent + .confirmation { display: block; }
 
 /* SMILE */
@@ -571,13 +619,15 @@ filter: drop-shadow(0 -6px 14px rgba(90,30,36,0.3));
 @media (max-width: 900px) {
 nav { padding: 0.75rem 1rem; }
 .nav-logomark img { height: 32px; }
-.nav-right { gap: 0.6rem; }
-.nav-chapter { font-size: 0.85rem; }
+.nav-right { gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.nav-chapter { font-size: 0.8rem; padding: 0.3rem 0.7rem; }
 .nav-signin { padding: 0.35rem 0.9rem; font-size: 0.82rem; }
 .hero { padding: 5rem 1.25rem 3rem; }
 .spiral-stage { width: 170vmin; height: 170vmin; }
 .join { padding: 4rem 1.25rem 6rem; }
+.donate { padding: 4rem 1.25rem; }
 .form-panel { padding: 2.75rem 1.75rem; }
+.field-row { flex-direction: column; gap: 1.75rem; }
 .classes { padding: 5rem 1.25rem 3.5rem; }
 .class-groups { grid-template-columns: repeat(2, 1fr); gap: 2rem; }
 .guild { padding: 4rem 1.25rem; }
@@ -616,6 +666,7 @@ nav { padding: 0.75rem 1rem; }
     </div>
     <div></div>
     <div class="hero-inner">
+      <h1 class="sr-only">Carnival Society International &mdash; Guild Network for Carnival Trade Classes, Art Builds &amp; Events in Denver, Boulder &amp; Los Angeles</h1>
       <img class="hero-wordmark"
            src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png"
            alt="Carnival Society International">
@@ -974,8 +1025,16 @@ nav { padding: 0.75rem 1rem; }
     submitBtn.disabled = false;
     fanfareStage.classList.add('go');
     playTrumpet();
+    fetch(cleanForm.action,{method:'POST',body:new FormData(cleanForm),headers:{'Accept':'application/json'}}).catch(()=>{});
     setTimeout(()=>cleanForm.classList.add('sent'),2200);
     setTimeout(()=>fanfareStage.classList.remove('go'),5000);
+  });
+  const donateForm=document.getElementById('donateForm');
+  donateForm.addEventListener('submit',e=>{
+    e.preventDefault();
+    fetch(donateForm.action,{method:'POST',body:new FormData(donateForm),headers:{'Accept':'application/json'}})
+      .then(()=>donateForm.classList.add('sent'))
+      .catch(()=>donateForm.classList.add('sent'));
   });
   const drawer=document.getElementById('drawer');
   const drawerTab=document.getElementById('drawerTab');
