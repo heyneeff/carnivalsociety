@@ -1718,6 +1718,7 @@ async function api(request, env, url, ctx) {
        WHERE conversation_participants.conversation_id = ? AND conversation_participants.user_id != ?`
     ).bind(convId, user.id).all();
     const { results: messages } = await env.DB.prepare("SELECT * FROM direct_messages WHERE conversation_id = ? ORDER BY created_at ASC").bind(convId).all();
+    await env.DB.prepare("UPDATE conversation_participants SET last_read_at = datetime('now') WHERE conversation_id = ? AND user_id = ?").bind(convId, user.id).run();
     return json({ other: other[0] || null, messages });
   }
   if (dmMessagesMatch && method === "POST") {
@@ -1921,6 +1922,20 @@ async function passportRoutes(request, env, url, user) {
   if (pathname === "/api/me/passport" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     return json(await passportFor(env, user.id));
+  }
+  // Unread letters (DMs) for the raven and the Messages badges.
+  if (pathname === "/api/me/letters" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare(
+      `SELECT cp.conversation_id, u.display_name, COUNT(*) AS n, MAX(m.created_at) AS latest
+       FROM conversation_participants cp
+       JOIN direct_messages m ON m.conversation_id = cp.conversation_id AND m.sender_id != cp.user_id
+         AND m.created_at > COALESCE(cp.last_read_at, '1970-01-01')
+       JOIN users u ON u.id = m.sender_id
+       WHERE cp.user_id = ?
+       GROUP BY cp.conversation_id ORDER BY latest DESC`
+    ).bind(user.id).all();
+    return json({ unread: results.reduce((a, r) => a + r.n, 0), from: results.map((r) => ({ conversation_id: r.conversation_id, display_name: r.display_name, n: r.n })) });
   }
   // Live chat (polled). GET ?after=<id> returns newer messages (or the last
   // 40), and who's been here in the last minute; each poll marks you here.

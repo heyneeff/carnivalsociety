@@ -395,7 +395,7 @@ function renderShell() {
     link('#/courtyard', 'Courtyard', is('courtyard')),
     link('#/events', 'Events', is('events', 'event/')),
     inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard) : '',
-    inner ? link('#/dm', 'Messages', is('dm', 'dm/')) : '',
+    inner ? link('#/dm', 'Messages', is('dm', 'dm/'), lettersBadge()) : '',
   ].join('');
 
   const sheetLink = (href, label, active, extra = '') => `<a class="sheet-link ${active ? 'active' : ''}" href="${href}">${label}${extra}</a>`;
@@ -412,7 +412,7 @@ function renderShell() {
       ${sheetLink('#/courtyard', 'Courtyard', is('courtyard'))}
       ${sheetLink('#/events', 'Events &amp; Volunteering', is('events', 'event/'))}
       ${inner ? sheetLink('#/guild-hall', 'Guild Hall', onGuildHallBoard) : ''}
-      ${inner ? sheetLink('#/dm', 'Messages', is('dm', 'dm/')) : ''}
+      ${inner ? sheetLink('#/dm', 'Messages', is('dm', 'dm/'), lettersBadge()) : ''}
       ${inner ? sheetLink('#/hub', 'Crew Hub', is('hub', 'crew/')) : ''}
     </div>
     ${profile?.is_ringleader ? `
@@ -456,7 +456,7 @@ function renderShell() {
         ${tab('#/dressing-room', 'Dressing Room', is('dressing-room', 'passport'), svg('M6 21V10a6 6 0 0 1 12 0v11z M4 21h16'))}
         ${tab('#/courtyard', 'Courtyard', is('courtyard'), svg('M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5'))}
         ${tab('#/events', 'Events', is('events', 'event/'), svg('M3 21h18 M4 21 12 4l8 17 M12 4v17 M12 4l3-2'))}
-        ${inner ? tab('#/dm', 'Messages', is('dm', 'dm/'), svg('M4 5h16v11H9l-5 4z')) : tab('#/profile', 'Me', is('profile'), svg('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0'))}
+        ${inner ? tab('#/dm', `Messages${lettersBadge()}`, is('dm', 'dm/'), svg('M4 5h16v11H9l-5 4z')) : tab('#/profile', 'Me', is('profile'), svg('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0'))}
       </nav>
     </div>
   `;
@@ -466,6 +466,7 @@ function renderShell() {
     session = false; profile = null; chapters = []; boards = []; crewEvents = []; activeCrewEventId = null;
     mobileNavOpen = false;
     clearTimeout(chat.timer); Object.assign(chat, { messages: [], lastId: 0, here: [], open: null, unread: 0, timer: null });
+    letters = { unread: 0, from: [] };
     document.body.classList.remove('chat-docked');
     render();
   };
@@ -490,6 +491,7 @@ function pageKind(route) {
 
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
+  roomHooks = {};
   mainView.dataset.page = pageKind(route);
   if (route.startsWith('event/')) mainView.dataset.single = '1';
   stopDMPolling();
@@ -4984,6 +4986,18 @@ async function renderDressingRoom(mainView) {
   if (!needsRankCelebration()) maybeShowPrize(p);
 }
 
+// ── Letters (DMs): unread count for the raven + Messages badges. Checked
+// alongside the chat poll; the room listens through roomHooks.
+let letters = { unread: 0, from: [] };
+let roomHooks = {};
+async function refreshLetters() {
+  if (!session || !isInnerMember()) return;
+  try { letters = await apiFetch('/api/me/letters'); } catch (e) { return; }
+  document.querySelectorAll('[data-letters-badge]').forEach(b => { b.hidden = !letters.unread; b.textContent = letters.unread > 9 ? '9+' : letters.unread; });
+  roomHooks.onLetters?.();
+}
+function lettersBadge() { return `<span class="nav-badge" data-letters-badge ${letters.unread ? '' : 'hidden'}>${letters.unread > 9 ? '9+' : letters.unread}</span>`; }
+
 // ── The Green Room: live chat (polled; D1 has no push). Lives in the shell
 // so it follows you around: docked in the Dressing Room's left glow when
 // there's space, otherwise a launcher that slides it in from the left.
@@ -5091,13 +5105,22 @@ async function pollChat() {
 }
 
 function startChat() {
+  let n = 0;
   const tick = async () => {
     if (!session) { chat.timer = null; return; }
-    if (document.visibilityState === 'visible') await pollChat();
+    if (document.visibilityState === 'visible') {
+      await pollChat();
+      if (!chatIsOpen() || n++ % 3 === 0) await refreshLetters();
+    }
     chat.timer = setTimeout(tick, chatIsOpen() ? 3000 : 10000);
   };
-  chat.timer = setTimeout(tick, 0);
+  pollChat(); refreshLetters();
+  chat.timer = setTimeout(tick, 3000);
 }
+// Coming back to the tab: catch up right away instead of waiting a tick.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && session && chat.timer) { pollChat(); refreshLetters(); }
+});
 window.addEventListener('resize', () => { if (session && document.getElementById('chatPanel')) mountChat(); });
 
 // ── The Room: the illustrated Dressing Room, everyone's landing page.
@@ -5143,7 +5166,7 @@ async function renderRoom(mainView) {
   mainView.classList.add('main-room');
   roomEditing = false;
   const [p, { events }, layout] = await Promise.all([
-    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })),
+    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })), refreshLetters(),
   ]);
   const upcoming = events || [];
   const request = upcoming.find(e => !myVolunteering.has(e.id));
@@ -5162,7 +5185,13 @@ async function renderRoom(mainView) {
       case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/passport'];
       case 'costume': return ['Try on a Costume', '#/profile'];
       case 'flyer': { const e = upcoming[it.n || 0]; return e ? [`Flyer: ${e.title}`, `#/event/${e.id}`] : ['Read the Flyers', '#/events']; }
-      case 'raven': return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
+      case 'raven': {
+        if (letters.unread) {
+          const f = letters.from[0];
+          return [`Hear the Raven (a letter from ${f.display_name}!)`, letters.from.length === 1 ? `#/dm/${f.conversation_id}` : '#/dm'];
+        }
+        return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
+      }
       case 'book': return ['Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
       case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
       case 'exit': return ['Step out to the Courtyard', '#/courtyard'];
@@ -5178,7 +5207,7 @@ async function renderRoom(mainView) {
   // Live state swaps art: the raven squawks, the trunk spills open.
   const look = it => {
     let img = it.img, w = it.w, t = it.t, anim = it.anim || '';
-    if (!roomEditing && it.role === 'raven' && request && img === 'raven_perched') { img = 'raven_squawk'; w = it.w * (208 / 151); anim = 'hop'; }
+    if (!roomEditing && it.role === 'raven' && (request || letters.unread) && img === 'raven_perched') { img = 'raven_squawk'; w = it.w * (208 / 151); anim = 'hop'; }
     if (!roomEditing && it.role === 'trunk' && newStamp && img === 'trunk_closed') {
       img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
     }
@@ -5240,7 +5269,7 @@ async function renderRoom(mainView) {
   function extras() {
     let out = '';
     const raven = items.find(i => i.role === 'raven'), exit = items.find(i => i.role === 'exit'), trunk = items.find(i => i.role === 'trunk');
-    if (request && raven) out += `<div class="room-squawk" style="left:${raven.l - 6}%;top:${raven.t - 4.5}%" aria-hidden="true">SQUAWK!</div>`;
+    if ((request || letters.unread) && raven) out += `<div class="room-squawk ${letters.unread ? 'letter' : ''}" style="left:${raven.l - 6}%;top:${raven.t - 4.5}%" aria-hidden="true">${letters.unread ? 'SQUAWK! A LETTER!' : 'SQUAWK!'}</div>`;
     if (exit) out += `<div class="room-exit-sign" style="left:${exit.l - 4}%;top:${exit.t + (exit.h || 10) - 5}%" aria-hidden="true">Courtyard →</div>`;
     if (newStamp && trunk) out += `<div class="room-trunk-glow" style="left:${trunk.l}%;top:${trunk.t - 3}%;width:${trunk.w}%;height:${trunk.w}%" aria-hidden="true"></div>`;
     return out;
@@ -5416,14 +5445,22 @@ async function renderRoom(mainView) {
     draw();
   });
 
+  let lettersSeen = letters.unread;
+  roomHooks.onLetters = () => {
+    if (roomEditing) return;
+    if (letters.unread > lettersSeen && letters.from[0]) say(`SQUAWK! A letter from ${letters.from[0].display_name}!`);
+    lettersSeen = letters.unread;
+    draw();
+  };
   draw();
+  if (letters.unread && letters.from[0]) say(`SQUAWK! ${letters.unread === 1 ? 'A letter' : `${letters.unread} letters`} waiting — the raven has them.`);
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
   const vp = document.getElementById('roomViewport');
   requestAnimationFrame(() => {
     const max = vp.scrollWidth - vp.clientWidth;
     if (max <= 0) return;
-    vp.scrollLeft = request ? max : max / 2;
+    vp.scrollLeft = request || letters.unread ? max : max / 2;
     say('⟷ Swipe to look around · tap ✦ to see what you can touch');
   });
 }

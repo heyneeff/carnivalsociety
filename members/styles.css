@@ -1489,3 +1489,6 @@ body.chat-docked .chat-close { display: none; }
   .main[data-page="book"] .crew-tabs::-webkit-scrollbar { display: none; }
   .main[data-page="book"] .crew-tab { flex: none; }
 }
+.room-squawk.letter { background: #fff3d6; border-color: #9B3036; color: #9B3036; }
+.bottomtab .nav-badge { margin-left: 4px; }
+.nav-badge[hidden] { display: none; }

@@ -384,6 +384,15 @@ CREATE TABLE chat_presence (
   seen_at TEXT NOT NULL
 );
 
+-- ============================================================
+-- migrations/2026-10-11-dm-read.sql
+-- ============================================================
+-- Unread letters: when each participant last read their conversation, so
+-- the raven can squawk about new DMs. Backfilled to now so old messages
+-- don't all show as unread on deploy.
+ALTER TABLE conversation_participants ADD COLUMN last_read_at TEXT;
+UPDATE conversation_participants SET last_read_at = datetime('now');
+
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:
 --   * users:   self can update display_name/home_chapter_id/avatar_url only;
