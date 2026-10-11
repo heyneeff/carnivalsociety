@@ -141,8 +141,8 @@ function render() {
   mobileNavOpen = false; // any navigation closes the mobile drawer
   const resetMatch = window.location.hash.match(/^#\/reset\/([0-9a-f]+)$/);
   if (resetMatch) { renderResetScreen(resetMatch[1]); return; }
-  if (!session || !profile) { session = false; profile = null; renderAuthScreen(defaultAuthMode()); return; }
-  if (!profile.onboarded) { renderOnboarding(); return; }
+  if (!session || !profile) { session = false; profile = null; dropForumWing(); renderAuthScreen(defaultAuthMode()); return; }
+  if (!profile.onboarded) { dropForumWing(); renderOnboarding(); return; }
   renderShell();
   if (needsRankCelebration() && !document.querySelector('.rank-celebration')) renderRankCelebration();
 }
@@ -500,6 +500,7 @@ function renderShell() {
 
   renderMainView(route);
   mountChat();
+  mountForumWing();
 }
 
 // Which kind of place a page is, for its cozy styling (see styles.css):
@@ -750,11 +751,11 @@ async function renderBoardView(host, slug) {
   host.innerHTML = `
     <div class="forum-toolbar">
       <div class="forum-desc">${escapeHtml(board.description || '')}</div>
-      ${canStartThread ? `<button class="forum-btn" id="startThread">✒ Start a thread</button>` : ''}
+      ${canStartThread ? `<button class="forum-btn" data-start-thread>✒ Start a thread</button>` : ''}
     </div>
     ${!isInnerMember() && board.slug === 'courtyard' ? `<div class="forum-note-pinned"><strong>Welcome to the courtyard, ${escapeHtml(profile.display_name)}!</strong> This is where the guild posts news and calls for help. The quickest way in is to <a href="#/events">volunteer for an upcoming event</a>.</div>` : ''}
     <div class="thread-list">${cards || `<div class="forum-empty"><img src="${ROOM}raven_perched.png" alt="" class="forum-empty-bird">${board.slug === 'courtyard' ? 'Nothing posted yet. News and volunteer calls will land here.' : 'Quiet in here. Be the first to start a thread!'}</div>`}</div>`;
-  document.getElementById('startThread')?.addEventListener('click', () => openForumNote({
+  host.querySelector('[data-start-thread]')?.addEventListener('click', () => openForumNote({
     heading: `A new thread in ${board.name}`, withTitle: true, cta: 'Pin it up',
     placeholder: board.slug === 'courtyard' ? 'News for everyone in the courtyard…' : "What's on your mind?",
     onSubmit: async ({ title, body }) => { await apiFetch('/api/posts', { method: 'POST', body: { board_id: board.id, title, body } }); renderBoardView(host, slug); },
@@ -5490,6 +5491,7 @@ async function refreshNews() {
   try { news = await apiFetch('/api/me/news'); } catch (e) { return; }
   document.querySelectorAll('[data-news]').forEach(d => { d.hidden = !isNew(d.dataset.news); });
   roomHooks.onNews?.();
+  if (document.body.classList.contains('forum-docked')) mountForumWing();
 }
 
 async function refreshLetters() {
@@ -5625,7 +5627,51 @@ function startChat() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && session && chat.timer) { pollChat(); refreshLetters(); refreshNews(); checkBlast(); }
 });
-window.addEventListener('resize', () => { if (session && document.getElementById('chatPanel')) mountChat(); });
+window.addEventListener('resize', () => { if (session && document.getElementById('chatPanel')) { mountChat(); mountForumWing(); } });
+
+// ── The Guild Hall wing (2026-10-12): on wide screens the forum stays open in
+// the room's right wing, flush to the painting, mirroring the Green Room.
+// It lives outside #app so navigating doesn't reload it.
+const wing = { slug: null, at: 0, stamp: '' };
+function dropForumWing() {
+  document.getElementById('forumWing')?.remove();
+  document.body.classList.remove('forum-docked');
+  Object.assign(wing, { slug: null, at: 0, stamp: '' });
+}
+async function mountForumWing() {
+  const docked = session && document.body.classList.contains('chat-docked');
+  document.body.classList.toggle('forum-docked', !!docked);
+  let el = document.getElementById('forumWing');
+  if (!docked) { if (el) el.hidden = true; return; }
+  const inner = isInnerMember();
+  if (!wing.slug || (!inner && wing.slug !== 'courtyard')) wing.slug = inner ? 'guild-hall' : 'courtyard';
+  if (!el) {
+    el = document.createElement('aside');
+    el.id = 'forumWing';
+    el.className = 'forum-wing';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => {
+      const t = e.target.closest('[data-wing]');
+      if (t && t.dataset.wing !== wing.slug) { wing.slug = t.dataset.wing; mountForumWing(); }
+    });
+  }
+  el.hidden = false;
+  // Redraw only when the board, or what's new on it, has changed (or now and then).
+  const stamp = `${wing.slug}|${news.guild}|${news.courtyard}`;
+  if (stamp === wing.stamp && Date.now() - wing.at < 90e3) return;
+  wing.stamp = stamp; wing.at = Date.now();
+  const yard = wing.slug === 'courtyard';
+  el.setAttribute('aria-label', yard ? 'The Courtyard' : 'The Guild Hall');
+  const tab = (slug, label) => `<button class="wing-tab ${wing.slug === slug ? 'active' : ''}" data-wing="${slug}" aria-pressed="${wing.slug === slug}">${label}${newsDot(slug === 'courtyard' ? 'courtyard' : 'guild')}</button>`;
+  el.innerHTML = `
+    <div class="wing-head">
+      <div class="wing-title">${forumIcon(yard ? 'yard' : 'tent', 20)}<span>${yard ? 'The Courtyard' : 'The Guild Hall'}</span></div>
+      ${inner ? `<div class="wing-tabs">${tab('guild-hall', 'Guild Hall')}${tab('courtyard', 'Courtyard')}</div>` : ''}
+    </div>
+    <div class="wing-body"><div class="forum-empty">Unrolling the parchment…</div></div>`;
+  const body = el.querySelector('.wing-body');
+  try { await renderBoardView(body, wing.slug); } catch (e) { body.innerHTML = '<div class="forum-empty">The pages are stuck. Try again in a moment.</div>'; }
+}
 
 // ── The Room: the illustrated Dressing Room, everyone's landing page.
 // One square painting (assets/room/room_bg.jpg) with tappable objects laid
@@ -5694,6 +5740,8 @@ async function renderRoom(mainView) {
           const f = letters.from[0];
           return [`Hear the Raven (a letter from ${f.display_name}!)`, letters.from.length === 1 ? `#/dm/${f.conversation_id}` : '#/dm'];
         }
+        const nf = items.find(f => f.role === 'flyer' && visible(f) && fresh(f));
+        if (nf) return [`Hear the Raven (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
         return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
       }
       case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
@@ -5714,13 +5762,25 @@ async function renderRoom(mainView) {
     // The raven really squawks: two frames (beak shut / beak open) flipped in
     // bursts — frantic for a letter, now-and-then for a volunteer call.
     let frames = null;
-    if (!roomEditing && it.role === 'raven' && (request || letters.unread) && img === 'raven_perched') { frames = letters.unread ? 'frantic' : 'calm'; anim = 'hop'; }
+    if (!roomEditing && it.role === 'raven' && img === 'raven_perched' && squawk()) { frames = letters.unread || items.some(f => f.role === 'flyer' && fresh(f)) ? 'frantic' : 'calm'; anim = 'hop'; }
     if (!roomEditing && it.role === 'trunk' && newStamp && img === 'trunk_closed') {
       img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
     }
     // Something new waiting behind it: the object perks up.
     const cls = !roomEditing && fresh(it) ? 'is-new' : '';
     return { img, w, t, anim, frames, cls };
+  };
+  // What the raven is squawking about, most urgent first (null = quiet).
+  const short = (t, n = 26) => t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
+  const squawk = () => {
+    if (letters.unread && letters.from[0]) return letters.unread === 1 ? `A letter from ${short(letters.from[0].display_name, 18)}!` : `${letters.unread} new letters!`;
+    const nf = items.find(it => it.role === 'flyer' && visible(it) && fresh(it));
+    if (nf) return `New flyer: ${short(flyerEvent(nf).title)}`;
+    if (inner && isNew('guild')) return 'New in the Guild Hall!';
+    if (isNew('courtyard')) return 'New in the Courtyard!';
+    if (newStamp) return 'A new badge in the trunk!';
+    if (request) return `Hands needed: ${short(request.title)}`;
+    return null;
   };
   // Flyers are the real upcoming events: one per event, none when it's quiet.
   const flyerEvent = it => upcoming[it.n || 0];
@@ -5791,11 +5851,12 @@ async function renderRoom(mainView) {
   function extras() {
     let out = '';
     const raven = items.find(i => i.role === 'raven'), exit = items.find(i => i.role === 'exit'), trunk = items.find(i => i.role === 'trunk');
-    if ((request || letters.unread) && raven) out += `<div class="room-squawk ${letters.unread ? 'letter' : ''}" style="left:${raven.l - 6}%;top:${raven.t - 4.5}%" aria-hidden="true">${letters.unread ? 'SQUAWK! A LETTER!' : 'SQUAWK!'}</div>`;
+    const said = raven && squawk();
+    if (said) out += `<div class="room-squawk said ${letters.unread ? 'letter' : ''}" style="left:${raven.l + raven.w * 0.55}%;top:${raven.t - 1.5}%" aria-hidden="true"><b>SQUAWK!</b> ${escapeHtml(said)}</div>`;
     if (exit) out += `<div class="room-exit-sign${fresh(exit) ? ' is-new' : ''}" style="left:${exit.l - 4}%;top:${exit.t + (exit.h || 10) - 5}%" aria-hidden="true">Courtyard →</div>`;
     // NEW! tags pinned to whatever has something waiting.
     items.filter(it => visible(it) && ['flyer', 'book'].includes(it.role) && fresh(it)).forEach(it => {
-      out += `<div class="room-new" style="left:${it.l + it.w / 2}%;top:${it.t - 1.5}%" aria-hidden="true">NEW!</div>`;
+      out += `<div class="room-new" style="left:${it.role === 'book' ? it.l + it.w * 0.12 : it.l + it.w / 2}%;top:${it.t - 1.5}%" aria-hidden="true">NEW!</div>`;
     });
     if (newStamp && trunk) out += `<div class="room-trunk-glow" style="left:${trunk.l}%;top:${trunk.t - 3}%;width:${trunk.w}%;height:${trunk.w}%" aria-hidden="true"></div>`;
     return out;

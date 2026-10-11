@@ -1795,3 +1795,36 @@ body { --room-gutter: calc((100vw - (100vh - 69px)) / 2); }
 body.chat-docked .chat-panel { top: 69px; bottom: 0; width: min(480px, var(--room-gutter)); left: calc(var(--room-gutter) - min(480px, var(--room-gutter))); border: none; border-right: 3px solid var(--gold-deep); border-radius: 0; box-shadow: inset -14px 0 22px -8px rgba(0,0,0,0.45), 6px 0 18px rgba(0,0,0,0.35); }
 body.chat-docked .chat-head { padding-top: 20px; }
 body.chat-docked .unfold { left: var(--room-gutter); }
+
+/* ── The Guild Hall wing: the forum open in the room's right wing (2026-10-12) ── */
+.forum-wing { position: fixed; z-index: 41; top: 69px; bottom: 0; width: min(480px, var(--room-gutter)); right: calc(var(--room-gutter) - min(480px, var(--room-gutter))); display: flex; flex-direction: column; background: linear-gradient(180deg, #4a2f1c, #3a2416); border-left: 3px solid var(--gold-deep); box-shadow: inset 14px 0 22px -8px rgba(0,0,0,0.45), -6px 0 18px rgba(0,0,0,0.35); }
+.forum-wing[hidden] { display: none; }
+.wing-head { display: flex; flex-direction: column; gap: 10px; padding: 20px 16px 10px; }
+.wing-title { display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; padding: 8px 18px; border-radius: 999px; background: #9B3036; color: #F4E8D0; border: 3px solid #6b4a2e; box-shadow: 0 4px 0 #2a180e; font-family: 'Playfair Display', serif; font-weight: 800; font-size: 19px; }
+.wing-tabs { display: flex; gap: 6px; }
+.wing-tab { display: inline-flex; align-items: center; min-height: 38px; padding: 0 14px; border-radius: 12px 12px 0 0; border: 2px solid #6b4a2e; border-bottom: none; background: #c9b183; color: #4a2f1c; font-weight: 700; font-size: 14px; cursor: pointer; }
+.wing-tab.active { background: #f3e3c0; }
+.wing-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; margin: 0 10px 10px; padding: 16px 12px; border-radius: 0 14px 14px 14px; background: #f3e3c0; color: #3a2616; box-shadow: inset 0 0 0 2px #d9c09a; }
+/* narrow card: title over snippet, replies tucked under */
+.forum-wing .forum-toolbar { margin-bottom: 12px; }
+.forum-wing .forum-desc { font-size: 15px; }
+.forum-wing .forum-btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+.forum-wing .thread-card { grid-template-columns: auto 1fr; gap: 10px; padding: 12px; }
+.forum-wing .thread-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; text-align: left; }
+.forum-wing .thread-title { font-size: 16px; }
+.forum-wing .thread-snippet { font-size: 13.5px; }
+.forum-wing .thread-last { white-space: normal; }
+.forum-wing .forum-note-pinned { font-size: 14px; }
+body.forum-docked .unfold { right: var(--room-gutter); }
+body.forum-docked .room-reveal { right: calc(var(--room-gutter) + 18px); }
+body.forum-docked .room-arrange-btn { right: calc(var(--room-gutter) + 80px); }
+
+/* ── The raven says what it's squawking about, and keeps saying it ── */
+.room-squawk.said { max-width: 34%; width: max-content; white-space: normal; text-align: center; line-height: 1.15; font-weight: 700; font-size: clamp(10px, 1.5vh, 15px); padding: 0.35em 0.7em; border-radius: 14px 14px 4px 14px; animation: room-squawk-said 1.3s ease-in-out infinite; transform-origin: 85% 100%; z-index: 4; }
+.room-squawk.said b { font-weight: 800; color: #9B3036; }
+.room-squawk.said.letter { background: #FFE2A0; }
+@keyframes room-squawk-said { 0%,100% { transform: translate(-85%, -100%) rotate(-3deg); } 50% { transform: translate(-85%, -100%) rotate(2deg) scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .room-squawk.said { animation: none; transform: translate(-85%, -100%); } }
+.room-squawk.said { max-width: 25%; border-radius: 14px 14px 4px 14px; transform-origin: 60% 100%; animation-name: room-squawk-said2; }
+@keyframes room-squawk-said2 { 0%,100% { transform: translate(-60%, -100%) rotate(-2deg); } 50% { transform: translate(-60%, -100%) rotate(2deg) scale(1.05); } }
+@media (prefers-reduced-motion: reduce) { .room-squawk.said { transform: translate(-60%, -100%); } }
