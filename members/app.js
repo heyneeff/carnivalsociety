@@ -427,6 +427,7 @@ function renderShell() {
       <div class="sheet-label">You</div>
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
       ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
+      ${sheetLink('#/album', 'Troupe album', is('album'), '', 'the people you’ve met')}
       ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
       ${(ravenEnv().ios && !ravenEnv().standalone) || ('Notification' in window && Notification.permission !== 'granted') ? '<button class="sheet-link sheet-raven" id="sheetRaven"><span>📲 Get live updates</span><small class="sheet-hint">job reminders, letters, hollers</small></button>' : ''}
     </div>
@@ -522,13 +523,14 @@ function pageKind(route) {
 // The room stays mounted behind every cozy page. A page grows out of the
 // object it belongs to (forum from the book, events from the corkboard…)
 // and folds back into it on close. Ringleader tools stay full pages.
-const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
+const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], album: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
 let roomStage = null, roomStageAt = 0, unfoldKind = null, unfoldFrom = null;
 // Routes that are the room itself; #/badges (old #/passport) opens the trunk.
 const ROOM_ROUTES = ['dressing-room', 'badges', 'passport'];
 let wantTrunk = false;
 function unfoldKindOf(route) {
   if (route === 'tickets') return 'tickets';
+  if (route === 'album') return 'album';
   if (route === 'blast') return 'blast';
   if (route === 'courtyard') return 'courtyard';
   const k = pageKind(route);
@@ -624,6 +626,7 @@ function renderPage(mainView, route) {
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
+  if (route === 'album') { renderAlbum(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
   if (route === 'blast') { renderBlastView(mainView); return; }
   if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
@@ -1087,6 +1090,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       <div class="job-board" data-jobs-for="${e.id}"></div>
+      ${onlyEventId ? `<div class="crew-table" data-crew-for="${e.id}"></div>` : myVolunteering.has(e.id) ? `<a class="crew-link" href="#/event/${e.id}">🎪 Your crew table →</a>` : ''}
       <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
       ${showTools ? `<details class="rl-tools"><summary>✎ Ringleader tools</summary><div class="rl-tools-body">
         <div class="post-actions">
@@ -1131,6 +1135,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
 
   (events || []).forEach(e => { renderTicketPanel(e.id); renderVolunteerRow(e.id); });
   renderJobs(mainView);
+  mainView.querySelectorAll('[data-crew-for]').forEach(h => renderCrewTable(h, h.dataset.crewFor));
 
   if (canManage) {
     document.getElementById('eventComposer').addEventListener('submit', async e => {
@@ -1207,6 +1212,68 @@ async function renderEventsView(mainView, onlyEventId = null) {
     btn.textContent = 'Hide past events';
     await loadArchivedEvents();
   });
+}
+
+// ── Crew tables + handshakes (2026-10-12) ──
+// Everyone volunteering at an event shares a little table: faces, jobs and
+// a chat. From just before the event to a week after, crewmates can shake
+// hands; when both say yes, each lands in the other's Troupe Album.
+async function renderCrewTable(host, eventId) {
+  let t;
+  try { t = await apiFetch(`/api/events/${eventId}/table`); } catch (e) { return; }
+  if (!host.isConnected) return;
+  if (!t.crew) { host.innerHTML = ''; return; }
+  const face = c => `<span class="ct-face ${c.is_ringleader ? 'rl' : ''}">${escapeHtml((c.display_name || '?').trim().slice(0, 1).toUpperCase())}</span>`;
+  const shake = c => {
+    if (!t.am_crew || c.shake === 'me') return c.shake === 'me' ? '<span class="ct-you">you</span>' : '';
+    if (c.shake === 'met') return '<span class="ct-met">🤝 Met!</span>';
+    if (!t.shake_open) return '';
+    if (c.shake === 'asked') return '<span class="ct-wait">Hand out…</span>';
+    if (c.shake === 'asks_you') return `<button class="composer-submit ct-shake" data-shake="${c.id}" data-name="${escapeHtml(c.display_name)}">🤝 Shake back!</button>`;
+    return `<button class="action-btn ct-shake" data-shake="${c.id}" data-name="${escapeHtml(c.display_name)}">🤝 Shake hands</button>`;
+  };
+  const wasNear = (() => { const l = host.querySelector('.ct-chat'); return !l || l.scrollHeight - l.scrollTop - l.clientHeight < 40; })();
+  host.innerHTML = `
+    <div class="ct-head">🎪 Your crew table</div>
+    ${t.am_crew && !t.shake_open ? '<div class="ct-note">On the day, shake hands with your crew here. Both say yes and you\u2019re in each other\u2019s Troupe Album.</div>' : ''}
+    <ul class="ct-crew">${t.crew.map(c => `<li class="ct-mate ${c.shake === 'asks_you' ? 'asks' : ''}">${face(c)}<span class="ct-who"><b>${escapeHtml(c.display_name)}</b>${c.jobs ? `<small>${escapeHtml(c.jobs)}</small>` : ''}</span>${shake(c)}</li>`).join('')}</ul>
+    <div class="ct-chat" aria-live="polite">${t.messages.length ? t.messages.map(m => `<div class="ct-msg ${m.user_id === profile.id ? 'mine' : ''}"><b>${escapeHtml(m.display_name)}</b> ${escapeHtml(m.body)} <small>${timeAgo(sqlIso(m.created_at))}</small></div>`).join('') : '<div class="ct-empty">Nobody\u2019s said anything yet. Say hi to your crew!</div>'}</div>
+    ${t.am_crew ? '<form class="ct-say"><input name="body" maxlength="600" placeholder="Say something to your crew…" aria-label="Message your crew" autocomplete="off" required><button class="composer-submit" aria-label="Send">→</button></form>' : ''}`;
+  const chat = host.querySelector('.ct-chat');
+  if (wasNear) chat.scrollTop = chat.scrollHeight;
+  host.querySelectorAll('[data-shake]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const { status } = await apiFetch('/api/handshakes', { method: 'POST', body: { user_id: b.dataset.shake, event_id: eventId } });
+      flashToast(status === 'met' ? `🤝 You met ${b.dataset.name}! They’re in your Troupe Album.` : `🤝 Hand out! When ${b.dataset.name} shakes back, you’re in each other’s album.`, 5000);
+    } catch (err) { flashToast(err.message); }
+    renderCrewTable(host, eventId);
+  });
+  const form = host.querySelector('.ct-say');
+  if (form) form.onsubmit = async e => {
+    e.preventDefault();
+    try { await apiFetch(`/api/events/${eventId}/table/messages`, { method: 'POST', body: { body: form.body.value } }); form.reset(); }
+    catch (err) { flashToast(err.message); }
+    await renderCrewTable(host, eventId);
+    host.querySelector('.ct-say input')?.focus();
+  };
+  // Keep the table fresh while it's open (but don't clobber a half-typed message).
+  clearTimeout(host._poll);
+  host._poll = setTimeout(() => { if (host.isConnected && !host.querySelector('.ct-say input')?.value) renderCrewTable(host, eventId); }, 20000);
+}
+
+// The Troupe Album: everyone you've shaken hands with, as little polaroids.
+async function renderAlbum(mainView) {
+  mainView.innerHTML = '<h2>The Troupe Album</h2><div class="placeholder-note">Opening the album…</div>';
+  const { album } = await apiFetch('/api/me/album');
+  mainView.innerHTML = `
+    <h2>The Troupe Album</h2>
+    <p class="album-sub">${album.length ? `${album.length} ${album.length === 1 ? 'carnie' : 'carnies'} you\u2019ve met in real life.` : 'Nobody here yet.'} Shake hands with your crew at an event and they land here.</p>
+    <div class="album-grid">${album.length ? album.map((m, i) => `
+      <figure class="polaroid" style="--tilt:${((i * 37) % 7) - 3}deg">
+        <div class="polaroid-face ${m.is_ringleader ? 'rl' : ''}">${escapeHtml((m.display_name || '?').trim().slice(0, 1).toUpperCase())}</div>
+        <figcaption><b>${escapeHtml(m.display_name)}</b><small>${escapeHtml(m.is_ringleader ? 'Ringleader' : rankLabel(m.rank))}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</small><small>Met at ${escapeHtml(m.event_title || 'the carnival')} · ${new Date(sqlTime(m.met_at)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></figcaption>
+      </figure>`).join('') : `<div class="album-empty"><img src="${ROOM}raven_perched.png" alt=""><span>Volunteer for an event, take a job, and on the day tap <b>🤝 Shake hands</b> at your crew table.</span><a class="composer-submit" href="#/events">See what’s coming up</a></div>`}</div>`;
 }
 
 // ── Jobs on flyers (2026-10-12) ──
@@ -5863,10 +5930,12 @@ let roomEditing = false;
 async function renderRoom(mainView) {
   mainView.classList.add('main-room');
   roomEditing = false;
-  const [p, { events }, layout, { jobs }] = await Promise.all([
+  const [p, { events }, layout, { jobs }, { crews }] = await Promise.all([
     apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })),
-    apiFetch('/api/jobs').catch(() => ({ jobs: [] })), refreshLetters(), refreshNews(),
+    apiFetch('/api/jobs').catch(() => ({ jobs: [] })), apiFetch('/api/me/crews').catch(() => ({ crews: [] })), refreshLetters(), refreshNews(),
   ]);
+  // Crews you're on whose handshakes are open: someone waiting on you, or crewmates not met yet.
+  const shakeAsk = crews.find(c => c.asks > 0), shakeOpen = crews.find(c => c.unshaken > 0);
   // Open job spots per event, and the soonest event (within 10 days) still short of hands.
   const openSpots = id => jobs.filter(j => j.event_id === id).reduce((n, j) => n + Math.max(j.slots - j.claims.length, 0), 0);
   const shortHanded = (events || []).find(e => sqlTime(e.starts_at) - Date.now() < 10 * 864e5 && openSpots(e.id) > 0);
@@ -5896,8 +5965,10 @@ async function renderRoom(mainView) {
           return [`Hear the Raven (a letter from ${f.display_name}!)`, letters.from.length === 1 ? `#/dm/${f.conversation_id}` : '#/dm'];
         }
         const nf = items.find(f => f.role === 'flyer' && visible(f) && fresh(f));
+        if (shakeAsk) return ['Hear the Raven (someone wants to shake hands!)', `#/event/${shakeAsk.id}`];
         if (nf) return [`Hear the Raven (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
         if (shortHanded) return [`Hear the Raven (jobs open at ${shortHanded.title})`, `#/event/${shortHanded.id}`];
+        if (shakeOpen) return [`Hear the Raven (shake hands with your ${shakeOpen.title} crew)`, `#/event/${shakeOpen.id}`];
         return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
       }
       case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
@@ -5931,9 +6002,11 @@ async function renderRoom(mainView) {
   const short = (t, n = 26) => t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
   const squawk = () => {
     if (letters.unread && letters.from[0]) return letters.unread === 1 ? `A letter from ${short(letters.from[0].display_name, 18)}!` : `${letters.unread} new letters!`;
+    if (shakeAsk) return `A crewmate wants to shake hands! (${short(shakeAsk.title, 20)})`;
     const nf = items.find(it => it.role === 'flyer' && visible(it) && fresh(it));
     if (nf) return `New flyer: ${short(flyerEvent(nf).title)}`;
     if (shortHanded) { const n = openSpots(shortHanded.id); return `${n} ${n === 1 ? 'job' : 'jobs'} open: ${short(shortHanded.title)}`; }
+    if (shakeOpen) return `Shake hands with your ${short(shakeOpen.title, 20)} crew!`;
     if (inner && isNew('guild')) return 'New in the Guild Hall!';
     if (isNew('courtyard')) return 'New in the Courtyard!';
     if (newStamp) return 'A new badge in the trunk!';
@@ -6134,7 +6207,7 @@ async function renderRoom(mainView) {
     plaque.innerHTML = `
       <div class="room-plaque-title">The Steamer Trunk</div>
       <div class="room-plaque-line">${p.stamps.length ? 'Every prize you’ve won, out on display. Tap one to hear its story.' : 'Empty so far — every carnie starts somewhere. Work a shift to win your first.'}</div>
-      <div class="td-actions"><button class="room-plaque-btn td-close" data-td="close">Put it all back</button></div>`;
+      <div class="td-actions"><button class="room-plaque-btn" data-td="album">📷 The Troupe Album</button><button class="room-plaque-btn td-close" data-td="close">Put it all back</button></div>`;
     mainView.appendChild(plaque);
     layer.addEventListener('click', e => {
       const b = e.target.closest('.td-badge');
@@ -6142,6 +6215,7 @@ async function renderRoom(mainView) {
     });
     plaque.addEventListener('click', e => {
       if (e.target.dataset.td === 'close') close();
+      if (e.target.dataset.td === 'album') { close(); location.hash = '#/album'; }
     });
     if (newest) setTimeout(() => tell(newest), 900 + kinds.length * 120);
     const vp = document.getElementById('roomViewport');

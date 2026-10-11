@@ -1751,6 +1751,7 @@ async function api(request, env, url, ctx) {
   }
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
   { const r = await jobRoutes(request, env, url, user); if (r) return r; }
+  { const r = await crewRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
   { const r = await pushRoutes(request, env, url, user); if (r) return r; }
   { const r = await blastRoutes(request, env, url, user, ctx); if (r) return r; }
@@ -1974,6 +1975,107 @@ async function jobRoutes(request, env, url, user) {
       await env.DB.prepare("DELETE FROM job_claims WHERE job_id = ? AND user_id = ?").bind(jobId, userId).run();
       return json({ ok: true });
     }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Crew tables + handshakes. Your crew = everyone volunteering at the event
+// (taking a job signs you up). Handshakes open 2h before it starts and stay
+// open a week after it ends; both people must say yes.
+const SHAKE_OPEN = "datetime('now') >= datetime(e.starts_at, '-2 hours') AND datetime('now') <= datetime(COALESCE(e.ends_at, e.starts_at), '+7 days')";
+const pair = (a, b) => (a < b ? [a, b] : [b, a]);
+async function crewRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  const crewMatch = pathname.match(/^\/api\/events\/([^/]+)\/table$/);
+  if (crewMatch && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const evt = await env.DB.prepare(`SELECT e.id, e.title, (${SHAKE_OPEN}) AS shake_open FROM events e WHERE e.id = ?`).bind(crewMatch[1]).first();
+    if (!evt) return err(404, "No such event.");
+    const mine = await env.DB.prepare("SELECT 1 FROM event_volunteers WHERE event_id = ? AND user_id = ?").bind(evt.id, user.id).first();
+    if (!mine && !isModerator(user)) return json({ am_crew: false });
+    const { results: crew } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.rank, u.is_ringleader,
+              (SELECT GROUP_CONCAT(j.title, ' · ') FROM job_claims c JOIN event_jobs j ON j.id = c.job_id WHERE c.user_id = u.id AND j.event_id = v.event_id) AS jobs,
+              h.met_at, h.asked_by
+       FROM event_volunteers v JOIN users u ON u.id = v.user_id
+       LEFT JOIN handshakes h ON (h.user_a = MIN(u.id, ?) AND h.user_b = MAX(u.id, ?))
+       WHERE v.event_id = ? ORDER BY v.created_at`
+    ).bind(user.id, user.id, evt.id).all();
+    const { results: messages } = await env.DB.prepare(
+      `SELECT m.id, m.user_id, m.body, m.created_at, u.display_name FROM crew_messages m JOIN users u ON u.id = m.user_id
+       WHERE m.event_id = ? ORDER BY m.id DESC LIMIT 60`
+    ).bind(evt.id).all();
+    return json({
+      am_crew: !!mine, shake_open: !!evt.shake_open,
+      crew: crew.map((c) => ({
+        id: c.id, display_name: c.display_name, rank: c.rank, is_ringleader: !!c.is_ringleader, jobs: c.jobs || null,
+        shake: c.id === user.id ? "me" : c.met_at ? "met" : c.asked_by === user.id ? "asked" : c.asked_by ? "asks_you" : null,
+      })),
+      messages: messages.reverse(),
+    });
+  }
+  const msgMatch = pathname.match(/^\/api\/events\/([^/]+)\/table\/messages$/);
+  if (msgMatch && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const ok = await env.DB.prepare(
+      `SELECT 1 FROM event_volunteers v JOIN events e ON e.id = v.event_id
+       WHERE v.event_id = ? AND v.user_id = ? AND datetime('now') <= datetime(COALESCE(e.ends_at, e.starts_at), '+7 days')`
+    ).bind(msgMatch[1], user.id).first();
+    if (!ok) return err(403, "The crew table is for this event's crew.");
+    const text = ((await body(request)).body || "").trim().slice(0, 600);
+    if (!text) return err(400, "Say something first.");
+    await env.DB.prepare("INSERT INTO crew_messages (event_id, user_id, body) VALUES (?, ?, ?)").bind(msgMatch[1], user.id, text).run();
+    return json({ ok: true });
+  }
+  if (pathname === "/api/handshakes" && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const { user_id, event_id } = await body(request);
+    if (!user_id || user_id === user.id) return err(400, "Pick someone to shake hands with.");
+    const both = await env.DB.prepare(
+      `SELECT e.title FROM events e WHERE e.id = ? AND ${SHAKE_OPEN}
+         AND EXISTS(SELECT 1 FROM event_volunteers WHERE event_id = e.id AND user_id = ?)
+         AND EXISTS(SELECT 1 FROM event_volunteers WHERE event_id = e.id AND user_id = ?)`
+    ).bind(event_id || "", user.id, user_id).first();
+    if (!both) return err(403, "Handshakes are for crewmates, from just before the event to a week after.");
+    const [a, b] = pair(user.id, user_id);
+    const row = await env.DB.prepare("SELECT asked_by, met_at FROM handshakes WHERE user_a = ? AND user_b = ?").bind(a, b).first();
+    if (row?.met_at) return json({ status: "met" });
+    if (row && row.asked_by !== user.id) {
+      await env.DB.prepare("UPDATE handshakes SET met_at = datetime('now') WHERE user_a = ? AND user_b = ?").bind(a, b).run();
+      await notifyUser(env, row.asked_by, { kind: "letter", title: `🤝 You and ${user.display_name} shook hands!`, body: `Met at ${both.title}. They're in your Troupe Album now.`, url: "#/album", ref: `met:${a}:${b}` }, "notify_letters");
+      return json({ status: "met" });
+    }
+    if (!row) {
+      await env.DB.prepare("INSERT INTO handshakes (user_a, user_b, event_id, asked_by) VALUES (?, ?, ?, ?)").bind(a, b, event_id, user.id).run();
+      await notifyUser(env, user_id, { kind: "letter", title: `🤝 ${user.display_name} wants to shake hands`, body: `You were on the ${both.title} crew together. Say yes and you're in each other's Troupe Album.`, url: `#/event/${event_id}`, ref: `shake:${a}:${b}` }, "notify_letters");
+    }
+    return json({ status: "asked" });
+  }
+  if (pathname === "/api/me/album" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.rank, u.is_ringleader, u.city, h.met_at, e.title AS event_title
+       FROM handshakes h JOIN users u ON u.id = CASE WHEN h.user_a = ? THEN h.user_b ELSE h.user_a END
+       LEFT JOIN events e ON e.id = h.event_id
+       WHERE (h.user_a = ? OR h.user_b = ?) AND h.met_at IS NOT NULL ORDER BY h.met_at DESC`
+    ).bind(user.id, user.id, user.id).all();
+    return json({ album: results });
+  }
+  // For the raven: crews you're on with handshakes waiting.
+  if (pathname === "/api/me/crews" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare(
+      `SELECT e.id, e.title,
+              (SELECT COUNT(*) FROM event_volunteers v2 WHERE v2.event_id = e.id AND v2.user_id != ?
+                 AND NOT EXISTS(SELECT 1 FROM handshakes h WHERE h.user_a = MIN(v2.user_id, ?) AND h.user_b = MAX(v2.user_id, ?) AND (h.met_at IS NOT NULL OR h.asked_by = ?))) AS unshaken,
+              (SELECT COUNT(*) FROM event_volunteers v3 JOIN handshakes h ON h.user_a = MIN(v3.user_id, ?) AND h.user_b = MAX(v3.user_id, ?)
+                 WHERE v3.event_id = e.id AND v3.user_id != ? AND h.met_at IS NULL AND h.asked_by = v3.user_id) AS asks
+       FROM events e JOIN event_volunteers v ON v.event_id = e.id AND v.user_id = ?
+       WHERE ${SHAKE_OPEN} ORDER BY e.starts_at`
+    ).bind(user.id, user.id, user.id, user.id, user.id, user.id, user.id, user.id).all();
+    return json({ crews: results });
   }
   return null;
 }
@@ -2538,7 +2640,9 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews")) return true;
+  if (method === "GET" && /^\/api\/events\/[^/]+\/table$/.test(pathname)) return true;
+  if (method === "POST" && (/^\/api\/events\/[^/]+\/table\/messages$/.test(pathname) || pathname === "/api/handshakes")) return true;
   if ((method === "POST" || method === "DELETE") && /^\/api\/jobs\/[^/]+\/claim$/.test(pathname)) return true;
   if (pathname === "/api/chat" && (method === "GET" || method === "POST")) return true;
   if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;

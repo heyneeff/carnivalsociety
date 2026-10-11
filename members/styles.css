@@ -1905,3 +1905,46 @@ body.forum-docked .room-arrange-btn { right: calc(var(--room-gutter) + 80px); }
 .topbar { z-index: 46; }
 .sheet-scrim.open { z-index: 60; }
 .more-sheet { z-index: 61; }
+
+/* ── Crew tables + handshakes (2026-10-12) ── */
+.crew-link { display: inline-block; margin-top: 12px; font-weight: 800; color: #2F7F7A; text-decoration: none; }
+.crew-table { margin-top: 18px; padding: 14px; border-radius: 14px; background: #f1faf5; border: 2px solid #2F7F7A; text-align: left; color: #1d3b38; }
+.crew-table:empty { display: none; }
+.ct-head { font-family: 'Rye', serif; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #1d5652; margin-bottom: 8px; text-align: center; }
+.ct-note { font-size: 13px; color: #2c5a55; text-align: center; margin-bottom: 10px; }
+.ct-crew { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ct-mate { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; background: #fffaf0; border: 1px solid #b9d6cc; }
+.ct-mate.asks { border-color: #9B3036; box-shadow: 0 0 0 3px rgba(155,48,54,0.15); }
+.ct-face { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-family: 'Playfair Display', serif; font-weight: 800; background: #2F7F7A; color: #F4E8D0; border: 2px solid #1d5652; }
+.ct-face.rl { background: #9B3036; border-color: #5A1E24; }
+.ct-who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.ct-who b { font-size: 15px; color: #231712; }
+.ct-who small { font-size: 12px; color: #5a6f6a; }
+.ct-you { font-size: 12px; font-style: italic; color: #5a6f6a; }
+.ct-met { font-weight: 800; font-size: 13px; color: #2F7F7A; }
+.ct-wait { font-size: 13px; font-style: italic; color: #8a6a50; }
+.ct-shake.action-btn { min-height: 34px; font-size: 13px; }
+.ct-shake.composer-submit { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.ct-chat { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 10px; background: #fffaf0; border: 1px solid #b9d6cc; font-size: 14px; color: #231712; }
+.ct-msg b { color: #9B3036; }
+.ct-msg.mine b { color: #2F7F7A; }
+.ct-msg small { color: #8a6a50; font-size: 11px; white-space: nowrap; }
+.ct-empty { color: #5a6f6a; font-style: italic; text-align: center; }
+.ct-say { display: flex; gap: 6px; margin-top: 8px; }
+.ct-say input { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #2F7F7A; background: #fffaf0; color: #231712; font-size: 15px; }
+.ct-say .composer-submit { min-height: 40px; padding: 0 14px; }
+
+/* ── The Troupe Album: polaroids of the people you've met ── */
+.album-sub { text-align: center; color: var(--cream-soft); margin: -6px auto 20px; max-width: 46ch; }
+.album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 22px 16px; }
+.polaroid { margin: 0; padding: 10px 10px 12px; background: #fffaf0; color: #231712; border-radius: 4px; box-shadow: 0 8px 18px rgba(0,0,0,0.45); transform: rotate(var(--tilt, 0deg)); transition: transform 0.2s; }
+.polaroid:hover { transform: rotate(0) scale(1.04); }
+.polaroid-face { aspect-ratio: 1; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #3f7f78, #1d3b38); color: #F4E8D0; font-family: 'Playfair Display', serif; font-weight: 800; font-size: 54px; }
+.polaroid-face.rl { background: radial-gradient(circle at 50% 40%, #b8434a, #5A1E24); }
+.polaroid figcaption { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; text-align: center; }
+.polaroid figcaption b { font-family: 'Playfair Display', serif; font-size: 17px; }
+.polaroid figcaption small { font-size: 12px; color: #6b5040; }
+.album-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; color: var(--cream); padding: 10px 0 20px; }
+.album-empty img { width: 90px; height: auto; }
+.album-empty .composer-submit { text-decoration: none; }
+@media (prefers-reduced-motion: reduce) { .polaroid { transition: none; } }
