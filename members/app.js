@@ -5166,7 +5166,11 @@ function startRing() {
   };
   burst();
   const timer = setInterval(() => { if (on) burst(); }, 2200);
-  return () => { on = false; clearInterval(timer); try { master.gain.setValueAtTime(0, ctx.currentTime); tones.forEach(o => o.stop()); tremolo.stop(); ctx.close(); } catch (e) { /* ignore */ } };
+  return () => {
+    if (!on) return; // already stopped (pick up, then close)
+    on = false; clearInterval(timer);
+    try { master.gain.setValueAtTime(0, ctx.currentTime); tones.forEach(o => o.stop()); tremolo.stop(); ctx.close().catch(() => {}); } catch (e) { /* ignore */ }
+  };
 }
 
 const TELEPHONE_SVG = `<svg class="blast-phone-svg" viewBox="0 0 200 170" aria-hidden="true">
