@@ -1657,3 +1657,19 @@ body.chat-docked .chat-close { display: none; }
 .blast-bar i { display: block; height: 100%; background: #2F7F7A; }
 .blast-sheet { padding: 28px 22px 26px; }
 @media (max-width: 560px) { .blast-sheet { padding: 28px 22px 24px; } }
+
+/* ── Polish pass from the Web Interface Guidelines audit (2026-10-12) ── */
+html { color-scheme: dark; -webkit-tap-highlight-color: transparent; scroll-padding-top: 84px; }
+a, button, label, summary, [role="button"] { touch-action: manipulation; }
+/* one warm focus ring everywhere a keyboard lands (room objects glow instead) */
+:is(a, button, input, select, textarea, summary, [tabindex], [role="button"]):not(.room-obj, .room-hot, .td-badge):focus-visible { outline: 3px solid var(--glow); outline-offset: 2px; }
+:is(input, select, textarea):focus-visible { outline-offset: 0; }
+option { background-color: var(--surface); color: var(--cream); }
+/* press feedback: buttons thunk down a pixel */
+:is(.action-btn, .forum-btn, .room-plaque-btn, .composer-submit, .gm-btn, .rsvp-btn, .blast-pickup):active { transform: translateY(1px); }
+/* overlays and sheets keep their own scroll */
+.more-sheet, .chat-panel, .room-editor, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal { overscroll-behavior: contain; }
+h1, h2, h3, .dr-name, .blast-title, .forum-banner { text-wrap: balance; }
+.blast-reach, .blast-picked, .bottomtab, .topbar-dot { font-variant-numeric: tabular-nums; }
+.loading-screen { height: 100dvh; }
+.app-toast { z-index: 200; }

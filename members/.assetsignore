@@ -8,3 +8,4 @@ schema.sql
 README.md
 .dev.vars
 migrations
+DESIGN.md

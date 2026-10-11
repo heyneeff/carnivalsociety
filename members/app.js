@@ -1193,7 +1193,7 @@ function openEventEditModal(mainView, evt, onSaved) {
     const title = overlay.querySelector('#eeTitle').value.trim();
     const startsAt = overlay.querySelector('#eeStarts').value;
     const endsAt = overlay.querySelector('#eeEnds').value;
-    if (!title || !startsAt) { alert('Title and start time are required.'); return; }
+    if (!title || !startsAt) { flashToast('Title and start time are required.'); return; }
     const body = {
       title,
       chapter_id: overlay.querySelector('#eeChapter').value || null,
@@ -1205,7 +1205,7 @@ function openEventEditModal(mainView, evt, onSaved) {
     try {
       await apiFetch(`/api/events/${evt.id}`, { method: 'PATCH', body });
     } catch (e) {
-      alert(`Couldn't save: ${e.message}`);
+      flashToast(`Couldn't save: ${e.message}`);
       return;
     }
     close();
@@ -1441,7 +1441,7 @@ function renderDirectoryBody(mainView) {
   if (isVenues) {
     document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
       const name = document.getElementById('vName').value.trim();
-      if (!name) { alert('Venue name is required.'); return; }
+      if (!name) { flashToast('Venue name is required.'); return; }
       try {
         await apiFetch('/api/venues', {
           method: 'POST',
@@ -1457,7 +1457,7 @@ function renderDirectoryBody(mainView) {
           },
         });
       } catch (e) {
-        alert(`Couldn't add venue: ${e.message}`);
+        flashToast(`Couldn't add venue: ${e.message}`);
         return;
       }
       const { venues } = await apiFetch('/api/venues');
@@ -1469,7 +1469,7 @@ function renderDirectoryBody(mainView) {
       const display_name = document.getElementById('nmName').value.trim();
       const email = document.getElementById('nmEmail').value.trim();
       const password = document.getElementById('nmPassword').value;
-      if (!display_name || !email || !password) { alert('Name, email, and password are all required.'); return; }
+      if (!display_name || !email || !password) { flashToast('Name, email, and password are all required.'); return; }
       try {
         await apiFetch('/api/members', {
           method: 'POST',
@@ -1483,7 +1483,7 @@ function renderDirectoryBody(mainView) {
           },
         });
       } catch (e) {
-        alert(`Couldn't add member: ${e.message}`);
+        flashToast(`Couldn't add member: ${e.message}`);
         return;
       }
       const { members } = await apiFetch('/api/members');
@@ -1583,7 +1583,7 @@ function renderMemberRows() {
       try {
         await apiFetch(`/api/members/${userId}`, { method: 'PATCH', body: { [field]: value } });
       } catch (e) {
-        alert(`Couldn't save: ${e.message}`);
+        flashToast(`Couldn't save: ${e.message}`);
         renderDirectoryRows();
         return;
       }
@@ -1663,7 +1663,7 @@ function openMemberEditModal(userId) {
     try {
       await apiFetch(`/api/members/${userId}`, { method: 'DELETE' });
     } catch (e) {
-      alert(`Couldn't delete: ${e.message}`);
+      flashToast(`Couldn't delete: ${e.message}`);
       return;
     }
     directoryMembersCache = directoryMembersCache.filter(m => m.id !== userId);
@@ -1674,7 +1674,7 @@ function openMemberEditModal(userId) {
   overlay.querySelector('#aeCancelBtn').addEventListener('click', close);
   overlay.querySelector('#aeSaveBtn').addEventListener('click', async () => {
     const display_name = overlay.querySelector('#aeName').value.trim();
-    if (!display_name) { alert('Name is required.'); return; }
+    if (!display_name) { flashToast('Name is required.'); return; }
     const body = {
       display_name,
       home_chapter_id: overlay.querySelector('#aeChapter').value || null,
@@ -1695,7 +1695,7 @@ function openMemberEditModal(userId) {
     try {
       await apiFetch(`/api/members/${userId}`, { method: 'PATCH', body });
     } catch (e) {
-      alert(`Couldn't save: ${e.message}`);
+      flashToast(`Couldn't save: ${e.message}`);
       return;
     }
     Object.assign(member, body);
@@ -1751,7 +1751,7 @@ function renderVenueRows() {
       try {
         await apiFetch(`/api/venues/${btn.dataset.delete}`, { method: 'DELETE' });
       } catch (e) {
-        alert(`Couldn't remove venue: ${e.message}`);
+        flashToast(`Couldn't remove venue: ${e.message}`);
         return;
       }
       directoryVenuesCache = directoryVenuesCache.filter(v => v.id !== btn.dataset.delete);
@@ -1796,7 +1796,7 @@ function openVenueEditModal(venueId) {
   overlay.querySelector('#veCancelBtn').addEventListener('click', close);
   overlay.querySelector('#veSaveBtn').addEventListener('click', async () => {
     const name = overlay.querySelector('#veName').value.trim();
-    if (!name) { alert('Venue name is required.'); return; }
+    if (!name) { flashToast('Venue name is required.'); return; }
     const body = {
       name,
       city: overlay.querySelector('#veCity').value.trim() || null,
@@ -1810,7 +1810,7 @@ function openVenueEditModal(venueId) {
     try {
       await apiFetch(`/api/venues/${venueId}`, { method: 'PATCH', body });
     } catch (e) {
-      alert(`Couldn't save: ${e.message}`);
+      flashToast(`Couldn't save: ${e.message}`);
       return;
     }
     Object.assign(venue, body);
@@ -1891,7 +1891,7 @@ function renderImpactBody(mainView) {
   document.getElementById('dirAddCreateBtn').addEventListener('click', async () => {
     const event_date = document.getElementById('ilDate').value;
     const event_name = document.getElementById('ilName').value.trim();
-    if (!event_date || !event_name) { alert('Date and event name are required.'); return; }
+    if (!event_date || !event_name) { flashToast('Date and event name are required.'); return; }
     try {
       await apiFetch('/api/impact-logs', {
         method: 'POST',
@@ -1908,7 +1908,7 @@ function renderImpactBody(mainView) {
         },
       });
     } catch (e) {
-      alert(`Couldn't add log: ${e.message}`);
+      flashToast(`Couldn't add log: ${e.message}`);
       return;
     }
     const { logs } = await apiFetch('/api/impact-logs');
@@ -1959,7 +1959,7 @@ function renderImpactRows() {
       try {
         await apiFetch(`/api/impact-logs/${btn.dataset.delete}`, { method: 'DELETE' });
       } catch (e) {
-        alert(`Couldn't remove log: ${e.message}`);
+        flashToast(`Couldn't remove log: ${e.message}`);
         return;
       }
       directoryImpactCache = directoryImpactCache.filter(l => l.id !== btn.dataset.delete);
@@ -2011,7 +2011,7 @@ function openImpactEditModal(logId) {
   overlay.querySelector('#ieSaveBtn').addEventListener('click', async () => {
     const event_date = overlay.querySelector('#ieDate').value;
     const event_name = overlay.querySelector('#ieName').value.trim();
-    if (!event_date || !event_name) { alert('Date and event name are required.'); return; }
+    if (!event_date || !event_name) { flashToast('Date and event name are required.'); return; }
     const milesVal = overlay.querySelector('#ieMiles').value;
     const body = {
       event_date,
@@ -2028,7 +2028,7 @@ function openImpactEditModal(logId) {
       const { log: updated } = await apiFetch(`/api/impact-logs/${logId}`, { method: 'PATCH', body });
       Object.assign(log, updated);
     } catch (e) {
-      alert(`Couldn't save: ${e.message}`);
+      flashToast(`Couldn't save: ${e.message}`);
       return;
     }
     close();
@@ -5359,6 +5359,32 @@ function showBlast(blast, { live = false, preview = false } = {}) {
   });
 }
 
+// ── Toasts and Escape (2026-10-12) ──
+// A message that floats in and out; screen readers hear it. Replaces alert().
+function flashToast(msg, ms = 4000) {
+  const t = document.createElement('div');
+  t.className = 'room-toast app-toast';
+  t.setAttribute('role', 'status');
+  document.body.appendChild(t);
+  requestAnimationFrame(() => { t.textContent = msg; t.classList.add('show'); });
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, ms);
+}
+// Escape closes whatever is on top. Every overlay already closes on a click
+// on its own backdrop, so a click on the backdrop is how Escape closes it.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const tops = document.querySelectorAll('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal');
+  const top = tops[tops.length - 1];
+  if (top) {
+    e.preventDefault();
+    if (!top.classList.contains('blast-overlay')) top.click();
+    else if (top.classList.contains('answered')) top.querySelector('[data-done]').click();
+    else top.querySelector('.blast-pickup').focus(); // you can't hang up on the Ringleader
+    return;
+  }
+  if (mobileNavOpen) { mobileNavOpen = false; renderShell(); }
+});
+
 // ── The blast composer (Ringleaders) ──
 async function renderBlastView(mainView) {
   if (!profile.is_ringleader) { mainView.innerHTML = '<h2>Ringleaders only</h2>'; return; }
@@ -5399,6 +5425,8 @@ async function renderBlastView(mainView) {
       chapter: `Chapter: ${form.chapter.selectedOptions[0]?.text || ''}`, city: `City: ${value || ''}`, event: `Crew of ${form.event.selectedOptions[0]?.text.split(' · ')[0] || ''}` }[type];
     return { type, value, label };
   };
+  // held, not looked up: a re-render can swap the page out mid-fetch
+  const reachEl = document.getElementById('blastReach'), historyEl = document.getElementById('blastHistory');
   let reachTimer;
   const updateReach = () => {
     form.querySelectorAll('.blast-sub').forEach(el => { el.hidden = el.dataset.for !== form.aud.value; });
@@ -5406,8 +5434,8 @@ async function renderBlastView(mainView) {
     reachTimer = setTimeout(async () => {
       try {
         const { recipients, phones } = await apiFetch('/api/blasts/preview', { method: 'POST', body: { audience: audience() } });
-        document.getElementById('blastReach').textContent = `Reaches ${recipients} member${recipients === 1 ? '' : 's'} · ${phones} with the raven on their phone`;
-      } catch (e) { document.getElementById('blastReach').textContent = e.message; }
+        reachEl.textContent = `Reaches ${recipients} member${recipients === 1 ? '' : 's'} · ${phones} with the raven on their phone`;
+      } catch (e) { reachEl.textContent = e.message; }
     }, 250);
   };
   form.addEventListener('input', e => {
@@ -5430,14 +5458,13 @@ async function renderBlastView(mainView) {
       form.reset(); updateReach();
       document.getElementById('blastErr').textContent = '';
       drawHistory();
-      const t = document.createElement('div'); t.className = 'room-toast show'; t.textContent = `📣 Hollering at ${r.recipients} members (${r.phones} phones)!`;
-      document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
+      flashToast(`📣 Hollering at ${r.recipients} members (${r.phones} phones)!`);
     } catch (err) { document.getElementById('blastErr').textContent = err.message; }
     btn.disabled = false;
   });
   async function drawHistory() {
     const { blasts } = await apiFetch('/api/blasts');
-    document.getElementById('blastHistory').innerHTML = blasts.length ? blasts.map(b => `
+    historyEl.innerHTML = blasts.length ? blasts.map(b => `
       <div class="blast-past">
         <div class="thread-title">${escapeHtml(b.title)}</div>
         <div class="thread-meta">${escapeHtml(b.audience?.label || b.audience?.type || '')} · ${timeAgo(sqlIso(b.created_at))}</div>
@@ -6256,7 +6283,7 @@ async function startMembershipCheckout(btn) {
     window.location.href = url;
   } catch (err) {
     btn.disabled = false;
-    alert(err.message);
+    flashToast(err.message);
   }
 }
 
@@ -6301,7 +6328,7 @@ async function renderTicketPanel(eventId) {
     try {
       const res = await apiFetch(`/api/events/${eventId}/tickets`, { method: 'POST', body: { tier_id: btn.dataset.buyTier } });
       if (res.url) window.location.href = res.url; else location.hash = '#/tickets';
-    } catch (err) { btn.disabled = false; alert(err.message); }
+    } catch (err) { btn.disabled = false; flashToast(err.message); }
   }));
   const join = el.querySelector('[data-join]');
   if (join) join.addEventListener('click', () => startMembershipCheckout(join));
