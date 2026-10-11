@@ -431,6 +431,7 @@ function renderShell() {
     ${profile?.is_ringleader ? `
     <div class="sheet-group">
       <div class="sheet-label">Ringleader</div>
+      ${sheetLink('#/blast', '☎ Ring Everyone (Blast)', is('blast'))}
       ${sheetLink('#/directory', 'Directory', is('directory'), newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : '')}
       ${sheetLink('#/checkin', 'Door Check-in', is('checkin', 'checkin/'))}
       ${sheetLink('#/impact', 'Impact Log', is('impact'))}
@@ -499,6 +500,7 @@ function pageKind(route) {
   if (route === 'dm' || route.startsWith('dm/')) return 'letters';
   if (route === 'profile') return 'profile';
   if (route === 'passport') return 'passport';
+  if (route === 'blast') return 'forum';
   return 'other';
 }
 
@@ -517,6 +519,7 @@ function renderMainView(route) {
   if (route === 'dressing-room') { renderRoom(mainView); return; }
   if (route === 'passport') { renderDressingRoom(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
+  if (route === 'blast') { renderBlastView(mainView); return; }
   if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
   // Courtyard members can open Courtyard threads (server enforces which).
   if (!isInnerMember() && route !== 'events' && !route.startsWith('post/')) { location.hash = '#/courtyard'; return; }
@@ -5123,6 +5126,222 @@ const RAVEN_RESULT = {
   error: 'Something went wrong teaching the raven your address. Try again in a moment.',
 };
 
+// ── BLAST: the Ringleader rings everyone's telephone ──────────────────
+// Unseen blasts ring in the app: an obnoxious shaking telephone (with a
+// synthesized bell + buzz), you pick up, and the Ringleader's head pops in
+// yakking while the message types out. Neeff's art drops in when these
+// files exist (else hand-built stand-ins): assets/room/telephone_ringing.png,
+// telephone_still.png, head_closed.png, head_open.png, head_wide.png.
+let blastShowing = null;
+async function checkBlast() {
+  if (!session || blastShowing) return;
+  try {
+    const { blast } = await apiFetch('/api/me/blast');
+    if (blast && !blastShowing) showBlast(blast, { live: true });
+  } catch (e) { /* try again next tick */ }
+}
+
+const soundOff = () => { try { return localStorage.getItem('cs-sound-off') === '1'; } catch (e) { return false; } };
+// An old-fashioned bell ring: two clanging tones with a fast tremolo, in
+// bursts, until you pick up. Browsers only allow sound after you've touched
+// the page, so it may stay silent until then (the telephone still shakes).
+function startRing() {
+  if (soundOff()) return () => {};
+  let ctx;
+  try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return () => {}; }
+  ctx.resume?.();
+  const master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
+  const tremolo = ctx.createOscillator(); tremolo.type = 'square'; tremolo.frequency.value = 22;
+  const tremoloDepth = ctx.createGain(); tremoloDepth.gain.value = 0.5;
+  const ringGain = ctx.createGain(); ringGain.gain.value = 0.5;
+  tremolo.connect(tremoloDepth).connect(ringGain.gain);
+  const tones = [1250, 1650].map(f => { const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.connect(ringGain); o.start(); return o; });
+  ringGain.connect(master); tremolo.start();
+  let on = true;
+  const burst = () => {
+    const now = ctx.currentTime;
+    master.gain.cancelScheduledValues(now);
+    master.gain.setValueAtTime(0.16, now); master.gain.setValueAtTime(0.16, now + 0.9); master.gain.linearRampToValueAtTime(0, now + 0.95);
+    if (navigator.vibrate) navigator.vibrate([200, 80, 200, 80, 200]);
+  };
+  burst();
+  const timer = setInterval(() => { if (on) burst(); }, 2200);
+  return () => { on = false; clearInterval(timer); try { master.gain.setValueAtTime(0, ctx.currentTime); tones.forEach(o => o.stop()); tremolo.stop(); ctx.close(); } catch (e) { /* ignore */ } };
+}
+
+const TELEPHONE_SVG = `<svg class="blast-phone-svg" viewBox="0 0 200 170" aria-hidden="true">
+  <path d="M30 150 L45 85 Q100 60 155 85 L170 150 Z" fill="#9B3036" stroke="#231712" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="100" cy="112" r="28" fill="#F4E8D0" stroke="#231712" stroke-width="5"/>
+  <circle cx="100" cy="112" r="9" fill="#C8A05A" stroke="#231712" stroke-width="3"/>
+  ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => { const a = (i / 8) * Math.PI * 2; return `<circle cx="${100 + Math.cos(a) * 19}" cy="${112 + Math.sin(a) * 19}" r="4" fill="#231712"/>`; }).join('')}
+  <g class="blast-handset"><path d="M25 62 Q100 20 175 62 L168 78 Q100 46 32 78 Z" fill="#7A2E34" stroke="#231712" stroke-width="5" stroke-linejoin="round"/>
+  <rect x="14" y="58" width="34" height="22" rx="9" fill="#9B3036" stroke="#231712" stroke-width="5"/><rect x="152" y="58" width="34" height="22" rx="9" fill="#9B3036" stroke="#231712" stroke-width="5"/></g>
+</svg>`;
+// Stand-in Ringleader head (top hat, curled moustache, a jaw that flaps).
+const HEAD_SVG = `<svg class="blast-head-svg" viewBox="0 0 160 190" aria-hidden="true">
+  <rect x="38" y="6" width="84" height="56" rx="6" fill="#231712"/><rect x="38" y="44" width="84" height="12" fill="#9B3036"/>
+  <ellipse cx="80" cy="62" rx="66" ry="10" fill="#231712"/>
+  <ellipse cx="80" cy="110" rx="52" ry="50" fill="#e9b98f" stroke="#231712" stroke-width="5"/>
+  <circle cx="61" cy="100" r="7" fill="#231712"/><circle cx="99" cy="100" r="7" fill="#231712"/>
+  <circle cx="63" cy="98" r="2.5" fill="#fff"/><circle cx="101" cy="98" r="2.5" fill="#fff"/>
+  <path d="M50 122 Q65 112 80 122 Q95 112 110 122 Q118 116 120 108 M50 122 Q42 116 40 108" fill="none" stroke="#231712" stroke-width="6" stroke-linecap="round"/>
+  <g class="blast-jaw"><path d="M58 132 Q80 146 102 132 Q100 150 80 152 Q60 150 58 132 Z" fill="#7A2E34" stroke="#231712" stroke-width="4"/></g>
+</svg>`;
+const artOr = (file, fallback, cls) => `<img class="${cls} blast-art" src="${ROOM}${file}" alt="" onerror="this.remove()">${fallback}`;
+
+function showBlast(blast, { live = false, preview = false } = {}) {
+  blastShowing = blast.id || 'preview';
+  const o = document.createElement('div');
+  o.className = 'blast-overlay ringing';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', `Incoming blast from ${blast.sender || 'the Ringleader'}`);
+  o.innerHTML = `
+    <div class="blast-stage">
+      <button class="blast-mute" aria-label="Sound on or off">${soundOff() ? '🔕' : '🔔'}</button>
+      <div class="blast-ring-words" aria-hidden="true"><span>RING</span><span>RING!</span></div>
+      <div class="blast-phone">${artOr('telephone_ringing.png', TELEPHONE_SVG, 'blast-phone-art')}</div>
+      <div class="blast-caller">☎ ${escapeHtml(blast.sender || 'The Ringleader')} is calling!</div>
+      <button class="blast-pickup">Pick up!</button>
+      <div class="blast-call" hidden>
+        <div class="blast-head">${artOr('head_closed.png', HEAD_SVG, 'blast-head-art')}</div>
+        <div class="blast-bubble">
+          <div class="blast-title">${escapeHtml(blast.title)}</div>
+          <div class="blast-body" aria-live="polite"></div>
+          <div class="blast-btns">
+            ${blast.url && blast.url !== '#/dressing-room' ? `<button class="forum-btn" data-go>Take me there</button>` : ''}
+            <button class="forum-btn ghost" data-done>${preview ? 'Close preview' : 'Got it!'}</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(o);
+  let stopRing = startRing();
+  const mute = o.querySelector('.blast-mute');
+  mute.onclick = () => {
+    const off = !soundOff();
+    try { localStorage.setItem('cs-sound-off', off ? '1' : '0'); } catch (e) { /* ignore */ }
+    mute.textContent = off ? '🔕' : '🔔';
+    stopRing(); stopRing = off ? () => {} : startRing();
+  };
+  const finish = () => { stopRing(); o.remove(); blastShowing = null; };
+  o.querySelector('.blast-pickup').onclick = () => {
+    stopRing();
+    if (live && blast.id) apiFetch(`/api/me/blast/${blast.id}/seen`, { method: 'POST' }).catch(() => {});
+    o.classList.remove('ringing'); o.classList.add('answered');
+    const phoneImg = o.querySelector('.blast-phone-art');
+    if (phoneImg) phoneImg.src = `${ROOM}telephone_still.png`;
+    o.querySelector('.blast-call').hidden = false;
+    // Type the message out while the head yaks.
+    const out = o.querySelector('.blast-body'), headImg = o.querySelector('.blast-head-art'), head = o.querySelector('.blast-head');
+    const text = blast.body || '';
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { out.textContent = text; return; }
+    let i = 0;
+    head.classList.add('yakking');
+    const mouths = ['head_open.png', 'head_wide.png', 'head_open.png', 'head_closed.png'];
+    let m = 0;
+    const yak = setInterval(() => { if (headImg) headImg.src = `${ROOM}${mouths[m++ % mouths.length]}`; }, 120);
+    const type = setInterval(() => {
+      i += 2;
+      out.textContent = text.slice(0, i);
+      if (i >= text.length) { clearInterval(type); clearInterval(yak); head.classList.remove('yakking'); if (headImg) headImg.src = `${ROOM}head_closed.png`; }
+    }, 28);
+    o.querySelector('.blast-bubble').onclick = e => { if (!e.target.closest('button')) { i = text.length; } };
+  };
+  o.addEventListener('click', e => {
+    if (e.target.dataset.done !== undefined) finish();
+    if (e.target.dataset.go !== undefined) { finish(); location.hash = blast.url; }
+  });
+}
+
+// ── The blast composer (Ringleaders) ──
+async function renderBlastView(mainView) {
+  if (!profile.is_ringleader) { mainView.innerHTML = '<h2>Ringleaders only</h2>'; return; }
+  const { events } = await apiFetch('/api/events');
+  const chapterOpts = chapters.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  const eventOpts = (events || []).map(e => `<option value="${e.id}">${escapeHtml(e.title)} · ${escapeHtml(formatEventDate(e.starts_at))}</option>`).join('');
+  mainView.innerHTML = `
+    <div class="forum">
+      <div class="forum-banner">☎<span>Ring Everyone</span></div>
+      <div class="forum-sheet blast-sheet">
+        <form id="blastForm" class="blast-form">
+          <label class="blast-field">Headline<input name="title" maxlength="120" required placeholder="Tent raising Saturday — all hands!"></label>
+          <label class="blast-field">Your message<textarea name="body" maxlength="1500" required placeholder="Say it in your voice. It types out under your yakking head."></textarea><small id="blastCount">0 / 1500</small></label>
+          <fieldset class="blast-field"><legend>Who gets rung</legend>
+            <div class="blast-aud">
+              ${[['all', 'Everyone'], ['inner', 'Inner members'], ['courtyard', 'Courtyard members'], ['chapter', 'A chapter'], ['city', 'A city'], ['event', 'An event’s crew']].map(([v, l], i) =>
+                `<label class="blast-pill"><input type="radio" name="aud" value="${v}" ${i === 0 ? 'checked' : ''}><span>${l}</span></label>`).join('')}
+            </div>
+            <select name="chapter" class="blast-sub" data-for="chapter" hidden>${chapterOpts}</select>
+            <input name="city" class="blast-sub" data-for="city" hidden placeholder="e.g. Boulder">
+            <select name="event" class="blast-sub" data-for="event" hidden>${eventOpts || '<option value="">No upcoming events</option>'}</select>
+            <div class="blast-reach" id="blastReach">Counting…</div>
+          </fieldset>
+          <label class="blast-field">“Take me there” button<select name="link"><option value="">No button</option><option value="#/events">The corkboard (events)</option><option value="#/courtyard">The Courtyard</option>${(events || []).map(e => `<option value="#/event/${e.id}">${escapeHtml(e.title)}</option>`).join('')}</select></label>
+          <label class="blast-check"><input type="checkbox" name="post" checked> Also pin it up in the Courtyard</label>
+          <div class="blast-actions"><button type="button" class="forum-btn ghost" id="blastPreview">Preview the ring</button><button class="forum-btn blast-send">☎ RING THEM</button></div>
+          <div class="forum-note-err" id="blastErr" role="status"></div>
+        </form>
+        <h3 class="blast-hist-h">Past blasts</h3>
+        <div id="blastHistory" class="blast-history"><div class="forum-empty">Loading…</div></div>
+      </div>
+    </div>`;
+  const form = document.getElementById('blastForm');
+  const audience = () => {
+    const type = form.aud.value;
+    const value = type === 'chapter' ? form.chapter.value : type === 'city' ? form.city.value.trim() : type === 'event' ? form.event.value : null;
+    const label = { all: 'Everyone', inner: 'Inner members', courtyard: 'Courtyard members',
+      chapter: `Chapter: ${form.chapter.selectedOptions[0]?.text || ''}`, city: `City: ${value || ''}`, event: `Crew of ${form.event.selectedOptions[0]?.text.split(' · ')[0] || ''}` }[type];
+    return { type, value, label };
+  };
+  let reachTimer;
+  const updateReach = () => {
+    form.querySelectorAll('.blast-sub').forEach(el => { el.hidden = el.dataset.for !== form.aud.value; });
+    clearTimeout(reachTimer);
+    reachTimer = setTimeout(async () => {
+      try {
+        const { recipients, phones } = await apiFetch('/api/blasts/preview', { method: 'POST', body: { audience: audience() } });
+        document.getElementById('blastReach').textContent = `Rings ${recipients} member${recipients === 1 ? '' : 's'} · ${phones} with the raven on their phone`;
+      } catch (e) { document.getElementById('blastReach').textContent = e.message; }
+    }, 250);
+  };
+  form.addEventListener('input', e => {
+    if (e.target.name === 'body') document.getElementById('blastCount').textContent = `${e.target.value.length} / 1500`;
+    if (['aud', 'chapter', 'city', 'event'].includes(e.target.name)) updateReach();
+  });
+  form.addEventListener('change', e => { if (['aud', 'chapter', 'event'].includes(e.target.name)) updateReach(); });
+  updateReach();
+  document.getElementById('blastPreview').onclick = () => {
+    if (!form.title.value.trim() || !form.body.value.trim()) { document.getElementById('blastErr').textContent = 'Write a headline and a message to preview.'; return; }
+    showBlast({ title: form.title.value.trim(), body: form.body.value.trim(), url: form.link.value || null, sender: profile.display_name }, { preview: true });
+  };
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const reach = document.getElementById('blastReach').textContent;
+    if (!confirm(`${reach}. Ring them now?`)) return;
+    const btn = form.querySelector('.blast-send'); btn.disabled = true;
+    try {
+      const r = await apiFetch('/api/blasts', { method: 'POST', body: { title: form.title.value, body: form.body.value, audience: audience(), url: form.link.value || null, post_to_courtyard: form.post.checked } });
+      form.reset(); updateReach();
+      document.getElementById('blastErr').textContent = '';
+      drawHistory();
+      const t = document.createElement('div'); t.className = 'room-toast show'; t.textContent = `☎ Ringing ${r.recipients} members (${r.phones} phones)!`;
+      document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
+    } catch (err) { document.getElementById('blastErr').textContent = err.message; }
+    btn.disabled = false;
+  });
+  async function drawHistory() {
+    const { blasts } = await apiFetch('/api/blasts');
+    document.getElementById('blastHistory').innerHTML = blasts.length ? blasts.map(b => `
+      <div class="blast-past">
+        <div class="thread-title">${escapeHtml(b.title)}</div>
+        <div class="thread-meta">${escapeHtml(b.audience?.label || b.audience?.type || '')} · ${timeAgo(sqlIso(b.created_at))}</div>
+        <div class="blast-picked"><b>${b.seen}</b> of ${b.recipients} picked up<span class="blast-bar"><i style="width:${b.recipients ? Math.round((b.seen / b.recipients) * 100) : 0}%"></i></span></div>
+      </div>`).join('') : '<div class="forum-empty">No blasts yet. The telephone is waiting.</div>';
+  }
+  drawHistory();
+}
+
 // ── Letters (DMs): unread count for the raven + Messages badges. Checked
 // alongside the chat poll; the room listens through roomHooks.
 let letters = { unread: 0, from: [] };
@@ -5248,15 +5467,16 @@ function startChat() {
     if (document.visibilityState === 'visible') {
       await pollChat();
       if (!chatIsOpen() || n++ % 3 === 0) await refreshLetters();
+      await checkBlast();
     }
     chat.timer = setTimeout(tick, chatIsOpen() ? 3000 : 10000);
   };
-  pollChat(); refreshLetters();
+  pollChat(); refreshLetters(); checkBlast();
   chat.timer = setTimeout(tick, 3000);
 }
 // Coming back to the tab: catch up right away instead of waiting a tick.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && session && chat.timer) { pollChat(); refreshLetters(); }
+  if (document.visibilityState === 'visible' && session && chat.timer) { pollChat(); refreshLetters(); checkBlast(); }
 });
 window.addEventListener('resize', () => { if (session && document.getElementById('chatPanel')) mountChat(); });
 

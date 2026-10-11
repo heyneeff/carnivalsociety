@@ -1752,6 +1752,7 @@ async function api(request, env, url, ctx) {
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
   { const r = await pushRoutes(request, env, url, user); if (r) return r; }
+  { const r = await blastRoutes(request, env, url, user, ctx); if (r) return r; }
   { const r = await ticketRoutes(request, env, url); if (r) return r; }
   return err(404, "Not found.");
 }
@@ -1882,6 +1883,91 @@ async function volunteerRoutes(request, env, url, user) {
        WHERE event_volunteers.event_id = ? ORDER BY event_volunteers.created_at`
     ).bind(volListMatch[1]).all();
     return json({ volunteers: results });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Blasts: the Ringleader rings everyone's telephone. Audience → recipient
+// set (SQL), a receipt each (seen_at = picked up), an in-app notification
+// + push each, optional Courtyard post. The app shows unseen blasts as the
+// ringing-telephone moment.
+// ---------------------------------------------------------------------
+function blastAudienceSql(a) {
+  switch (a?.type) {
+    case "all": return ["SELECT id FROM users", []];
+    case "inner": return ["SELECT id FROM users WHERE tier = 'inner' OR is_ringleader = 1", []];
+    case "courtyard": return ["SELECT id FROM users WHERE tier != 'inner' AND is_ringleader = 0", []];
+    case "chapter": return ["SELECT id FROM users WHERE home_chapter_id = ?", [a.value || ""]];
+    case "city": return ["SELECT id FROM users WHERE lower(city) LIKE lower(?) || '%'", [String(a.value || "").trim()]];
+    case "event": return ["SELECT user_id AS id FROM event_volunteers WHERE event_id = ? UNION SELECT user_id FROM tickets WHERE event_id = ? AND status = 'paid'", [a.value || "", a.value || ""]];
+    default: return null;
+  }
+}
+// The sender never rings their own phone.
+function blastAudience(a, senderId) {
+  const q = blastAudienceSql(a);
+  return q && [`SELECT id FROM (${q[0]}) WHERE id != ?`, [...q[1], senderId]];
+}
+async function blastRoutes(request, env, url, user, ctx) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/blasts/preview" && method === "POST") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    const q = blastAudience((await body(request)).audience, user.id);
+    if (!q) return err(400, "Pick who to ring.");
+    const row = await env.DB.prepare(`SELECT COUNT(*) AS n, (SELECT COUNT(DISTINCT s.user_id) FROM push_subscriptions s WHERE s.user_id IN (${q[0]})) AS phones FROM (${q[0]})`).bind(...q[1], ...q[1]).first();
+    return json({ recipients: row.n, phones: row.phones });
+  }
+  if (pathname === "/api/blasts" && method === "POST") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    const { title, body: text, audience, url: link, post_to_courtyard } = await body(request);
+    const t = String(title || "").trim(), b = String(text || "").trim();
+    if (!t || !b) return err(400, "A blast needs a title and a message.");
+    if (t.length > 120 || b.length > 1500) return err(400, "Keep it under 120 characters for the title and 1500 for the message.");
+    const q = blastAudience(audience, user.id);
+    if (!q) return err(400, "Pick who to ring.");
+    const res = await env.DB.prepare("INSERT INTO blasts (sender_id, title, body, url, audience) VALUES (?, ?, ?, ?, ?)").bind(user.id, t, b, link || null, JSON.stringify(audience)).run();
+    const blastId = res.meta.last_row_id;
+    await env.DB.prepare(`INSERT OR IGNORE INTO blast_receipts (blast_id, user_id) SELECT ?, id FROM (${q[0]})`).bind(blastId, ...q[1]).run();
+    const { n } = await env.DB.prepare("SELECT COUNT(*) AS n FROM blast_receipts WHERE blast_id = ?").bind(blastId).first();
+    await env.DB.prepare("UPDATE blasts SET recipients = ? WHERE id = ?").bind(n, blastId).run();
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO notifications (user_id, kind, title, body, url, ref) SELECT user_id, 'blast', ?, ?, ?, ? FROM blast_receipts WHERE blast_id = ?"
+    ).bind(`☎ RING RING! ${t}`, b.length > 140 ? b.slice(0, 137) + "…" : b, "#/dressing-room", `blast:${blastId}`, blastId).run();
+    if (post_to_courtyard) {
+      const yard = await env.DB.prepare("SELECT id FROM boards WHERE slug = 'courtyard'").first();
+      if (yard) await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, title, body) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), yard.id, user.id, t, b).run();
+    }
+    // Wake phones (capped per invocation; everyone still gets it in-app).
+    const { results: subs } = await env.DB.prepare("SELECT s.endpoint FROM push_subscriptions s JOIN blast_receipts r ON r.user_id = s.user_id WHERE r.blast_id = ? LIMIT 45").bind(blastId).all();
+    ctx.waitUntil(wakeEndpoints(env, subs.map((r) => r.endpoint)));
+    return json({ id: blastId, recipients: n, phones: subs.length });
+  }
+  if (pathname === "/api/blasts" && method === "GET") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    const { results } = await env.DB.prepare(
+      `SELECT b.id, b.title, b.body, b.audience, b.recipients, b.created_at, (SELECT COUNT(*) FROM blast_receipts r WHERE r.blast_id = b.id AND r.seen_at IS NOT NULL) AS seen
+       FROM blasts b ORDER BY b.id DESC LIMIT 30`
+    ).all();
+    return json({ blasts: results.map((r) => ({ ...r, audience: JSON.parse(r.audience) })) });
+  }
+  // The newest blast you haven't picked up (the app rings for it).
+  if (pathname === "/api/me/blast" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const row = await env.DB.prepare(
+      `SELECT b.id, b.title, b.body, b.url, b.created_at, u.display_name AS sender FROM blast_receipts r
+       JOIN blasts b ON b.id = r.blast_id LEFT JOIN users u ON u.id = b.sender_id
+       WHERE r.user_id = ? AND r.seen_at IS NULL AND b.created_at > datetime('now', '-14 days')
+       ORDER BY b.id DESC LIMIT 1`
+    ).bind(user.id).first();
+    return json({ blast: row || null });
+  }
+  const seenMatch = pathname.match(/^\/api\/me\/blast\/(\d+)\/seen$/);
+  if (seenMatch && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    await env.DB.prepare("UPDATE blast_receipts SET seen_at = datetime('now') WHERE blast_id = ? AND user_id = ? AND seen_at IS NULL").bind(seenMatch[1], user.id).run();
+    return json({ ok: true });
   }
   return null;
 }
@@ -2353,6 +2439,8 @@ function courtyardAllowed(method, pathname) {
   if (pathname === "/api/chat" && (method === "GET" || method === "POST")) return true;
   if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
+  if (method === "GET" && pathname === "/api/me/blast") return true;
+  if (method === "POST" && /^\/api\/me\/blast\/\d+\/seen$/.test(pathname)) return true;
   if (method === "DELETE" && /^\/api\/chat\/\d+$/.test(pathname)) return true;
   // Boards/posts handlers themselves restrict courtyard members to the
   // Courtyard board, read-only (POST /api/posts stays blocked here).

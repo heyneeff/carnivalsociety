@@ -422,6 +422,29 @@ ALTER TABLE users ADD COLUMN notify_letters INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE users ADD COLUMN notify_calls INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE users ADD COLUMN notify_prizes INTEGER NOT NULL DEFAULT 1;
 
+-- ============================================================
+-- migrations/2026-10-11-blasts.sql
+-- ============================================================
+-- Blasts: the Ringleader rings everyone's telephone. One row per blast,
+-- one receipt per recipient (seen_at = they picked up).
+CREATE TABLE blasts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  url TEXT,
+  audience TEXT NOT NULL,          -- JSON {type, value, label}
+  recipients INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE blast_receipts (
+  blast_id INTEGER NOT NULL REFERENCES blasts(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  seen_at TEXT,
+  PRIMARY KEY (blast_id, user_id)
+);
+CREATE INDEX idx_blast_receipts_user ON blast_receipts(user_id, seen_at);
+
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:
 --   * users:   self can update display_name/home_chapter_id/avatar_url only;
