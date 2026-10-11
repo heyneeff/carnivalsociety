@@ -5421,7 +5421,8 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
   const floorCone = document.querySelector('.room-stage [data-role="megaphone"]');
   if (floorCone) floorCone.scrollIntoView?.({ block: 'nearest', inline: 'center' });
   const cr = floorCone?.getBoundingClientRect();
-  const inRoom = !!cr && cr.width > 20 && cr.right > 0 && cr.left < innerWidth;
+  // Only when the room itself is showing (not behind an unfolded page).
+  const inRoom = !!cr && cr.width > 20 && cr.right > 0 && cr.left < innerWidth && !document.querySelector('.unfold');
   const scene = document.getElementById('roomScene')?.getBoundingClientRect();
   const from = `<div class="blast-from">Ringleader ${escapeHtml(blast.sender || 'Neeff')} says:</div>`;
   const o = document.createElement('div');
