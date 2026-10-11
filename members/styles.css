@@ -1986,3 +1986,33 @@ body.forum-docked .room-editor:not([hidden]) { animation: wing-in 0.35s cubic-be
 .intro-step { margin-right: auto; font-size: 12px; color: #8a6a50; font-family: 'Rye', serif; letter-spacing: 0.06em; }
 .intro-btns .raven-offer-no { color: #6b4a2e; }
 @media (prefers-reduced-motion: reduce) { .intro-spot { transition: none; } }
+
+/* ── Personal rooms (2026-10-12) ── */
+/* the decoration drawer in the Arrange panel */
+.re-drawer { border-top: 1px solid rgba(200,160,90,0.3); padding-top: 8px; }
+.re-drawer > summary { cursor: pointer; font-weight: 700; color: var(--glow); min-height: 36px; display: flex; align-items: center; }
+.re-cat { margin-top: 8px; }
+.re-cat > b { display: block; font-family: 'Rye', serif; font-weight: 400; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin-bottom: 5px; }
+.re-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 5px; }
+.re-thumb { position: relative; aspect-ratio: 1; display: grid; place-items: center; padding: 4px; border-radius: 8px; border: 1px solid rgba(200,160,90,0.3); background: rgba(255,250,236,0.06); cursor: pointer; }
+.re-thumb:hover { background: rgba(255,214,140,0.16); border-color: var(--gold); }
+.re-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.re-thumb.locked { cursor: not-allowed; }
+.re-thumb.locked img { filter: grayscale(1) brightness(0.45); }
+.re-lock { position: absolute; right: 2px; bottom: 1px; font-size: 13px; }
+.re-hot { color: var(--glow); font-size: 22px; }
+/* notes stuck on the mirror */
+.room-note { position: absolute; z-index: 4; width: 9%; min-width: 54px; padding: 3px 4px 4px; border: none; border-radius: 2px; background: #fff3b8; color: #3a2616; font-size: clamp(7px, 1.05vh, 11px); line-height: 1.15; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.4); transform: rotate(var(--tilt)); cursor: pointer; }
+.room-note b { display: block; color: #9B3036; font-size: 1.05em; }
+.room-note:hover { transform: rotate(0) scale(1.15); z-index: 5; }
+/* visiting someone's room */
+.room-visit-plaque { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 25; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 10px 14px; padding: 10px 16px; border-radius: 14px; background: rgba(20,12,10,0.94); border: 2px solid var(--gold); color: var(--glow); font-family: 'Playfair Display', serif; font-weight: 800; font-size: 17px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-width: calc(100vw - 24px); }
+@media (max-width: 800px) { .room-visit-plaque { bottom: calc(80px + env(safe-area-inset-bottom)); font-size: 15px; } }
+.main.unfolded .room-stage .room-visit-plaque { display: none; }
+.chat-name, a.chat-name { color: inherit; text-decoration: none; }
+a.chat-name:hover { text-decoration: underline; }
+.polaroid-link { color: inherit; text-decoration: none; display: block; }
+.polaroid-visit { color: #2F7F7A !important; font-weight: 700; }
+.ct-who a { color: inherit; text-decoration: none; border-bottom: 1px dashed #2F7F7A; }
+body.chat-docked .room-visit-plaque { max-width: calc(100vw - 2 * var(--room-gutter) - 90px); bottom: 18px; font-size: 15px; gap: 8px 12px; }
+body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: center; }

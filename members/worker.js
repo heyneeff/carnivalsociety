@@ -1752,6 +1752,7 @@ async function api(request, env, url, ctx) {
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
   { const r = await jobRoutes(request, env, url, user); if (r) return r; }
   { const r = await crewRoutes(request, env, url, user); if (r) return r; }
+  { const r = await roomRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
   { const r = await pushRoutes(request, env, url, user); if (r) return r; }
   { const r = await blastRoutes(request, env, url, user, ctx); if (r) return r; }
@@ -2076,6 +2077,112 @@ async function crewRoutes(request, env, url, user) {
        WHERE ${SHAKE_OPEN} ORDER BY e.starts_at`
     ).bind(user.id, user.id, user.id, user.id, user.id, user.id, user.id, user.id).all();
     return json({ crews: results });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// Personal Dressing Rooms. Everyone has one: a theme (painting) and a
+// layout. Most decorations are free; a few specials are earned at real
+// carnivals (stamps), by meeting people (handshakes) or by rank. The
+// Ringleader's room falls back to the original shared layout.
+const ROOM_THEMES = ["classic", "fire", "aerial", "celestial", "original"];
+const ROOM_ITEM_ROLES = ["decor", "mirror", "trunk", "costume", "flyer", "raven", "book", "drawer", "exit", "hatbox", "potion", "stars", "popcorn", "events", "tickets", "megaphone"];
+const ROOM_ANIM = ["", "sway", "flutter", "float", "breathe", "hop", "shimmer", "wobble"];
+const ROOM_SPECIALS = {
+  "items/crystal_ball": { stamp: "ticket", how: "Get checked in at a carnival (Ticket Punched)." },
+  "items/unicycle": { stamp: "roustabout", how: "Work a volunteer shift (Roustabout)." },
+  "items/rocking_horse": { stamp: "roustabout", how: "Work a volunteer shift (Roustabout)." },
+  "items/juggling_pins": { stamp: "sawdust", how: "Build something for a carnival (Sawdust)." },
+  "items/rabbit_hat": { stamp: "barker", how: "Bring a friend who shows up (Barker)." },
+  "items/big_top": { stamp: "canvasman", how: "Lead a crew or teach a skill (Boss Canvasman)." },
+  "items/gramophone": { handshakes: 3, how: "Shake hands with 3 crewmates." },
+  "items/aerial_silks": { rank: true, how: "Become an Apprentice." },
+};
+async function roomUnlocks(env, userId) {
+  const u = await env.DB.prepare("SELECT rank, is_ringleader FROM users WHERE id = ?").bind(userId).first();
+  if (u?.is_ringleader) return Object.keys(ROOM_SPECIALS);
+  const { results } = await env.DB.prepare("SELECT DISTINCT kind FROM stamps WHERE user_id = ?").bind(userId).all();
+  const kinds = new Set(results.map((r) => r.kind));
+  const met = (await env.DB.prepare("SELECT COUNT(*) AS n FROM handshakes WHERE (user_a = ? OR user_b = ?) AND met_at IS NOT NULL").bind(userId, userId).first()).n;
+  return Object.entries(ROOM_SPECIALS).filter(([, r]) => (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
+}
+function cleanRoomItems(raw, { ringleader, unlocked }) {
+  if (raw === null) return null;
+  if (!Array.isArray(raw) || raw.length > 90) throw new Error("That room has too many things in it.");
+  const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : d; };
+  return raw.map((it) => {
+    const img = it.img == null ? null : String(it.img);
+    if (img !== null && !/^(items\/|cats\/)?[a-z_]{2,30}$/.test(img)) throw new Error("Unknown decoration.");
+    if (img && img.startsWith("cats/") && !ringleader) throw new Error("Sunny and Daisy live in the Ringmaster's office.");
+    if (img && ROOM_SPECIALS[img] && !unlocked.includes(img)) throw new Error(`Not unlocked yet: ${ROOM_SPECIALS[img].how}`);
+    const role = ROOM_ITEM_ROLES.includes(it.role) ? it.role : "decor";
+    if (role === "hatbox" && !ringleader) throw new Error("The hat box is the Ringleader's.");
+    return {
+      id: String(it.id || "").slice(0, 16) || Math.random().toString(36).slice(2, 8), role, img,
+      l: num(it.l, -10, 105, 40), t: num(it.t, -10, 105, 40), w: num(it.w, 1, 80, 10), ...(it.h != null ? { h: num(it.h, 1, 80, 10) } : {}),
+      ...(it.rot ? { rot: num(it.rot, -45, 45, 0) } : {}), ...(it.flip ? { flip: true } : {}), ...(it.z ? { z: Math.round(num(it.z, -50, 50, 0)) } : {}),
+      ...(ROOM_ANIM.includes(it.anim) && it.anim ? { anim: it.anim } : {}), ...(role === "flyer" ? { n: Math.round(num(it.n, 0, 5, 0)) } : {}),
+    };
+  });
+}
+async function roomFor(env, ownerId) {
+  const owner = await env.DB.prepare("SELECT id, display_name, rank, is_ringleader FROM users WHERE id = ?").bind(ownerId).first();
+  if (!owner) return null;
+  const row = await env.DB.prepare("SELECT theme, items FROM user_rooms WHERE user_id = ?").bind(ownerId).first();
+  let theme = row?.theme || "classic", items = row?.items ? JSON.parse(row.items) : null;
+  if (!row && owner.is_ringleader) {
+    const shared = await env.DB.prepare("SELECT data FROM room_layout WHERE id = 'main'").first();
+    theme = "original"; items = shared ? JSON.parse(shared.data) : null;
+  }
+  const { results: notes } = await env.DB.prepare(
+    `SELECT n.id, n.body, n.created_at, n.author_id, u.display_name FROM room_notes n JOIN users u ON u.id = n.author_id
+     WHERE n.room_user_id = ? ORDER BY n.id DESC LIMIT 12`
+  ).bind(ownerId).all();
+  return { owner: { ...owner, is_ringleader: !!owner.is_ringleader }, theme, items, notes };
+}
+async function roomRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/me/room" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    return json({ ...(await roomFor(env, user.id)), unlocked: await roomUnlocks(env, user.id), specials: ROOM_SPECIALS });
+  }
+  if (pathname === "/api/me/room" && method === "PUT") {
+    if (!user) return err(401, "Sign in required.");
+    const { theme, items } = await body(request);
+    if (!ROOM_THEMES.includes(theme)) return err(400, "Unknown room.");
+    let clean;
+    try { clean = cleanRoomItems(items ?? null, { ringleader: !!user.is_ringleader, unlocked: await roomUnlocks(env, user.id) }); } catch (e) { return err(400, e.message); }
+    await env.DB.prepare(
+      "INSERT INTO user_rooms (user_id, theme, items, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET theme = excluded.theme, items = excluded.items, updated_at = excluded.updated_at"
+    ).bind(user.id, theme, clean ? JSON.stringify(clean) : null).run();
+    return json({ ok: true });
+  }
+  const roomMatch = pathname.match(/^\/api\/rooms\/([^/]+)$/);
+  if (roomMatch && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const room = await roomFor(env, roomMatch[1]);
+    return room ? json(room) : err(404, "No such room.");
+  }
+  const noteMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/notes$/);
+  if (noteMatch && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const owner = noteMatch[1];
+    if (owner === user.id) return err(400, "That's your own mirror!");
+    const text = ((await body(request)).body || "").trim().slice(0, 140);
+    if (!text) return err(400, "Write something first.");
+    const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM room_notes WHERE author_id = ? AND created_at > datetime('now', '-1 hour')").bind(user.id).first();
+    if (recent.n >= 10) return err(429, "That's a lot of notes. Give the mirror a rest for a bit.");
+    await env.DB.prepare("INSERT INTO room_notes (room_user_id, author_id, body) VALUES (?, ?, ?)").bind(owner, user.id, text).run();
+    await notifyUser(env, owner, { kind: "letter", title: `📝 ${user.display_name} left a note on your mirror`, body: text, url: "#/dressing-room" }, "notify_letters");
+    return json({ ok: true });
+  }
+  const delNote = pathname.match(/^\/api\/rooms\/([^/]+)\/notes\/(\d+)$/);
+  if (delNote && method === "DELETE") {
+    if (!user) return err(401, "Sign in required.");
+    await env.DB.prepare("DELETE FROM room_notes WHERE id = ? AND room_user_id = ? AND (room_user_id = ? OR author_id = ?)").bind(delNote[2], delNote[1], user.id, user.id).run();
+    return json({ ok: true });
   }
   return null;
 }
@@ -2644,7 +2751,10 @@ async function ticketRoutes(request, env, url) {
 }
 
 function courtyardAllowed(method, pathname) {
-  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews")) return true;
+  if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room")) return true;
+  if (method === "PUT" && pathname === "/api/me/room") return true;
+  if (method === "GET" && /^\/api\/rooms\/[^/]+$/.test(pathname)) return true;
+  if ((method === "POST" && /^\/api\/rooms\/[^/]+\/notes$/.test(pathname)) || (method === "DELETE" && /^\/api\/rooms\/[^/]+\/notes\/\d+$/.test(pathname))) return true;
   if (method === "GET" && /^\/api\/events\/[^/]+\/table$/.test(pathname)) return true;
   if (method === "POST" && (/^\/api\/events\/[^/]+\/table\/messages$/.test(pathname) || pathname === "/api/handshakes")) return true;
   if ((method === "POST" || method === "DELETE") && /^\/api\/jobs\/[^/]+\/claim$/.test(pathname)) return true;

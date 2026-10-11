@@ -530,7 +530,7 @@ function pageKind(route) {
 // object it belongs to (forum from the book, events from the corkboard…)
 // and folds back into it on close. Ringleader tools stay full pages.
 const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], album: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
-let roomStage = null, roomStageAt = 0, unfoldKind = null, unfoldFrom = null;
+let roomStage = null, roomStageAt = 0, roomStageOwner = null, unfoldKind = null, unfoldFrom = null;
 // Routes that are the room itself; #/badges (old #/passport) opens the trunk.
 const ROOM_ROUTES = ['dressing-room', 'badges', 'passport'];
 let wantTrunk = false;
@@ -550,7 +550,7 @@ function renderMainView(route) {
   stopDMPolling();
   // Arranging only owns the right wing while you're looking at the room itself.
   document.body.classList.toggle('arranging', roomEditing && route === 'dressing-room');
-  if (ROOM_ROUTES.includes(route) || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
+  if (isRoomRoute(route) || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
   roomStage = null; unfoldKind = null; roomHooks = {};
   mainView.dataset.page = pageKind(route);
   if (route.startsWith('event/')) mainView.dataset.single = '1';
@@ -560,15 +560,21 @@ function renderMainView(route) {
 function mountRoomStage(mainView, route) {
   mainView.dataset.page = 'room';
   mainView.classList.add('main-room');
-  const kind = ROOM_ROUTES.includes(route) ? null : unfoldKindOf(route);
-  // Reuse the live room while you come and go; rebuild it after two minutes.
-  if (!roomStage || Date.now() - roomStageAt > 120e3) {
+  const kind = isRoomRoute(route) ? null : unfoldKindOf(route);
+  // Whose room: yours, or the one you're visiting (#/room/<id>).
+  let owner = route.startsWith('room/') ? route.slice(5) : null;
+  if (owner === profile.id) owner = null;
+  if (kind) owner = roomStageOwner; // pages unfold over whichever room you're in
+  // Reuse the live room while you come and go; rebuild it after two minutes,
+  // or when you walk into a different room.
+  if (!roomStage || Date.now() - roomStageAt > 120e3 || owner !== roomStageOwner) {
+    roomStageOwner = owner;
     roomHooks = {};
     roomStage = document.createElement('div');
     roomStage.className = 'room-stage';
     roomStageAt = Date.now();
     mainView.appendChild(roomStage);
-    renderRoom(roomStage);
+    renderRoom(roomStage, owner);
   } else mainView.appendChild(roomStage);
   roomStage.inert = !!kind;
   mainView.classList.toggle('unfolded', !!kind);
@@ -578,7 +584,7 @@ function mountRoomStage(mainView, route) {
     unfoldFrom = null;
     roomHooks.onNews?.(); // back in the room: clear whatever you just went and saw
     // Badges live in the trunk: open it (now, or once the room has drawn).
-    if (route !== 'dressing-room') { wantTrunk = true; roomHooks.openTrunk?.(); }
+    if (route === 'badges' || route === 'passport') { wantTrunk = true; roomHooks.openTrunk?.(); }
     return;
   }
 
@@ -1244,7 +1250,7 @@ async function renderCrewTable(host, eventId) {
   host.innerHTML = `
     <div class="ct-head">🎪 Your crew table</div>
     ${t.am_crew && !t.shake_open ? '<div class="ct-note">On the day, shake hands with your crew here. Both say yes and you\u2019re in each other\u2019s Troupe Album.</div>' : ''}
-    <ul class="ct-crew">${t.crew.map(c => `<li class="ct-mate ${c.shake === 'asks_you' ? 'asks' : ''}">${face(c)}<span class="ct-who"><b>${escapeHtml(c.display_name)}</b>${c.jobs ? `<small>${escapeHtml(c.jobs)}</small>` : ''}</span>${shake(c)}</li>`).join('')}</ul>
+    <ul class="ct-crew">${t.crew.map(c => `<li class="ct-mate ${c.shake === 'asks_you' ? 'asks' : ''}">${face(c)}<span class="ct-who"><b>${c.shake === 'me' ? escapeHtml(c.display_name) : `<a href="#/room/${c.id}" title="Visit their Dressing Room">${escapeHtml(c.display_name)}</a>`}</b>${c.jobs ? `<small>${escapeHtml(c.jobs)}</small>` : ''}</span>${shake(c)}</li>`).join('')}</ul>
     <div class="ct-chat" aria-live="polite">${t.messages.length ? t.messages.map(m => `<div class="ct-msg ${m.user_id === profile.id ? 'mine' : ''}"><b>${escapeHtml(m.display_name)}</b> ${escapeHtml(m.body)} <small>${timeAgo(sqlIso(m.created_at))}</small></div>`).join('') : '<div class="ct-empty">Nobody\u2019s said anything yet. Say hi to your crew!</div>'}</div>
     ${t.am_crew ? '<form class="ct-say"><input name="body" maxlength="600" placeholder="Say something to your crew…" aria-label="Message your crew" autocomplete="off" required><button class="composer-submit" aria-label="Send">→</button></form>' : ''}`;
   const chat = host.querySelector('.ct-chat');
@@ -1278,10 +1284,10 @@ async function renderAlbum(mainView) {
     <h2>The Troupe Album</h2>
     <p class="album-sub">${album.length ? `${album.length} ${album.length === 1 ? 'carnie' : 'carnies'} you\u2019ve met in real life.` : 'Nobody here yet.'} Shake hands with your crew at an event and they land here.</p>
     <div class="album-grid">${album.length ? album.map((m, i) => `
-      <figure class="polaroid" style="--tilt:${((i * 37) % 7) - 3}deg">
+      <figure class="polaroid" style="--tilt:${((i * 37) % 7) - 3}deg"><a class="polaroid-link" href="#/room/${m.id}" aria-label="Visit ${escapeHtml(m.display_name)}’s Dressing Room">
         <div class="polaroid-face ${m.is_ringleader ? 'rl' : ''}">${escapeHtml((m.display_name || '?').trim().slice(0, 1).toUpperCase())}</div>
-        <figcaption><b>${escapeHtml(m.display_name)}</b><small>${escapeHtml(m.is_ringleader ? 'Ringleader' : rankLabel(m.rank))}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</small><small>Met at ${escapeHtml(m.event_title || 'the carnival')} · ${new Date(sqlTime(m.met_at)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></figcaption>
-      </figure>`).join('') : `<div class="album-empty"><img src="${ROOM}raven_perched.png" alt=""><span>Volunteer for an event, take a job, and on the day tap <b>🤝 Shake hands</b> at your crew table.</span><a class="composer-submit" href="#/events">See what’s coming up</a></div>`}</div>`;
+        <figcaption><b>${escapeHtml(m.display_name)}</b><small>${escapeHtml(m.is_ringleader ? 'Ringleader' : rankLabel(m.rank))}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</small><small>Met at ${escapeHtml(m.event_title || 'the carnival')} · ${new Date(sqlTime(m.met_at)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small><small class="polaroid-visit">Visit their room →</small></figcaption>
+      </a></figure>`).join('') : `<div class="album-empty"><img src="${ROOM}raven_perched.png" alt=""><span>Volunteer for an event, take a job, and on the day tap <b>🤝 Shake hands</b> at your crew table.</span><a class="composer-submit" href="#/events">See what’s coming up</a></div>`}</div>`;
 }
 
 // ── Jobs on flyers (2026-10-12) ──
@@ -5805,7 +5811,7 @@ function mountChat() {
   const panel = document.getElementById('chatPanel');
   if (!panel) return;
   const route = currentRoute();
-  const onRoom = ROOM_ROUTES.includes(route) || !!unfoldKindOf(route);
+  const onRoom = isRoomRoute(route) || !!unfoldKindOf(route);
   // Docked wherever the room is the backdrop, when its side is wide enough.
   const sideSpace = (innerWidth - (innerHeight - 69)) / 2;
   const docked = onRoom && innerWidth > 800 && sideSpace >= 300;
@@ -5857,7 +5863,7 @@ function drawChat() {
   const canMod = isModerator();
   list.innerHTML = chat.messages.length ? chat.messages.map(m => `
     <div class="chat-msg ${m.user_id === profile.id ? 'mine' : ''} ${m.is_ringleader ? 'ringleader' : ''}">
-      <div class="chat-meta"><span class="chat-name">${escapeHtml(m.display_name)}</span>${m.is_ringleader ? '<span class="chat-tag">Ringleader</span>' : ''}<span class="chat-time">${timeAgo(m.created_at.replace(' ', 'T') + 'Z')}</span>
+      <div class="chat-meta">${m.user_id && m.user_id !== profile.id ? `<a class="chat-name" href="#/room/${m.user_id}" title="Visit their Dressing Room">${escapeHtml(m.display_name)}</a>` : `<span class="chat-name">${escapeHtml(m.display_name)}</span>`}${m.is_ringleader ? '<span class="chat-tag">Ringleader</span>' : ''}<span class="chat-time">${timeAgo(m.created_at.replace(' ', 'T') + 'Z')}</span>
         ${m.user_id === profile.id || canMod ? `<button class="chat-del" data-del-chat="${m.id}" aria-label="Delete message">×</button>` : ''}</div>
       <div class="chat-body">${escapeHtml(m.body)}</div>
     </div>`).join('') : '<div class="chat-empty">It’s quiet back here. Say hello to the troupe.</div>';
@@ -5966,6 +5972,36 @@ const ROOM_ROLES = {
   popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
   megaphone: 'Megaphone → hollers pop out of it',
 };
+// ── Personal rooms (2026-10-12): themes, the item drawer, starter layout ──
+const ROOM_THEMES = { classic: 'The Classic', fire: 'Flame Breather', aerial: 'The Aerialist', celestial: 'The Fortune-Teller', original: 'The Original' };
+const themeSrc = t => `${ROOM}${t === 'original' ? 'room_bg' : `rooms/${t}`}.jpg`;
+// The decoration drawer: everything cut from Neeff's sheets. Specials (and
+// how to earn them) come from the server, which also enforces them.
+const ROOM_ITEMS = {
+  'Furniture': ['vanity_desk', 'chair_velvet', 'chaise', 'dresser', 'tuffet_red', 'tuffet_harlequin', 'stool_short', 'cushion_round', 'pillow_star', 'screen_moon', 'coat_rack', 'costume_rack', 'dress_stand', 'gramophone'],
+  'Trunks & boxes': ['trunk_blue', 'trunk_star', 'trunk_scarf', 'treasure_box', 'crate_star', 'suitcase', 'hatbox_small', 'drum_blue', 'drum_short', 'drum_tall', 'pedestal_red', 'blankets'],
+  'Lights & walls': ['mirror_bulbs', 'mirror_oval', 'mirror_floor', 'lamp_fringe', 'sconce', 'lantern_gold', 'lantern_iron', 'lantern_small', 'lantern_violet', 'candle', 'star_garland', 'banner_star', 'painting_bigtop', 'frame_small', 'curtain_drape', 'rug_star', 'moon_charm'],
+  'Props & treasures': ['tophat', 'jester_hat', 'ringmaster_coat', 'leotard', 'boots', 'plumes', 'feather_vase', 'fan_feather', 'fan_stripe', 'hoop', 'rope_coil', 'toy_horn', 'ticket_admit', 'tarot_fan', 'tarot_pair', 'books', 'perfume', 'plant_vase', 'popcorn_box', 'crystal_ball', 'unicycle', 'rocking_horse', 'juggling_pins', 'rabbit_hat', 'big_top', 'aerial_silks'],
+};
+const ROOM_CATS = ['sunny_sit', 'sunny_play', 'sunny_sleep', 'daisy_lie', 'daisy_drum', 'daisy_ball'];
+// Every themed room shares a shape: window left, vanity right, rug in front.
+const DRESSING_DEFAULT = [
+  { id: 'mirror', role: 'mirror', img: null, l: 74, t: 24, w: 22, h: 25 },
+  { id: 'drawer', role: 'drawer', img: null, l: 70, t: 50, w: 26, h: 7 },
+  { id: 'exit', role: 'exit', img: null, l: 9, t: 20, w: 19, h: 30 },
+  { id: 'f1', role: 'flyer', n: 0, img: 'flyer_circus', l: 39, t: 29, w: 7, rot: -5, anim: 'flutter' },
+  { id: 'f2', role: 'flyer', n: 1, img: 'flyer_volunteer', l: 47.5, t: 31, w: 6.4, rot: 4, anim: 'flutter' },
+  { id: 'f3', role: 'flyer', n: 2, img: 'flyer_carnival', l: 55.5, t: 29, w: 6.6, rot: -5, anim: 'flutter' },
+  { id: 'trunk', role: 'trunk', img: 'trunk_closed', l: 3, t: 69, w: 19 },
+  { id: 'book', role: 'book', img: 'book_lectern', l: 61, t: 53, w: 11, anim: 'float' },
+  { id: 'raven', role: 'raven', img: 'raven_perched', l: 49, t: 46, w: 8.5, anim: 'breathe' },
+  { id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 40, t: 80, w: 22, rot: -4 },
+  { id: 'popcorn', role: 'popcorn', img: 'popcorn', l: 81, t: 45, w: 4.5, anim: 'wobble' },
+  { id: 'potion', role: 'potion', img: 'potion', l: 88.5, t: 46.5, w: 2.4, anim: 'shimmer' },
+];
+const defaultRoom = theme => JSON.parse(JSON.stringify(theme === 'original' ? ROOM_DEFAULT : DRESSING_DEFAULT));
+const isRoomRoute = route => ROOM_ROUTES.includes(route) || route.startsWith('room/');
+
 const ROOM_DEFAULT = [
   { id: 'mirror', role: 'mirror', img: null, l: 6.5, t: 7, w: 33, h: 36 },
   { id: 'drawer', role: 'drawer', img: null, l: 18.5, t: 48.5, w: 17, h: 7 },
@@ -5986,12 +6022,14 @@ const ROOM_DEFAULT = [
 ];
 let roomEditing = false;
 
-async function renderRoom(mainView) {
+async function renderRoom(mainView, ownerId = null) {
   mainView.classList.add('main-room');
   roomEditing = false;
   document.body.classList.remove('arranging');
-  const [p, { events }, layout, { jobs }, { crews }] = await Promise.all([
-    apiFetch('/api/me/passport'), apiFetch('/api/events'), apiFetch('/api/room-layout').catch(() => ({ items: null })),
+  const visiting = !!ownerId;
+  const [p, { events }, room, { jobs }, { crews }] = await Promise.all([
+    apiFetch('/api/me/passport'), apiFetch('/api/events'),
+    apiFetch(visiting ? `/api/rooms/${ownerId}` : '/api/me/room').catch(() => ({ items: null, theme: 'classic', notes: [], unlocked: [], specials: {} })),
     apiFetch('/api/jobs').catch(() => ({ jobs: [] })), apiFetch('/api/me/crews').catch(() => ({ crews: [] })), refreshLetters(), refreshNews(),
   ]);
   // Crews you're on whose handshakes are open: someone waiting on you, or crewmates not met yet.
@@ -6003,17 +6041,22 @@ async function renderRoom(mainView) {
   const request = upcoming.find(e => !myVolunteering.has(e.id));
   const latest = p.stamps[p.stamps.length - 1];
   let newStamp = false;
-  try { newStamp = !!latest && localStorage.getItem('cs-prize-seen-' + profile.id) !== latest.id && Date.now() - sqlTime(latest.created_at) < 7 * 864e5; } catch (e) { /* no storage */ }
+  try { newStamp = !visiting && !!latest && localStorage.getItem('cs-prize-seen-' + profile.id) !== latest.id && Date.now() - sqlTime(latest.created_at) < 7 * 864e5; } catch (e) { /* no storage */ }
   const inner = isInnerMember();
-  const saved = Array.isArray(layout.items) ? layout.items : ROOM_DEFAULT;
+  let theme = room.theme || 'classic';
+  let savedTheme = theme;
+  const saved = Array.isArray(room.items) ? room.items : defaultRoom(theme);
   let items = JSON.parse(JSON.stringify(saved));
+  const notes = room.notes || [];
+  const ownerName = room.owner?.display_name || 'Someone';
   // The barker's megaphone lies on the floor in every room (saved layouts
   // from before it existed get one; Arrange can move it like anything else).
-  if (!items.some(i => i.role === 'megaphone')) items.push({ id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 43, t: 75, w: 24, rot: -4 });
+  if (!visiting && !items.some(i => i.role === 'megaphone')) items.push({ id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 43, t: 75, w: 24, rot: -4 });
   let selectedId = null;
 
   // What a role means right now: hover verb, destination (null = reacts in place).
   const behave = it => {
+    if (visiting) return it.role === 'mirror' ? [`Leave a note on ${ownerName}’s mirror`, null] : [null, null];
     switch (it.role) {
       case 'mirror': return ['Look in the Mirror', '#/profile'];
       case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/badges'];
@@ -6061,6 +6104,7 @@ async function renderRoom(mainView) {
   // What the raven is squawking about, most urgent first (null = quiet).
   const short = (t, n = 26) => t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
   const squawk = () => {
+    if (visiting) return null;
     if (letters.unread && letters.from[0]) return letters.unread === 1 ? `A letter from ${short(letters.from[0].display_name, 18)}!` : `${letters.unread} new letters!`;
     if (shakeAsk) return `A crewmate wants to shake hands! (${short(shakeAsk.title, 20)})`;
     const nf = items.find(it => it.role === 'flyer' && visible(it) && fresh(it));
@@ -6076,6 +6120,7 @@ async function renderRoom(mainView) {
   // Flyers are the real upcoming events: one per event, none when it's quiet.
   const flyerEvent = it => upcoming[it.n || 0];
   const fresh = it => {
+    if (visiting) return false;
     switch (it.role) {
       case 'flyer': { const e = flyerEvent(it); return !!e && e.created_by !== profile.id && isNew('events', e.created_at); }
       case 'book': return inner ? isNew('guild') : isNew('courtyard');
@@ -6092,9 +6137,9 @@ async function renderRoom(mainView) {
   mainView.innerHTML = `
     <div class="room-viewport" id="roomViewport">
       <div class="room-scene" id="roomScene">
-        <img class="room-bg" src="${ROOM}room_bg.jpg" alt="" draggable="false">
+        <img class="room-bg" id="roomBg" src="${themeSrc(theme)}" alt="" draggable="false">
         <div class="room-lamplight" aria-hidden="true"></div>
-        ${bulbs.map(([x, y], i) => `<span class="room-bulb" style="left:${x}%;top:${y}%;animation-delay:${(i * 0.37) % 3}s;animation-duration:${2.6 + (i % 4) * 0.7}s" aria-hidden="true"></span>`).join('')}
+        ${theme !== 'original' ? '' : bulbs.map(([x, y], i) => `<span class="room-bulb" style="left:${x}%;top:${y}%;animation-delay:${(i * 0.37) % 3}s;animation-duration:${2.6 + (i % 4) * 0.7}s" aria-hidden="true"></span>`).join('')}
         <div class="room-items" id="roomItems"></div>
         <div class="room-motes" aria-hidden="true">${motes}</div>
         <div class="room-labels" id="roomLabels" aria-hidden="true"></div>
@@ -6102,7 +6147,7 @@ async function renderRoom(mainView) {
     </div>
     <div class="room-verb" id="roomVerb" aria-hidden="true"></div>
     <button class="room-reveal" id="roomReveal" aria-label="Show everything you can touch">✦</button>
-    ${profile.is_ringleader ? '<button class="room-arrange-btn" id="roomArrange">✎ Arrange</button>' : ''}
+    ${visiting ? `<div class="room-visit-plaque"><span>🎪 ${escapeHtml(ownerName)}’s Dressing Room</span><button class="room-plaque-btn" id="roomLeaveNote">📝 Leave a note on the mirror</button><a class="raven-offer-no" href="#/dressing-room">← Back to my room</a></div>` : '<button class="room-arrange-btn" id="roomArrange">✎ Arrange</button>'}
     <div class="room-editor" id="roomEditor" hidden></div>
     <div class="room-toast" id="roomToast" role="status" aria-live="polite"></div>`;
 
@@ -6141,6 +6186,15 @@ async function renderRoom(mainView) {
   // Squawk bubble, exit sign and trunk glow ride along with their items.
   function extras() {
     let out = '';
+    // Huzzah notes visitors stuck on the mirror, newest on top.
+    const mirror = items.find(i => i.role === 'mirror');
+    if (mirror && notes.length) {
+      const mh = mirror.h || mirror.w * 1.2;
+      notes.slice(0, 6).forEach((n, k) => {
+        const l = mirror.l + 1 + (k % 3) * (mirror.w / 3.1), t = mirror.t + 2 + Math.floor(k / 3) * (mh * 0.42);
+        out += `<button class="room-note" data-note="${n.id}" style="left:${l}%;top:${t}%;--tilt:${((k * 47) % 11) - 5}deg" aria-label="Note from ${escapeHtml(n.display_name)}: ${escapeHtml(n.body)}"><b>${escapeHtml(n.display_name.split(' ')[0])}</b>${escapeHtml(n.body.length > 28 ? n.body.slice(0, 27) + '…' : n.body)}</button>`;
+      });
+    }
     const raven = items.find(i => i.role === 'raven'), exit = items.find(i => i.role === 'exit'), trunk = items.find(i => i.role === 'trunk');
     const said = raven && squawk();
     if (said) out += `<div class="room-squawk said ${letters.unread ? 'letter' : ''}" style="left:${raven.l + raven.w * 0.55}%;top:${raven.t - 1.5}%" aria-hidden="true"><b>SQUAWK!</b> ${escapeHtml(said)}</div>`;
@@ -6196,6 +6250,9 @@ async function renderRoom(mainView) {
   host.addEventListener('mouseleave', () => verb.classList.remove('show'));
   host.addEventListener('click', e => {
     if (roomEditing) return;
+    const note = e.target.closest('[data-note]');
+    if (note) { const n = notes.find(x => String(x.id) === note.dataset.note); if (n) say(`📝 “${n.body}” — ${n.display_name}`); return; }
+    if (visiting) { if (e.target.closest('[data-role="mirror"]')) leaveNote(); return; }
     const el = e.target.closest('[data-item]');
     if (!el) return;
     const it = items.find(i => i.id === el.dataset.item);
@@ -6354,6 +6411,18 @@ async function renderRoom(mainView) {
     const el = host.querySelector('[data-role="trunk"]'), it = items.find(i => i.role === 'trunk');
     if (el && it) openTrunk(el, it);
   };
+  function leaveNote() {
+    openForumNote({
+      heading: `A note for ${ownerName}’s mirror`, withTitle: false, cta: 'Stick it on the mirror', placeholder: 'Huzzah! Great working with you…',
+      onSubmit: async ({ body }) => {
+        await apiFetch(`/api/rooms/${ownerId}/notes`, { method: 'POST', body: { body } });
+        flashToast(`📝 Stuck to ${ownerName}’s mirror. The raven will tell them.`);
+        roomStage = null; render();
+      },
+    });
+  }
+  document.getElementById('roomLeaveNote')?.addEventListener('click', leaveNote);
+
   // ✦ reveal: one short label per kind of thing, for a few seconds.
   const labels = document.getElementById('roomLabels');
   document.getElementById('roomReveal').addEventListener('click', () => {
@@ -6416,22 +6485,31 @@ async function renderRoom(mainView) {
   function renderEditor() {
     const it = sel();
     const opt = (map, val) => Object.entries(map).map(([k, v]) => `<option value="${k}" ${k === (val || '') ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+    const unlocked = new Set(room.unlocked || []), specials = room.specials || {};
+    const thumb = (img, label) => {
+      const locked = specials[img] && !unlocked.has(img);
+      return `<button class="re-thumb ${locked ? 'locked' : ''}" ${locked ? 'disabled' : `data-add="${img}"`} title="${escapeHtml(locked ? `🔒 ${specials[img].how}` : label)}"><img src="${ROOM}${img}.png" alt="" loading="lazy">${locked ? '<span class="re-lock">🔒</span>' : ''}</button>`;
+    };
+    const drawer = Object.entries(ROOM_ITEMS).map(([cat, list]) => `<div class="re-cat"><b>${cat}</b><div class="re-grid">${list.map(n => thumb(`items/${n}`, n.replace(/_/g, ' '))).join('')}</div></div>`).join('')
+      + (profile.is_ringleader ? `<div class="re-cat"><b>Sunny &amp; Daisy</b><div class="re-grid">${ROOM_CATS.map(n => thumb(`cats/${n}`, n.replace(/_/g, ' '))).join('')}</div></div>` : '')
+      + `<div class="re-cat"><b>Room stickers</b><div class="re-grid">${Object.keys(ROOM_ASSETS).map(n => thumb(n, n.replace(/_/g, ' '))).join('')}<button class="re-thumb re-hot" data-add="__hot" title="Invisible hotspot (for painted things)">⬚</button></div></div>`;
     editor.innerHTML = `
-      <div class="re-row re-title"><strong>Arrange the room</strong><span class="re-hint">Drag to move · gold corner to resize</span></div>
+      <div class="re-row re-title"><strong>Arrange your room</strong><span class="re-hint">Drag to move · gold corner to resize</span></div>
+      <div class="re-row"><label class="re-wide">Your room<select id="reTheme">${Object.entries(ROOM_THEMES).map(([k, v]) => `<option value="${k}" ${k === theme ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
       ${it ? `
         <div class="re-row"><label>It does<select data-f="role">${opt(ROOM_ROLES, it.role)}</select></label></div>
         ${it.role === 'flyer' ? `<div class="re-row"><label>Which event<select data-f="n">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === (it.n || 0) ? 'selected' : ''}>${['Next', '2nd', '3rd', '4th', '5th', '6th'][n]} upcoming</option>`).join('')}</select></label></div>` : ''}
         ${it.img ? `<div class="re-row"><label>Moves<select data-f="anim">${opt(ROOM_ANIMS, it.anim)}</select></label>
-          <label>Art<select data-f="img">${Object.keys(ROOM_ASSETS).map(k => `<option ${k === it.img ? 'selected' : ''}>${k}</option>`).join('')}</select></label></div>` : ''}
+          ${ROOM_ASSETS[it.img] ? `<label>Art<select data-f="img">${Object.keys(ROOM_ASSETS).map(k => `<option ${k === it.img ? 'selected' : ''}>${k}</option>`).join('')}</select></label>` : ''}</div>` : ''}
         <div class="re-row"><label class="re-wide">Rotate <input type="range" min="-45" max="45" step="1" value="${it.rot || 0}" data-f="rot"></label></div>
         <div class="re-row re-btns">
           ${it.img ? '<button data-a="flip">Flip</button>' : ''}
           <button data-a="back">Send back</button><button data-a="front">Bring forward</button>
           <button data-a="dup">Duplicate</button><button data-a="del" class="re-danger">Delete</button>
         </div>` : '<div class="re-row re-hint">Tap something in the room to select it.</div>'}
-      <div class="re-row re-add"><select id="reAddArt"><option value="">+ Add a thing…</option>${Object.keys(ROOM_ASSETS).map(k => `<option>${k}</option>`).join('')}<option value="__hot">Invisible hotspot (for painted things)</option></select></div>
+      <details class="re-drawer" ${it ? '' : 'open'}><summary>+ Add a thing</summary>${drawer}<p class="re-hint">🔒 Specials are won at real carnivals. Hover one to see how.</p></details>
       <div class="re-row re-btns re-save">
-        <button data-a="save" class="re-primary">Save for everyone</button><button data-a="cancel">Cancel</button><button data-a="reset">Reset to default</button>
+        <button data-a="save" class="re-primary">Save my room</button><button data-a="cancel">Cancel</button><button data-a="reset">Start over</button>
       </div>`;
   }
   editor.addEventListener('input', e => {
@@ -6440,11 +6518,11 @@ async function renderRoom(mainView) {
     if (f === 'rot') { it.rot = +e.target.value; const n = host.querySelector(`[data-item="${it.id}"] .room-turn`); if (n) n.style.transform = `rotate(${it.rot}deg) scaleX(${it.flip ? -1 : 1})`; }
   });
   editor.addEventListener('change', e => {
-    if (e.target.id === 'reAddArt') {
-      const art = e.target.value; if (!art) return;
-      const id = 'x' + Math.random().toString(36).slice(2, 8);
-      items.push(art === '__hot' ? { id, role: 'decor', img: null, l: 42, t: 42, w: 14, h: 14 } : { id, role: 'decor', img: art, l: 42, t: 40, w: 12, z: 5 });
-      selectedId = id; draw(); return;
+    if (e.target.id === 'reTheme') {
+      theme = e.target.value;
+      document.getElementById('roomBg').src = themeSrc(theme);
+      say(`${ROOM_THEMES[theme]}. Save to keep it.`);
+      return;
     }
     const it = sel(); const f = e.target.dataset.f;
     if (!it || !f || f === 'rot') return;
@@ -6452,6 +6530,14 @@ async function renderRoom(mainView) {
     draw();
   });
   editor.addEventListener('click', async e => {
+    const add = e.target.closest('[data-add]');
+    if (add) {
+      const art = add.dataset.add, id = 'x' + Math.random().toString(36).slice(2, 8);
+      // Drop it somewhere near the middle of the floor, not on top of the last one.
+      const l = 30 + Math.random() * 30, t = 45 + Math.random() * 25;
+      items.push(art === '__hot' ? { id, role: 'decor', img: null, l, t, w: 14, h: 14 } : { id, role: 'decor', img: art, l, t, w: 12, z: 5 });
+      selectedId = id; draw(); return;
+    }
     const a = e.target.dataset.a; if (!a) return;
     const it = sel();
     if (a === 'flip' && it) { it.flip = !it.flip; draw(); }
@@ -6460,18 +6546,25 @@ async function renderRoom(mainView) {
     if (a === 'dup' && it) { const c = { ...it, id: 'x' + Math.random().toString(36).slice(2, 8), l: it.l + 2, t: it.t + 2 }; items.push(c); selectedId = c.id; draw(); }
     if (a === 'del' && it) { items = items.filter(i => i !== it); selectedId = null; draw(); }
     if (a === 'cancel') { exitEditing(); }
-    if (a === 'reset') { if (!confirm('Put the room back to the default arrangement for everyone?')) return; await apiFetch('/api/room-layout', { method: 'PUT', body: { items: null } }); items = JSON.parse(JSON.stringify(ROOM_DEFAULT)); exitEditing(true); say('Back to the default room.'); }
+    if (a === 'reset') {
+      if (!confirm('Start this room over with the starter arrangement?')) return;
+      items = defaultRoom(theme);
+      if (!items.some(i => i.role === 'megaphone')) items.push({ id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 43, t: 75, w: 24, rot: -4 });
+      selectedId = null; draw(); say('Fresh start. Save to keep it.');
+    }
     if (a === 'save') {
       try {
-        await apiFetch('/api/room-layout', { method: 'PUT', body: { items } });
-        exitEditing(true); say('Saved. Everyone sees your room now.');
+        await apiFetch('/api/me/room', { method: 'PUT', body: { theme, items } });
+        saved.splice(0, saved.length, ...JSON.parse(JSON.stringify(items)));
+        savedTheme = theme;
+        exitEditing(true); say('Saved. Visitors see your room like this now.');
       } catch (err) { say(`Couldn't save: ${err.message}`); }
     }
   });
   function exitEditing(keep) {
     roomEditing = false; selectedId = null;
     document.body.classList.remove('arranging');
-    if (!keep) items = JSON.parse(JSON.stringify(saved));
+    if (!keep) { items = JSON.parse(JSON.stringify(saved)); if (theme !== savedTheme) { theme = savedTheme; document.getElementById('roomBg').src = themeSrc(theme); } }
     editor.hidden = true; document.getElementById('roomArrange').textContent = '✎ Arrange';
     draw();
   }
