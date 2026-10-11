@@ -938,7 +938,8 @@ async function renderEventsView(mainView, onlyEventId = null) {
   mainView.innerHTML = onlyEventId ? `
     <a class="thread-back" href="#/events">&larr; All events</a>
     <div class="post-list">${listHtml}</div>` : `
-    <h2>Events</h2>${composerHtml}<div class="post-list">${listHtml}</div>
+    <h2>Events</h2><div class="post-list">${listHtml}</div>
+    ${composerHtml ? `<details class="event-new"><summary>+ Post a new event</summary>${composerHtml}</details>` : ''}
     <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show Past Events</button></div>
     <div id="archivedEvents"></div>
   `;
@@ -4975,101 +4976,129 @@ const ORACLES = { mercury: 'https://mercury-oracle.vercel.app/', field: 'https:/
 async function renderRoom(mainView) {
   mainView.classList.add('main-room');
   const [p, { events }] = await Promise.all([apiFetch('/api/me/passport'), apiFetch('/api/events')]);
-  const request = (events || []).find(e => !myVolunteering.has(e.id));
+  const upcoming = events || [];
+  const request = upcoming.find(e => !myVolunteering.has(e.id));
   const latest = p.stamps[p.stamps.length - 1];
   let newStamp = false;
   try { newStamp = !!latest && localStorage.getItem('cs-prize-seen-' + profile.id) !== latest.id && Date.now() - sqlTime(latest.created_at) < 7 * 864e5; } catch (e) { /* no storage */ }
-  const rank = profile.is_ringleader ? 'Ringleader' : rankLabel(profile.rank);
+  const inner = isInnerMember();
+  const flyer = i => upcoming[i]
+    ? [`Flyer: ${upcoming[i].title}`, `#/event/${upcoming[i].id}`]
+    : ['The Flyers', '#/events'];
 
-  // [key, image or null (painted hotspot), left%, top%, width%, height% (hotspots only), extra class]
-  const objs = [
-    ['mirror', null, 6.5, 7, 33, 40],
-    ['stars', null, 0, 19, 5.5, 18],
-    ['exit', null, 91, 9, 9, 40],
-    ['costume_ringmaster', 'costume_ringmaster', 66.2, 7.4, 8.4],
-    ['costume_clown', 'costume_clown', 74.4, 7.2, 7.8],
-    ['costume_teal', 'costume_teal', 82, 7.2, 7.8],
-    ['flyer_circus', 'flyer_circus', 67.4, 33.5, 7.4, null, 'tilt-l'],
-    ['flyer_volunteer', 'flyer_volunteer', 75.4, 35.5, 6.8, null, 'tilt-r'],
-    ['flyer_carnival', 'flyer_carnival', 82.6, 33.8, 7.0, null, 'tilt-l'],
-    ['potion', 'potion', 40.2, 37.4, 3.6],
-    ['popcorn', 'popcorn', 45.3, 36.8, 5.6],
-    ['book', 'book_lectern', 63.5, 54.5, 14],
-    ['raven', request ? 'raven_squawk' : 'raven_perched', 82, 55.5, request ? 15.2 : 11],
-    ['trunk', newStamp ? 'trunk_open' : 'trunk_closed', 3, newStamp ? 70.5 : 74, 22],
-    ...(profile.is_ringleader ? [['hatbox', 'hatbox_closed', 27.5, 85.5, 12]] : []),
-  ];
-  const html = objs.map(([key, img, l, t, w, h, cls]) => img
-    ? `<button class="room-obj ${cls || ''}" data-obj="${key}" style="left:${l}%;top:${t}%;width:${w}%"><img src="${ROOM}${img}.png" alt="" draggable="false"></button>`
-    : `<button class="room-hot" data-obj="${key}" style="left:${l}%;top:${t}%;width:${w}%;height:${h}%"></button>`).join('');
+  // key: [image or null (painted hotspot), left%, top%, width%, height% (hotspots), class, hover verb + name, href]
+  // href null = it reacts in place (popcorn, a quiet raven, a locked drawer).
+  const objs = {
+    mirror: [null, 6.5, 7, 33, 36, 'hot', 'Look in the Mirror', '#/profile'],
+    drawer: [null, 18.5, 48.5, 17, 7, 'hot', inner ? 'Open the Drawer (your letters)' : 'Try the Drawer (locked)', inner ? '#/dm' : null],
+    stars: [null, 0, 19, 5.5, 18, 'hot', 'Touch the Hanging Stars', ORACLES.field],
+    exit: [null, 91, 9, 9, 40, 'hot', 'Step out to the Courtyard', '#/courtyard'],
+    costume_ringmaster: ['costume_ringmaster', 66.2, 7.4, 8.4, null, 'sway', 'Try on a Costume', '#/profile'],
+    costume_clown: ['costume_clown', 74.4, 7.2, 7.8, null, 'sway d2', 'Try on a Costume', '#/profile'],
+    costume_teal: ['costume_teal', 82, 7.2, 7.8, null, 'sway d3', 'Try on a Costume', '#/profile'],
+    flyer_circus: ['flyer_circus', 67.4, 33.5, 7.4, null, 'flutter tilt-l', ...flyer(0)],
+    flyer_volunteer: ['flyer_volunteer', 75.4, 35.5, 6.8, null, 'flutter d2 tilt-r', ...flyer(1)],
+    flyer_carnival: ['flyer_carnival', 82.6, 33.8, 7.0, null, 'flutter d3 tilt-l', ...flyer(2)],
+    potion: ['potion', 40.2, 37.4, 3.6, null, 'shimmer', 'Drink the Strange Little Bottle', ORACLES.mercury],
+    popcorn: ['popcorn', 45.3, 36.8, 5.6, null, 'wobble', 'Eat the Popcorn', null],
+    book: ['book_lectern', 63.5, 54.5, 14, null, 'float', 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'],
+    raven: [request ? 'raven_squawk' : 'raven_perched', 82, 55.5, request ? 15.2 : 11, null, request ? 'hop' : 'breathe',
+      request ? `Hear the Raven (${request.title} needs hands)` : 'Pet the Raven', request ? `#/event/${request.id}` : null],
+    trunk: [newStamp ? 'trunk_open' : 'trunk_closed', 3, newStamp ? 70.5 : 74, 22, null, newStamp ? 'breathe' : '', newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/passport'],
+    ...(profile.is_ringleader ? { hatbox: ['hatbox_closed', 27.5, 85.5, 12, null, '', 'Open the Ringleader’s Hat Box', 'more'] } : {}),
+  };
+  const html = Object.entries(objs).map(([key, [img, l, t, w, h, cls, label]]) => img
+    ? `<button class="room-obj ${cls}" data-obj="${key}" aria-label="${escapeHtml(label)}" style="left:${l}%;top:${t}%;width:${w}%"><img src="${ROOM}${img}.png" alt="" draggable="false"></button>`
+    : `<button class="room-hot" data-obj="${key}" aria-label="${escapeHtml(label)}" style="left:${l}%;top:${t}%;width:${w}%;height:${h}%"></button>`).join('');
+  // Painted bulbs on the mirror (approx. centers in % of the painting) flicker.
+  const bulbs = [[9.2,19.2],[8.4,27.5],[8.8,35.6],[10.3,43.2],[15.6,13.8],[20.2,11.6],[26.5,13.9],[31.9,16.8],[34.7,23.1],[36.3,29.9],[37.1,37.1],[30.6,23.6]];
+  const motes = Array.from({ length: 14 }, (_, i) => `<span class="room-mote" style="left:${(8 + (i * 61) % 84)}%;top:${(20 + (i * 37) % 60)}%;animation-delay:${(i * 0.9) % 11}s;animation-duration:${9 + (i % 5) * 2}s"></span>`).join('');
 
   mainView.innerHTML = `
     <div class="room-viewport" id="roomViewport">
       <div class="room-scene" id="roomScene">
         <img class="room-bg" src="${ROOM}room_bg.jpg" alt="" draggable="false">
+        <div class="room-lamplight" aria-hidden="true"></div>
+        ${bulbs.map(([x, y], i) => `<span class="room-bulb" style="left:${x}%;top:${y}%;animation-delay:${(i * 0.37) % 3}s;animation-duration:${2.6 + (i % 4) * 0.7}s" aria-hidden="true"></span>`).join('')}
         ${html}
+        <div class="room-motes" aria-hidden="true">${motes}</div>
         <div class="room-exit-sign" aria-hidden="true">Courtyard →</div>
         ${request ? `<div class="room-squawk" aria-hidden="true">SQUAWK!</div>` : ''}
         ${newStamp ? `<div class="room-trunk-glow" aria-hidden="true"></div>` : ''}
+        <div class="room-labels" id="roomLabels" aria-hidden="true"></div>
       </div>
     </div>
-    <div class="room-plaque" id="roomPlaque" role="status" aria-live="polite">
-      <div class="room-plaque-title">Your Dressing Room</div>
-      <div class="room-plaque-line">Tap anything in the room. Some things only reveal themselves when touched.</div>
-    </div>`;
+    <div class="room-verb" id="roomVerb" aria-hidden="true"></div>
+    <button class="room-reveal" id="roomReveal" aria-label="Show everything you can touch">✦</button>
+    <div class="room-toast" id="roomToast" role="status" aria-live="polite"></div>`;
 
-  // Accessible names for every object (the images themselves are decorative).
-  const said = {
-    mirror: ['The Mirror', `${rank} of the guild. ${p.next ? passportProgressText(p) + '.' : 'Look at all you have won.'}`, 'See yourself', '#/passport'],
-    trunk: ['The Steamer Trunk', newStamp ? 'Something new is spilling out… a stamp is waiting!' : 'Your passport lives in here, with every stamp you have earned.', 'Open the passport', '#/passport'],
-    costume_ringmaster: ['The Costume Rack', 'Your acts and how you show up to the guild.', 'Change your costume', '#/profile'],
-    costume_clown: ['The Costume Rack', 'Your acts and how you show up to the guild.', 'Change your costume', '#/profile'],
-    costume_teal: ['The Costume Rack', 'Your acts and how you show up to the guild.', 'Change your costume', '#/profile'],
-    flyer_circus: ['The Flyers', 'Everything coming up. Volunteer from here.', 'Read the flyers', '#/events'],
-    flyer_volunteer: ['The Flyers', 'Everything coming up. Volunteer from here.', 'Read the flyers', '#/events'],
-    flyer_carnival: ['The Flyers', 'Everything coming up. Volunteer from here.', 'Read the flyers', '#/events'],
-    raven: request
-      ? ['Your Raven', `SQUAWK! ${request.title} needs hands — ${formatEventDate(request.starts_at)}. Win a Roustabout badge!`, 'Take the job', `#/event/${request.id}`]
-      : ['Your Raven', 'Nothing to squawk about right now. It is keeping watch.', null, null],
-    book: ['The Big Book', 'Every post, every voice in the guild — bound in one fat book.', 'Open the book', '#/courtyard'],
-    exit: ['To the Courtyard', 'News and calls from the whole guild.', 'Step out', '#/courtyard'],
-    popcorn: ['Popcorn', 'Still warm. Nobody knows who keeps refilling it.', null, null],
-    potion: ['A Strange Little Bottle', 'It hums when you hold it. The Mercury Oracle answers here.', 'Drink it in', ORACLES.mercury],
-    stars: ['The Hanging Stars', 'They chime in a pattern only some can read. The Field Oracle is listening.', 'Read the field', ORACLES.field],
-    hatbox: ['The Ringleader’s Hat Box', 'Your tools: Directory, Door Check-in, Impact Log, and the rest.', 'Open the hat box', 'more'],
+  const scene = document.getElementById('roomScene');
+  const verb = document.getElementById('roomVerb');
+  const toast = document.getElementById('roomToast');
+  let toastTimer;
+  const say = line => {
+    toast.textContent = line; toast.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
   };
-  mainView.querySelectorAll('[data-obj]').forEach(el => el.setAttribute('aria-label', said[el.dataset.obj][0]));
 
-  const plaque = document.getElementById('roomPlaque');
-  let picked = null;
-  const introTimer = setTimeout(() => { if (!picked) plaque.classList.add('hidden'); }, 4500);
-  document.getElementById('roomScene').addEventListener('click', e => {
-    if (e.target.closest('[data-obj]')) return;
-    picked = null; plaque.classList.add('hidden');
-    mainView.querySelectorAll('.room-obj.picked').forEach(o => o.classList.remove('picked'));
+  // Classic point-and-click hover line (mouse/trackpad only).
+  mainView.querySelectorAll('[data-obj]').forEach(el => {
+    el.addEventListener('mouseenter', () => { verb.textContent = objs[el.dataset.obj][6]; verb.classList.add('show'); });
+    el.addEventListener('mouseleave', () => verb.classList.remove('show'));
   });
-  const go = (key, href) => {
+
+  // One click opens: the room leans in toward the thing, then you're there.
+  const go = (el, key, href) => {
     if (href === 'more') { mobileNavOpen = true; renderShell(); return; }
     if (href.startsWith('http')) { window.open(href, '_blank', 'noopener'); return; }
-    if (key === 'book') { openBookToward(mainView.querySelector('[data-obj="book"]'), href); return; }
-    location.hash = href;
+    if (key === 'book') { openBookToward(el, href); return; }
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { location.hash = href; return; }
+    const sr = scene.getBoundingClientRect(), r = el.getBoundingClientRect();
+    scene.style.transformOrigin = `${((r.left + r.width / 2 - sr.left) / sr.width) * 100}% ${((r.top + r.height / 2 - sr.top) / sr.height) * 100}%`;
+    scene.classList.add('zooming');
+    setTimeout(() => { location.hash = href; }, 380);
+  };
+  const quiet = {
+    popcorn: () => {
+      say('Still warm. Nobody knows who keeps refilling it.');
+      const el = mainView.querySelector('[data-obj="popcorn"]');
+      for (let i = 0; i < 7; i++) {
+        const k = document.createElement('span');
+        k.className = 'room-kernel';
+        k.style.left = `${45.3 + 2.8}%`; k.style.top = '37.5%';
+        k.style.setProperty('--dx', `${(i - 3) * 14}px`); k.style.setProperty('--dy', `${-30 - (i % 3) * 18}px`);
+        scene.appendChild(k); setTimeout(() => k.remove(), 900);
+      }
+      el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    },
+    raven: () => say('Croak. Nothing to squawk about right now. It’s keeping watch.'),
+    drawer: () => say('Locked. The letters are for inner members — work two shifts to step inside.'),
   };
   mainView.querySelectorAll('[data-obj]').forEach(el => el.addEventListener('click', () => {
-    const key = el.dataset.obj;
-    const [title, line, cta, href] = said[key];
-    mainView.querySelectorAll('.room-obj.picked').forEach(o => o.classList.remove('picked'));
-    if (el.classList.contains('room-obj')) el.classList.add('picked');
-    // Second tap on the same thing opens it.
-    if (picked === key && href) { go(key, href); return; }
-    picked = key;
-    clearTimeout(introTimer);
-    plaque.classList.remove('hidden');
-    plaque.innerHTML = `
-      <div class="room-plaque-title">${escapeHtml(title)}</div>
-      <div class="room-plaque-line">${escapeHtml(line)}</div>
-      ${href ? `<button class="room-plaque-btn" id="plaqueGo">${escapeHtml(cta)} →</button>` : ''}`;
-    document.getElementById('plaqueGo')?.addEventListener('click', () => go(key, href));
+    const key = el.dataset.obj, href = objs[key][7];
+    if (href) go(el, key, href); else quiet[key]?.();
   }));
+
+  // ✦ reveal: every hotspot's name glows for a moment (adventure-game style).
+  const labels = document.getElementById('roomLabels');
+  document.getElementById('roomReveal').addEventListener('click', () => {
+    const sr = scene.getBoundingClientRect();
+    // One short label per thing; the three costumes / flyers share one.
+    const SHORT = { mirror: 'Mirror', drawer: 'Drawer', stars: 'Stars', exit: 'Courtyard', costume: 'Costumes', flyer: 'Flyers', potion: 'Bottle', popcorn: 'Popcorn', book: 'Big Book', raven: 'Raven', trunk: 'Trunk', hatbox: 'Hat Box' };
+    const groups = {};
+    mainView.querySelectorAll('[data-obj]').forEach(el => {
+      const g = el.dataset.obj.split('_')[0];
+      const r = el.getBoundingClientRect();
+      const b = groups[g] || (groups[g] = { l: Infinity, t: Infinity, r: -Infinity, b: -Infinity });
+      b.l = Math.min(b.l, r.left); b.t = Math.min(b.t, r.top); b.r = Math.max(b.r, r.right); b.b = Math.max(b.b, r.bottom);
+    });
+    labels.innerHTML = Object.entries(groups).map(([g, b]) =>
+      `<span class="room-label" style="left:${(((b.l + b.r) / 2 - sr.left) / sr.width) * 100}%;top:${(((b.t + b.b) / 2 - sr.top) / sr.height) * 100}%">${escapeHtml(SHORT[g] || g)}</span>`).join('');
+    labels.classList.add('show');
+    mainView.querySelectorAll('[data-obj]').forEach(el => el.classList.add('revealed'));
+    setTimeout(() => { labels.classList.remove('show'); mainView.querySelectorAll('.revealed').forEach(el => el.classList.remove('revealed')); }, 3200);
+  });
 
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
@@ -5078,12 +5107,7 @@ async function renderRoom(mainView) {
     const max = vp.scrollWidth - vp.clientWidth;
     if (max <= 0) return;
     vp.scrollLeft = request ? max : max / 2;
-    const hint = document.createElement('div');
-    hint.className = 'room-swipe-hint';
-    hint.textContent = '⟷ swipe to look around';
-    mainView.appendChild(hint);
-    vp.addEventListener('scroll', () => hint.remove(), { once: true });
-    setTimeout(() => hint.remove(), 4000);
+    say('⟷ Swipe to look around · tap ✦ to see what you can touch');
   });
 }
 
