@@ -1042,3 +1042,11 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; colo
 @keyframes confetti-fall { to { transform: translateY(110vh) rotate(720deg); } }
 @keyframes celebrate-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .confetti { display: none; } .rank-celebration-card { animation: none; } }
+
+/* ── Profile + contact sharing (2026-10-10) ── */
+a.profile-card { text-decoration: none; color: inherit; cursor: pointer; }
+a.profile-card:hover { border-color: var(--gold); }
+.profile-form { max-width: 560px; }
+.share-toggle { display: flex; align-items: center; gap: 0.5rem; margin: 0.3rem 0; }
+.dm-bubble { white-space: pre-wrap; }
+.share-contact-panel:not([hidden]) { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }

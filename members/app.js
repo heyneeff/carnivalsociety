@@ -415,6 +415,7 @@ function renderShell() {
             <li><a class="nav-link ${route === 'events' ? 'active' : ''}" href="#/events">Events &amp; Volunteering</a></li>
             <li><a class="nav-link ${route === 'passport' ? 'active' : ''}" href="#/passport">My Passport</a></li>
             <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
+            <li><a class="nav-link ${route === 'profile' ? 'active' : ''}" href="#/profile">My Profile</a></li>
           </ul>
         </div>` : `
         <div>
@@ -445,6 +446,7 @@ function renderShell() {
           <ul class="nav-list">
             <li><a class="nav-link ${route === 'passport' ? 'active' : ''}" href="#/passport">My Passport</a></li>
             <li><a class="nav-link ${route === 'tickets' ? 'active' : ''}" href="#/tickets">My Tickets</a></li>
+            <li><a class="nav-link ${route === 'profile' ? 'active' : ''}" href="#/profile">My Profile</a></li>
           </ul>
         </div>`}
         ${profile?.is_ringleader ? `
@@ -461,13 +463,13 @@ function renderShell() {
           </ul>
         </div>` : ''}
         <div class="sidebar-footer">
-          <div class="profile-card">
+          <a class="profile-card" href="#/profile" title="My Profile">
             <div class="profile-avatar">${escapeHtml(initials)}</div>
             <div>
               <div class="profile-name">${escapeHtml(profile?.display_name || '')}</div>
               <div class="rank-badge">${escapeHtml(rankLabel)}${escapeHtml(ringleaderTag)}</div>
             </div>
-          </div>
+          </a>
           <button class="signout-btn" id="signoutBtn">Sign Out</button>
         </div>
       </div>
@@ -501,6 +503,7 @@ function renderMainView(route) {
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'passport') { renderPassportView(mainView); return; }
+  if (route === 'profile') { renderProfileView(mainView); return; }
   // Courtyard members can open Courtyard threads (server enforces which).
   if (!isInnerMember() && route !== 'events' && !route.startsWith('post/')) { location.hash = '#/courtyard'; return; }
   if (route === 'hub') { renderCrewTabs(mainView, 'overview'); return; }
@@ -827,11 +830,37 @@ async function renderDMThreadView(mainView, convId) {
     <div class="dm-thread" id="dmThread">${(messages || []).map(dmBubbleHtml).join('')}</div>
     <form class="composer" id="dmComposer">
       <textarea id="dmBody" placeholder="Write a message…" required></textarea>
-      <button type="submit" class="composer-submit">Send</button>
+      <div class="post-actions">
+        <button type="submit" class="composer-submit">Send</button>
+        <button type="button" class="action-btn" id="shareContactBtn">📇 Share my contact</button>
+      </div>
+      <div id="shareContactPanel" class="share-contact-panel" hidden></div>
     </form>
   `;
   const threadEl = document.getElementById('dmThread');
   threadEl.scrollTop = threadEl.scrollHeight;
+
+  // Case-by-case sharing: pick fields, send them as an ordinary message to
+  // just this person. Nothing about their profile visibility changes.
+  const sharePanel = document.getElementById('shareContactPanel');
+  document.getElementById('shareContactBtn').addEventListener('click', () => {
+    const fields = [['email', 'Email', profile.email], ['phone', 'Phone', profile.phone], ['instagram', 'Instagram', profile.instagram_handle]].filter(f => f[2]);
+    if (sharePanel.hidden === false) { sharePanel.hidden = true; return; }
+    sharePanel.hidden = false;
+    sharePanel.innerHTML = fields.length ? `
+      ${fields.map(([k, label, v]) => `<label class="admin-ringleader-toggle"><input type="checkbox" data-share="${k}" checked> ${label}: ${escapeHtml(v)}</label>`).join('')}
+      <button type="button" class="composer-submit" id="sendContactBtn">Send to ${escapeHtml(other?.display_name || 'them')}</button>`
+      : `<div class="post-meta">No contact details on your profile yet. <a href="#/profile">Add some</a>.</div>`;
+    document.getElementById('sendContactBtn')?.addEventListener('click', async () => {
+      const chosen = fields.filter(([k]) => sharePanel.querySelector(`[data-share="${k}"]`).checked);
+      if (!chosen.length) return;
+      const text = `📇 My contact\n${chosen.map(([, label, v]) => `${label}: ${v}`).join('\n')}`;
+      sharePanel.hidden = true;
+      appendDMMessage({ sender_id: profile.id, body: text });
+      const { id } = await apiFetch(`/api/dm/${convId}/messages`, { method: 'POST', body: { body: text } });
+      dmSeenIds.add(id);
+    });
+  });
 
   document.getElementById('dmComposer').addEventListener('submit', async e => {
     e.preventDefault();
@@ -4731,6 +4760,47 @@ async function renderCrewLoreView(mainView) {
   }
 
   draw();
+}
+
+// ── My Profile: own details + opt-in contact sharing ────────────────
+async function renderProfileView(mainView, flash = '') {
+  const p = profile;
+  const shareRow = (field, label, value) => `
+    <label class="admin-ringleader-toggle share-toggle">
+      <input type="checkbox" name="${field}" ${p[field] ? 'checked' : ''} ${value ? '' : 'disabled'}>
+      Show my ${label} to inner members${value ? '' : ` <span class="post-meta">(add one first)</span>`}
+    </label>`;
+  mainView.innerHTML = `
+    <h2>My Profile</h2>
+    ${flash ? `<div class="stamp-flash">${escapeHtml(flash)}</div>` : ''}
+    <form class="composer profile-form" id="profileForm">
+      <div class="auth-field"><label>Name</label><input name="display_name" required value="${escapeHtml(p.display_name)}"></div>
+      <div class="auth-field"><label>City</label><input name="city" required value="${escapeHtml(p.city || '')}"></div>
+      <div class="auth-field"><label>Phone</label><input name="phone" type="tel" value="${escapeHtml(p.phone || '')}"></div>
+      <div class="auth-field"><label>Instagram</label><input name="instagram_handle" placeholder="@handle" value="${escapeHtml(p.instagram_handle || '')}"></div>
+      <div class="auth-field"><label>Skills (comma separated)</label><input name="skills" value="${escapeHtml(p.skills || '')}"></div>
+      <h3 class="passport-section">Who can reach you</h3>
+      <p class="post-meta">Your contact info is private by default. Ringleaders can always see it so they can run events.
+        Share it with everyone inside the guild here, or with one person at a time from a message ("Share my contact").</p>
+      ${shareRow('share_email', 'email', p.email)}
+      ${shareRow('share_phone', 'phone', p.phone)}
+      ${shareRow('share_instagram', 'Instagram', p.instagram_handle)}
+      <button type="submit" class="composer-submit">Save</button>
+    </form>`;
+  document.getElementById('profileForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      const { user } = await apiFetch('/api/me', { method: 'PATCH', body: {
+        display_name: f.get('display_name').trim(), city: f.get('city').trim(), phone: f.get('phone'),
+        instagram_handle: f.get('instagram_handle'), skills: f.get('skills').trim(),
+        share_email: f.has('share_email'), share_phone: f.has('share_phone'), share_instagram: f.has('share_instagram'),
+      } });
+      profile = user;
+      renderShell();
+      renderProfileView(document.getElementById('mainView'), 'Saved.');
+    } catch (err) { renderProfileView(mainView, err.message); }
+  });
 }
 
 // ── Carnival Passport ─────────────────────────────────────────────────

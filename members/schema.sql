@@ -341,6 +341,17 @@ CREATE UNIQUE INDEX idx_stamps_fix_once ON stamps(user_id) WHERE kind = 'fix';
 ALTER TABLE users ADD COLUMN celebrated_rank TEXT;
 UPDATE users SET celebrated_rank = rank;
 
+-- ============================================================
+-- migrations/2026-10-10-contact-sharing.sql
+-- ============================================================
+-- Opt-in contact sharing. Contact details are private by default: only
+-- Ringleaders (and moderators running an event's volunteer list) see them.
+-- Each member chooses which fields other inner members can see; anything
+-- else they share person-to-person from a DM ("Share my contact").
+ALTER TABLE users ADD COLUMN share_email INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN share_phone INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN share_instagram INTEGER NOT NULL DEFAULT 0;
+
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:
 --   * users:   self can update display_name/home_chapter_id/avatar_url only;

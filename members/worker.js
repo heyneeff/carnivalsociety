@@ -256,9 +256,23 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/me" && method === "PATCH") {
     const user2 = await getSessionUser(request, env);
     if (!user2) return err(401, "Not signed in.");
-    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate, celebrated_rank } = await body(request);
+    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate, celebrated_rank, city, phone, instagram_handle, share_email, share_phone, share_instagram } = await body(request);
     const updates = [];
     const binds = [];
+    if (display_name !== void 0 && !String(display_name).trim()) return err(400, "Name can't be blank.");
+    if (city !== void 0 && !String(city).trim()) return err(400, "City can't be blank.");
+    for (const [col, val] of [["city", city], ["phone", phone], ["instagram_handle", instagram_handle]]) {
+      if (val !== void 0) {
+        updates.push(`${col} = ?`);
+        binds.push(String(val).trim() || null);
+      }
+    }
+    for (const [col, val] of [["share_email", share_email], ["share_phone", share_phone], ["share_instagram", share_instagram]]) {
+      if (val !== void 0) {
+        updates.push(`${col} = ?`);
+        binds.push(val ? 1 : 0);
+      }
+    }
     // Acknowledging the "welcome inside" moment; can only mark the rank you hold.
     if (celebrated_rank !== void 0 && celebrated_rank === user2.rank) {
       updates.push("celebrated_rank = ?");
@@ -1471,6 +1485,9 @@ async function api(request, env, url, ctx) {
     const q = (url.searchParams.get("q") || "").toLowerCase();
     const chapterId = url.searchParams.get("chapter_id") || "";
     const rank = url.searchParams.get("rank") || "";
+    // Non-Ringleaders get the public shape: contact fields only where the
+    // member opted in (share_*). See shapeMemberPublic.
+    const shape = user.is_ringleader ? shapeMember : shapeMemberPublic;
     let sql = `SELECT users.*, chapters.name AS c_name FROM users LEFT JOIN chapters ON chapters.id = users.home_chapter_id WHERE users.id != ?`;
     const binds = [user.id];
     if (q) {
@@ -1487,7 +1504,7 @@ async function api(request, env, url, ctx) {
     }
     sql += " ORDER BY users.display_name";
     const { results } = await env.DB.prepare(sql).bind(...binds).all();
-    return json({ members: results.map(shapeMember) });
+    return json({ members: results.map(shape) });
   }
   if (pathname === "/api/connections" && method === "POST") {
     const authErr = requireAuth();
@@ -1767,6 +1784,26 @@ function shapeMember(row) {
     tier: row.tier || "courtyard",
     last_seen_at: row.last_seen_at || null,
     created_at: row.created_at
+  };
+}
+
+// What one member may see of another: no email/phone/Instagram unless that
+// member switched sharing on for the field; no birthday, notes, dues, or
+// signup answers ever.
+function shapeMemberPublic(row) {
+  return {
+    id: row.id,
+    display_name: row.display_name,
+    rank: row.rank,
+    is_ringleader: !!row.is_ringleader,
+    is_organization: !!row.is_organization,
+    home_chapter_id: row.home_chapter_id,
+    home_chapter: row.home_chapter_id ? { name: row.c_name } : null,
+    city: row.city || null,
+    skills: row.skills || "",
+    email: row.share_email ? row.email : null,
+    phone: row.share_phone ? row.phone || null : null,
+    instagram_handle: row.share_instagram ? row.instagram_handle || null : null
   };
 }
 
