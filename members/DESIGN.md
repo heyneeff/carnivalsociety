@@ -63,6 +63,31 @@ Tokens live on `:root` in `styles.css`. Use them; don't invent new hexes for UI 
 - Errors are plain and kind: say what happened and what to do. No "Oops!"
 - Never: "Elevate", "Seamless", "Unleash", "Leverage", corporate filler.
 
+### Names (one word per thing, the same in the room and the menu)
+
+| Thing | Say | Never |
+|---|---|---|
+| the app | Carnival Society | "Guild Hall" (that's the forum) |
+| your home screen | Dressing Room | home, dashboard |
+| public board | Courtyard | |
+| inner forum (the big book) | Guild Hall | forum |
+| private messages (the drawer, the raven) | Letters; "Write a letter", "Send the letter" | Messages, DMs |
+| profile (the mirror) | My profile | settings |
+| stamps & prizes (the trunk) | Passport & prizes | |
+| admin tools | The Ringleader’s office | admin |
+
+### Buttons: three kinds only
+
+1. **The ask:** red ticket button (`composer-submit` / `forum-btn`), one per card or page,
+   a verb: "Volunteer for this", "Start a thread", "Send the letter", "Save".
+2. **Secondary:** cream outline (`action-btn`): Share, See who’s in, I can’t make it.
+3. **Ringleader tools:** tucked in a brass `✎ Ringleader tools` fold (`details.rl-tools`) so
+   members only ever see the ask. Delete confirms first.
+
+Sentence case on every label ("Show past events", not "Show Past Events"). Menu items in the
+☰ sheet carry a small italic hint naming where they live in the room ("the mirror").
+The avatar opens My profile; the logo and Dressing Room open the room.
+
 ## 5. Motion and sound
 
 - Motion has a job: **idle life** (bob, spiral turning 240s, bulb chase), **touch

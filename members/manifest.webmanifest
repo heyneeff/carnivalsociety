@@ -1,6 +1,6 @@
 {
-  "name": "Carnival Society — Guild Hall",
-  "short_name": "Guild Hall",
+  "name": "Carnival Society — Members",
+  "short_name": "Carnival Society",
   "description": "Your dressing room, your troupe, and the raven that finds you.",
   "start_url": "/?app=1#/dressing-room",
   "scope": "/",

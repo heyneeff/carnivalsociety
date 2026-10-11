@@ -187,7 +187,7 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
       </div>
       <div class="auth-panel">
         <img class="auth-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
-        <h1>Guild Hall</h1>
+        <h1>Members’ Entrance</h1>
         <p class="auth-sub">${subtitle}</p>
         <div class="auth-invite" id="authInvite" hidden></div>
         <div class="auth-tabs">
@@ -408,39 +408,43 @@ function renderShell() {
     link('#/courtyard', 'Courtyard', is('courtyard')),
     link('#/events', 'Events', is('events', 'event/')),
     inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard) : '',
-    inner ? link('#/dm', 'Messages', is('dm', 'dm/'), lettersBadge()) : '',
+    inner ? link('#/dm', 'Letters', is('dm', 'dm/'), lettersBadge()) : '',
   ].join('');
 
-  const sheetLink = (href, label, active, extra = '') => `<a class="sheet-link ${active ? 'active' : ''}" href="${href}">${label}${extra}</a>`;
+  // The ☰ sheet holds what the top bar doesn't: each item says where in the
+  // tent it lives. Places already in the top bar / phone tabs aren't repeated.
+  const sheetLink = (href, label, active, extra = '', hint = '') => `<a class="sheet-link ${active ? 'active' : ''}" href="${href}"><span>${label}${extra}</span>${hint ? `<small class="sheet-hint">${hint}</small>` : ''}</a>`;
+  const crew = inner && myCrewEvent();
   const sheet = `
     <div class="sheet-group">
       <div class="sheet-label">You</div>
-      ${sheetLink('#/dressing-room', 'Dressing Room', is('dressing-room'))}
-      ${sheetLink('#/passport', 'Passport &amp; Prizes', is('passport'))}
-      ${sheetLink('#/profile', 'My Profile', is('profile'))}
-      ${sheetLink('#/tickets', 'My Tickets', is('tickets'))}
+      ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
+      ${sheetLink('#/passport', 'Passport &amp; prizes', is('passport'), '', 'the steamer trunk')}
+      ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
     </div>
+    ${inner ? `
+    <div class="sheet-group sheet-phone">
+      <div class="sheet-label">Around the tent</div>
+      ${sheetLink('#/guild-hall', 'Guild Hall', onGuildHallBoard, '', 'the big book · inner members')}
+    </div>` : ''}
+    ${crew ? `
     <div class="sheet-group">
-      <div class="sheet-label">The guild</div>
-      ${sheetLink('#/courtyard', 'Courtyard', is('courtyard'))}
-      ${sheetLink('#/events', 'Events &amp; Volunteering', is('events', 'event/'))}
-      ${inner ? sheetLink('#/guild-hall', 'Guild Hall', onGuildHallBoard) : ''}
-      ${inner ? sheetLink('#/dm', 'Messages', is('dm', 'dm/'), lettersBadge()) : ''}
-      ${inner ? sheetLink('#/hub', 'Crew Hub', is('hub', 'crew/')) : ''}
-    </div>
+      <div class="sheet-label">Your crew</div>
+      ${sheetLink('#/hub', escapeHtml(crew.title), is('hub', 'crew/'), '', 'schedule, meetups, projects')}
+    </div>` : ''}
     ${profile?.is_ringleader ? `
     <div class="sheet-group">
-      <div class="sheet-label">Ringleader</div>
-      ${sheetLink('#/blast', '📣 Holler at Everyone (Blast)', is('blast'))}
-      ${sheetLink('#/directory', 'Directory', is('directory'), newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : '')}
-      ${sheetLink('#/checkin', 'Door Check-in', is('checkin', 'checkin/'))}
-      ${sheetLink('#/impact', 'Impact Log', is('impact'))}
-      ${sheetLink('#/field', 'Guild Map', is('field'))}
-      ${sheetLink('#/network', 'Member Network', is('network'))}
+      <div class="sheet-label">The Ringleader’s office</div>
+      ${sheetLink('#/blast', '📣 Holler at everyone', is('blast'))}
+      ${sheetLink('#/directory', 'Directory', is('directory'), newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : '', 'members, tiers, new sign-ups')}
+      ${sheetLink('#/checkin', 'Door check-in', is('checkin', 'checkin/'))}
+      ${sheetLink('#/impact', 'Impact log', is('impact'))}
+      ${sheetLink('#/field', 'Guild map', is('field'))}
+      ${sheetLink('#/network', 'Member network', is('network'))}
       ${sheetLink('#/projects', 'Projects', is('projects'))}
       ${sheetLink('#/meetings', 'Meetings', is('meetings'))}
     </div>` : ''}
-    <button class="sheet-signout" id="signoutBtn">Sign Out</button>`;
+    <button class="sheet-signout" id="signoutBtn">Sign out</button>`;
 
   const tab = (href, label, active, icon) => `<a class="bottomtab ${active ? 'active' : ''}" href="${href}" ${active ? 'aria-current="page"' : ''}>${icon}<span>${label}</span></a>`;
   const svg = d => `<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
@@ -458,7 +462,7 @@ function renderShell() {
               ${svg('M4 7h16M4 12h16M4 17h16')}
               ${profile?.is_ringleader && newSignupsCount ? '<span class="topbar-dot" aria-hidden="true"></span>' : ''}
             </button>
-            <a class="topbar-avatar" href="#/dressing-room" title="${escapeHtml(profile?.display_name || '')}">${escapeHtml(initials)}</a>
+            <a class="topbar-avatar" href="#/profile" aria-label="${escapeHtml(profile?.display_name || 'You')}: your profile" title="Your profile">${escapeHtml(initials)}</a>
           </div>
         </div>
       </header>
@@ -470,7 +474,7 @@ function renderShell() {
         ${tab('#/dressing-room', 'Dressing Room', is('dressing-room', 'passport'), svg('M6 21V10a6 6 0 0 1 12 0v11z M4 21h16'))}
         ${tab('#/courtyard', 'Courtyard', is('courtyard'), svg('M3 20h18 M5 20V10l7-6 7 6v10 M10 20v-5h4v5'))}
         ${tab('#/events', 'Events', is('events', 'event/'), svg('M3 21h18 M4 21 12 4l8 17 M12 4v17 M12 4l3-2'))}
-        ${inner ? tab('#/dm', `Messages${lettersBadge()}`, is('dm', 'dm/'), svg('M4 5h16v11H9l-5 4z')) : tab('#/profile', 'Me', is('profile'), svg('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0'))}
+        ${inner ? tab('#/dm', `Letters${lettersBadge()}`, is('dm', 'dm/'), svg('M4 5h16v11H9l-5 4z')) : tab('#/profile', 'Me', is('profile'), svg('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21a8 8 0 0 1 16 0'))}
       </nav>
     </div>
   `;
@@ -847,27 +851,23 @@ function stopDMPolling() {
 }
 
 async function renderDMListView(mainView) {
-  mainView.innerHTML = `<h2>Messages</h2><div class="placeholder-note">Loading…</div>`;
+  mainView.innerHTML = `<h2>Letters</h2><div class="placeholder-note">Opening the drawer…</div>`;
 
   const { conversations } = await apiFetch('/api/dm/conversations');
 
   const listHtml = (conversations || []).length ? conversations.map(c => `
-    <div class="post-card" data-conv-id="${c.conversation_id}">
+    <a class="post-card letter-card" href="#/dm/${c.conversation_id}">
       <div class="post-title">${escapeHtml(c.other?.display_name || 'Unknown')}</div>
-      <div class="post-snippet">${c.last ? escapeHtml(c.last.body.slice(0, 120)) : 'No messages yet.'}</div>
-    </div>
-  `).join('') : '<div class="placeholder-note">No conversations yet. Start one below.</div>';
+      <div class="post-snippet">${c.last ? escapeHtml(c.last.body.slice(0, 120)) : 'Nothing written yet.'}</div>
+    </a>
+  `).join('') : '<div class="placeholder-note">No letters yet. Write the first one.</div>';
 
   mainView.innerHTML = `
-    <h2>Messages</h2>
-    <button class="composer-submit" id="newDmBtn" style="margin-bottom:1.5rem;">New Message</button>
+    <h2>Letters</h2>
+    <button class="composer-submit" id="newDmBtn" style="margin-bottom:1.5rem;">✒ Write a letter</button>
     <div id="memberPicker"></div>
     <div class="post-list">${listHtml}</div>
   `;
-
-  mainView.querySelectorAll('[data-conv-id]').forEach(card => {
-    card.addEventListener('click', () => { window.location.hash = `#/dm/${card.dataset.convId}`; });
-  });
 
   mainView.querySelector('#newDmBtn').addEventListener('click', () => renderMemberPicker());
 }
@@ -947,13 +947,13 @@ async function renderDMThreadView(mainView, convId) {
   dmSeenIds = new Set((messages || []).map(m => m.id));
 
   mainView.innerHTML = `
-    <a class="thread-back" href="#/dm">&larr; Back to Messages</a>
+    <a class="thread-back" href="#/dm">&larr; All your letters</a>
     <h2>${escapeHtml(other?.display_name || 'Direct Message')}</h2>
     <div class="dm-thread" id="dmThread">${(messages || []).map(dmBubbleHtml).join('')}</div>
     <form class="composer" id="dmComposer">
-      <textarea id="dmBody" placeholder="Write a message…" required></textarea>
+      <textarea id="dmBody" placeholder="Write your letter…" required aria-label="Your letter"></textarea>
       <div class="post-actions">
-        <button type="submit" class="composer-submit">Send</button>
+        <button type="submit" class="composer-submit">Send the letter</button>
         <button type="button" class="action-btn" id="shareContactBtn">📇 Share my contact</button>
       </div>
       <div id="shareContactPanel" class="share-contact-panel" hidden></div>
@@ -1043,6 +1043,8 @@ async function renderEventsView(mainView, onlyEventId = null) {
   }
   const canManage = isModerator() && !onlyEventId;
   const canEdit = !!profile?.is_ringleader && !onlyEventId;
+  // Ringleader controls fold away on each card so members see one clear ask.
+  const showTools = isModerator() || !!profile?.is_ringleader;
 
   const composerHtml = canManage ? `
     <form class="composer" id="eventComposer">
@@ -1055,7 +1057,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <input type="datetime-local" id="eventEnds" placeholder="Ends (optional)">
       <input type="text" id="eventLocation" placeholder="Location">
       <textarea id="eventDescription" placeholder="Details"></textarea>
-      <button type="submit" class="composer-submit">Add Event</button>
+      <button type="submit" class="composer-submit">Post the event</button>
     </form>
   ` : '';
 
@@ -1067,11 +1069,15 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
-      ${canManage || canEdit ? `<div class="post-actions">
-        ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
-        ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}
-        ${canManage ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
-      </div>` : ''}
+      ${showTools ? `<details class="rl-tools"><summary>✎ Ringleader tools</summary><div class="rl-tools-body">
+        <div class="post-actions">
+          ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
+          ${profile?.is_ringleader ? `<a class="action-btn" href="#/checkin/${e.id}">Door check-in</a>` : ''}
+          ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage crew</button>` : ''}
+          ${canManage ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
+        </div>
+        <div id="rlTickets-${e.id}"></div>
+      </div></details>` : ''}
       ${canManage && CREW_ASSIGNMENT_ENABLED ? `<div class="crew-editor" id="crewEditor-${e.id}"></div>` : ''}
     </div>
   `).join('') : '<div class="placeholder-note">Nothing scheduled yet.</div>';
@@ -1081,7 +1087,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
     <div class="post-list">${listHtml}</div>` : `
     <h2>Events</h2><div class="post-list">${listHtml}</div>
     ${composerHtml ? `<details class="event-new"><summary>+ Post a new event</summary>${composerHtml}</details>` : ''}
-    <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show Past Events</button></div>
+    <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show past events</button></div>
     <div id="archivedEvents"></div>
   `;
 
@@ -1166,9 +1172,9 @@ async function renderEventsView(mainView, onlyEventId = null) {
   document.getElementById('toggleArchivedBtn')?.addEventListener('click', async btnEvent => {
     const btn = btnEvent.currentTarget;
     const el = document.getElementById('archivedEvents');
-    if (el.classList.contains('open')) { el.classList.remove('open'); el.innerHTML = ''; btn.textContent = 'Show Past Events'; return; }
+    if (el.classList.contains('open')) { el.classList.remove('open'); el.innerHTML = ''; btn.textContent = 'Show past events'; return; }
     el.classList.add('open');
-    btn.textContent = 'Hide Past Events';
+    btn.textContent = 'Hide past events';
     await loadArchivedEvents();
   });
 }
@@ -1181,9 +1187,9 @@ function renderVolunteerRow(eventId) {
   el.innerHTML = `
     <div class="post-actions">
       ${signedUp
-        ? `<span class="volunteer-yes">✓ You're volunteering</span><button class="action-btn" data-unvolunteer>Withdraw</button>`
+        ? `<span class="volunteer-yes">✓ You're volunteering</span><button class="action-btn" data-unvolunteer>I can’t make it</button>`
         : `<button class="composer-submit" data-volunteer>Volunteer for this</button>`}
-      ${isModerator() ? `<button class="action-btn" data-show-volunteers>Volunteers</button>` : ''}
+      ${isModerator() ? `<button class="action-btn" data-show-volunteers>See who’s in</button>` : ''}
     </div>
     <form class="volunteer-form" hidden>
       <input type="text" name="note" maxlength="500" placeholder="Skills or availability (optional)">
@@ -4977,7 +4983,7 @@ async function drawRavenSettings() {
   const env = ravenEnv();
   const on = await ravenSubscribed();
   status.textContent = on ? 'The raven knows where to find you on this device.'
-    : env.ios && !env.standalone ? 'On iPhone, add the Guild Hall to your Home Screen first — then the raven can find you.'
+    : env.ios && !env.standalone ? 'On iPhone, add Carnival Society to your Home Screen first — then the raven can find you.'
     : !env.supported ? 'This browser can’t receive the raven.' : 'The raven doesn’t know where to find you on this device yet.';
   btns.innerHTML = on
     ? '<button type="button" class="action-btn" data-r="test">Send me a test squawk</button><button type="button" class="action-btn" data-r="off">Stop on this device</button>'
@@ -5083,7 +5089,7 @@ async function renderDressingRoom(mainView) {
 
   mainView.innerHTML = `
     <div class="dressing-room">
-      <div class="dr-title">~ Your Dressing Room ~</div>
+      <div class="dr-title">~ Your Passport ~</div>
       <section class="dr-mirror" id="drMirror" aria-label="You">
         <div class="dr-bulbs" aria-hidden="true"></div>
         <div class="dr-glass">
@@ -5115,7 +5121,7 @@ async function renderDressingRoom(mainView) {
         ${troupeHtml}
       </section>
 
-      <a class="dr-edit" href="#/profile">Edit your dressing room</a>
+      <a class="dr-edit" href="#/profile">Edit your profile</a>
     </div>`;
 
   const story = document.getElementById('boothStory');
@@ -5189,14 +5195,14 @@ function showIosInstall() {
   const o = document.createElement('div');
   o.className = 'raven-modal';
   o.innerHTML = `
-    <div class="raven-modal-card" role="dialog" aria-label="Add the Guild Hall to your Home Screen">
+    <div class="raven-modal-card" role="dialog" aria-label="Add Carnival Society to your Home Screen">
       <img src="${ROOM}raven_perched.png" alt="" class="raven-modal-bird">
       <h3>Let the raven follow you home</h3>
       <p>On iPhone the raven can only find you from your Home Screen:</p>
       <ol>
         <li>Tap the <strong>Share</strong> button <span aria-hidden="true">⬆︎</span> at the bottom of Safari.</li>
         <li>Choose <strong>Add to Home Screen</strong>.</li>
-        <li>Open <strong>Guild Hall</strong> from your Home Screen and tap the raven again.</li>
+        <li>Open <strong>Carnival Society</strong> from your Home Screen and tap the raven again.</li>
       </ol>
       <button class="room-plaque-btn" data-close>Got it</button>
     </div>`;
@@ -5206,7 +5212,7 @@ function showIosInstall() {
 const RAVEN_RESULT = {
   on: 'The raven will find you now. SQUAWK!',
   denied: 'Notifications are blocked for this site. Allow them in your browser settings to let the raven in.',
-  unsupported: 'This browser can’t receive the raven. Try Chrome, or add the Guild Hall to your Home Screen on iPhone.',
+  unsupported: 'This browser can’t receive the raven. Try Chrome, or add Carnival Society to your Home Screen on iPhone.',
   error: 'Something went wrong teaching the raven your address. Try again in a moment.',
 };
 
@@ -5712,7 +5718,7 @@ const ROOM_ASSETS = { trunk_closed: 338 / 329, trunk_open: 322 / 393, costume_ri
 const ROOM_ANIMS = { '': 'Still', sway: 'Sway (hangs from top)', flutter: 'Flutter', float: 'Float', breathe: 'Breathe', hop: 'Hop', shimmer: 'Shimmer', wobble: 'Wobble' };
 const ROOM_ROLES = {
   decor: 'Just decoration', mirror: 'Mirror → My Profile', trunk: 'Trunk → Passport & Prizes', costume: 'Costume → Profile / acts',
-  flyer: 'Flyer → an upcoming event', raven: 'Raven → volunteer requests', book: 'Big Book → the forum', drawer: 'Drawer → Messages',
+  flyer: 'Flyer → an upcoming event', raven: 'Raven → volunteer requests', book: 'Big Book → the forum', drawer: 'Drawer → Letters',
   exit: 'Exit → Courtyard', hatbox: 'Hat box → Ringleader tools (only you see it)', potion: 'Secret → Mercury Oracle', stars: 'Secret → Field Oracle',
   popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
 };
@@ -6403,12 +6409,15 @@ async function renderTicketPanel(eventId) {
         <input type="number" name="price" min="0" step="0.01" placeholder="Price in dollars (0 = free)" required>
         <input type="number" name="capacity" min="1" placeholder="Capacity (blank = unlimited)">
         <input type="text" name="description" placeholder="Description (optional)">
-        <button type="submit" class="composer-submit">Add Tier</button>
+        <button type="submit" class="composer-submit">Add tier</button>
       </form>
-    </details>
-    <a class="action-btn" href="#/checkin/${eventId}">Door check-in</a>` : '';
+    </details>` : '';
 
-  el.innerHTML = `<div class="ticket-box">${tierRows}${joinCta}${manage}</div>`;
+  // The add-a-tier form lives in the card's Ringleader fold when there is one.
+  const rl = document.getElementById('rlTickets-' + eventId);
+  if (rl) rl.innerHTML = manage;
+  const box = `${tierRows}${joinCta}${rl ? '' : manage}`;
+  el.innerHTML = box.trim() ? `<div class="ticket-box">${box}</div>` : '';
 
   el.querySelectorAll('[data-buy-tier]').forEach(btn => btn.addEventListener('click', async () => {
     btn.disabled = true;
@@ -6419,7 +6428,7 @@ async function renderTicketPanel(eventId) {
   }));
   const join = el.querySelector('[data-join]');
   if (join) join.addEventListener('click', () => startMembershipCheckout(join));
-  const form = el.querySelector('.ticket-tier-form');
+  const form = (rl || el).querySelector('.ticket-tier-form');
   if (form) form.addEventListener('submit', async e => {
     e.preventDefault();
     const f = new FormData(form);

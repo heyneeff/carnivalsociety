@@ -1,5 +1,5 @@
 // The raven on your phone. Pushes arrive with no payload; this worker wakes,
-// asks the Guild Hall what's waiting, and squawks it as a notification.
+// asks the members app what's waiting, and squawks it as a notification.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 
@@ -10,7 +10,7 @@ self.addEventListener('push', event => {
       const res = await fetch('/api/me/notifications/pending', { credentials: 'include', cache: 'no-store' });
       if (res.ok) list = (await res.json()).notifications || [];
     } catch (e) { /* offline: fall through to the generic squawk */ }
-    if (!list.length) list = [{ id: 'generic', title: 'SQUAWK!', body: 'Something is waiting for you in the Guild Hall.', url: '#/dressing-room' }];
+    if (!list.length) list = [{ id: 'generic', title: 'SQUAWK!', body: 'Something is waiting for you in your Dressing Room.', url: '#/dressing-room' }];
     await Promise.all(list.slice(0, 3).map(n => self.registration.showNotification(n.title, {
       body: n.body || '',
       icon: '/assets/icons/icon-192.png',
