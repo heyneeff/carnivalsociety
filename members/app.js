@@ -125,9 +125,10 @@ window.addEventListener('hashchange', render);
 
 // ── Render root ───────────────────────────────────────────────────────
 function render() {
+  mobileNavOpen = false; // any navigation closes the mobile drawer
   const resetMatch = window.location.hash.match(/^#\/reset\/([0-9a-f]+)$/);
   if (resetMatch) { renderResetScreen(resetMatch[1]); return; }
-  if (!session || !profile) { session = false; profile = null; renderAuthScreen(); return; }
+  if (!session || !profile) { session = false; profile = null; renderAuthScreen(defaultAuthMode()); return; }
   if (!profile.onboarded) { renderOnboarding(); return; }
   renderShell();
   if (needsRankCelebration() && !document.querySelector('.rank-celebration')) renderRankCelebration();
@@ -138,11 +139,21 @@ async function ensureChaptersLoaded() {
   if (!chapters.length) { const { chapters: c } = await apiFetch('/api/chapters'); chapters = c || []; }
 }
 
-function renderAuthScreen(mode = 'signin', errorMsg = '') {
-  const chapterOptions = chapters.length
-    ? `<option value="">Not listed</option>` + chapters.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
-    : '<option value="">Loading chapters…</option>';
+// People arriving from a shared link (#/join, ?join, or an event link) came
+// to join, not sign in — open on Join for them.
+function sharedEventId() {
+  const m = window.location.hash.match(/^#\/event\/([^/]+)$/);
+  return m ? m[1] : null;
+}
+function defaultAuthMode() {
+  const h = window.location.hash;
+  return h === '#/join' || sharedEventId() || new URLSearchParams(location.search).has('join') ? 'signup' : 'signin';
+}
 
+function renderAuthScreen(mode = 'signin', errorMsg = '') {
+  const subtitle = mode === 'signup' ? 'Step right up. Joining is free.'
+    : mode === 'forgot' ? "Happens to the best of us."
+    : 'Welcome back, carnie.';
   app.innerHTML = `
     <div class="auth-screen">
       <div class="auth-edge-trumpet left" aria-hidden="true">
@@ -164,49 +175,39 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
       <div class="auth-panel">
         <img class="auth-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
         <h1>Guild Hall</h1>
-        <p class="auth-sub">Members only.</p>
+        <p class="auth-sub">${subtitle}</p>
+        <div class="auth-invite" id="authInvite" hidden></div>
         <div class="auth-tabs">
-          <button class="auth-tab ${mode === 'signin' ? 'active' : ''}" id="tabSignin">Sign In</button>
           <button class="auth-tab ${mode === 'signup' ? 'active' : ''}" id="tabSignup">Join the Guild</button>
+          <button class="auth-tab ${mode !== 'signup' ? 'active' : ''}" id="tabSignin">Sign In</button>
         </div>
         <form class="auth-form" id="authForm">
           ${mode === 'signup' ? `
-          <label class="auth-org-toggle">
-            <input type="checkbox" id="isOrganization">
-            Signing up as an organization, not an individual
-          </label>
           <div class="auth-field">
-            <label for="displayName" id="displayNameLabel">Name</label>
-            <input type="text" id="displayName" required>
-          </div>
-          <div class="auth-field">
-            <label for="homeChapter">Home Chapter</label>
-            <select id="homeChapter">${chapterOptions}</select>
-          </div>
-          <div class="auth-field">
-            <label for="city">City</label>
-            <input type="text" id="city" required>
-          </div>
-          <div class="auth-field">
-            <label for="phone">Phone (optional)</label>
-            <input type="tel" id="phone">
-          </div>
-          <div class="auth-field">
-            <label for="instagram">Instagram (optional)</label>
-            <input type="text" id="instagram" placeholder="@handle">
+            <label for="displayName" id="displayNameLabel">Your name</label>
+            <input type="text" id="displayName" autocomplete="name" required>
           </div>` : ''}
           <div class="auth-field">
             <label for="email">Email</label>
-            <input type="email" id="email" required>
+            <input type="email" id="email" autocomplete="email" required>
           </div>
           ${mode === 'forgot' ? `<p class="auth-sub">We'll email you a link to set a new password.</p>` : `
           <div class="auth-field">
-            <label for="password">Password</label>
-            <input type="password" id="password" minlength="6" required>
+            <label for="password">Password${mode === 'signup' ? ' (6+ characters)' : ''}</label>
+            <input type="password" id="password" minlength="6" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}" required>
           </div>`}
+          ${mode === 'signup' ? `
+          <div class="auth-field">
+            <label for="city">City</label>
+            <input type="text" id="city" autocomplete="address-level2" placeholder="e.g. Boulder" required>
+          </div>
+          <label class="auth-org-toggle">
+            <input type="checkbox" id="isOrganization">
+            I'm signing up an organization
+          </label>` : ''}
           ${mode === 'signup' && appConfig.turnstile_site_key ? '<div id="turnstileWidget" class="turnstile-slot"></div>' : ''}
           <p class="auth-error">${escapeHtml(errorMsg)}</p>
-          <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join' : mode === 'forgot' ? 'Send reset link' : 'Enter'}</button>
+          <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join — it’s free' : mode === 'forgot' ? 'Send reset link' : 'Enter'}</button>
           ${mode === 'signin' && appConfig.password_reset_enabled ? '<button type="button" class="auth-link" id="forgotLink">Forgot password?</button>' : ''}
           ${mode === 'forgot' ? '<button type="button" class="auth-link" id="backToSignin">Back to sign in</button>' : ''}
         </form>
@@ -215,14 +216,25 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
   `;
 
   document.getElementById('tabSignin').onclick = () => renderAuthScreen('signin');
-  document.getElementById('tabSignup').onclick = async () => { await ensureChaptersLoaded(); renderAuthScreen('signup'); };
+  document.getElementById('tabSignup').onclick = () => renderAuthScreen('signup');
   document.getElementById('forgotLink')?.addEventListener('click', () => renderAuthScreen('forgot'));
   document.getElementById('backToSignin')?.addEventListener('click', () => renderAuthScreen('signin'));
+
+  // Shared event link: say what they were invited to.
+  const invitedTo = sharedEventId();
+  if (invitedTo) {
+    apiFetch(`/api/events/${invitedTo}`).then(({ event }) => {
+      const el = document.getElementById('authInvite');
+      if (!el || !event) return;
+      el.hidden = false;
+      el.innerHTML = `🎪 You're invited to <strong>${escapeHtml(event.title)}</strong>${event.starts_at ? ` · ${escapeHtml(formatEventDate(event.starts_at))}` : ''}. ${mode === 'signup' ? 'Join to volunteer.' : 'Sign in to volunteer.'}`;
+    }).catch(() => {});
+  }
 
   let turnstileWidgetId = null;
   if (mode === 'signup') {
     document.getElementById('isOrganization').addEventListener('change', e => {
-      document.getElementById('displayNameLabel').textContent = e.target.checked ? 'Organization Name' : 'Name';
+      document.getElementById('displayNameLabel').textContent = e.target.checked ? 'Organization name' : 'Your name';
     });
     if (appConfig.turnstile_site_key) {
       loadTurnstile().then(ts => {
@@ -244,36 +256,21 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
       return;
     }
     const password = document.getElementById('password').value;
-    if (mode === 'signup') {
-      const displayName = document.getElementById('displayName').value.trim();
-      const homeChapterId = document.getElementById('homeChapter').value;
-      const city = document.getElementById('city').value.trim();
-      const phone = document.getElementById('phone').value.trim();
-      const instagram = document.getElementById('instagram').value.trim();
-      const isOrganization = document.getElementById('isOrganization').checked;
-      try {
-        const { user } = await apiFetch('/api/auth/signup', {
-          method: 'POST',
-          body: { email, password, display_name: displayName, home_chapter_id: homeChapterId, city, phone, instagram_handle: instagram, is_organization: isOrganization,
-                  turnstile_token: turnstileWidgetId !== null ? window.turnstile.getResponse(turnstileWidgetId) : undefined },
-        });
-        session = true;
-        profile = user;
-        await loadAppData();
-        render();
-      } catch (err) {
-        renderAuthScreen('signup', err.message);
-      }
-    } else {
-      try {
-        const { user } = await apiFetch('/api/auth/signin', { method: 'POST', body: { email, password } });
-        session = true;
-        profile = user;
-        await loadAppData();
-        render();
-      } catch (err) {
-        renderAuthScreen('signin', err.message);
-      }
+    try {
+      const { user } = mode === 'signup'
+        ? await apiFetch('/api/auth/signup', {
+            method: 'POST',
+            body: { email, password, display_name: document.getElementById('displayName').value.trim(), city: document.getElementById('city').value.trim(),
+                    is_organization: document.getElementById('isOrganization').checked,
+                    turnstile_token: turnstileWidgetId !== null ? window.turnstile.getResponse(turnstileWidgetId) : undefined },
+          })
+        : await apiFetch('/api/auth/signin', { method: 'POST', body: { email, password } });
+      session = true;
+      profile = user;
+      await loadAppData();
+      render();
+    } catch (err) {
+      renderAuthScreen(mode, err.message);
     }
   });
 }
@@ -324,57 +321,49 @@ function renderResetScreen(token, errorMsg = '') {
 }
 
 // ── Onboarding — shown once after signup (or on next sign-in if skipped) ──
+// "Pick your act": tappable roles instead of free-text skills — an identity
+// on day one, and a way to call on "all the sound people" later. Everything
+// else (birthday, materials, contact) lives on My Profile.
+const ACTS = ['Builder', 'Performer', 'Sound & Light', 'Art & Signs', 'Costume', 'Fire & Flow', 'Kitchen', 'Hospitality', 'Crew & Setup', 'Photo & Video', 'Organizer', 'Just here for the fun'];
+
 async function renderOnboarding() {
+  const chosen = new Set((profile.skills || '').split(',').map(s => s.trim()).filter(Boolean));
   app.innerHTML = `
     <div class="auth-screen">
       <div class="auth-panel" style="max-width:600px;">
-        <h1>Welcome, ${escapeHtml(profile.display_name)}</h1>
-        <p class="auth-sub">A little about you — helps the guild know who's who.</p>
+        <img class="auth-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
+        <h1>Welcome, ${escapeHtml(profile.display_name)}!</h1>
+        <p class="auth-sub">Pick your act. Tap everything that sounds like you.</p>
+        <div class="act-chips" id="actChips">
+          ${ACTS.map(a => `<button type="button" class="act-chip ${chosen.has(a) ? 'on' : ''}" data-act="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join('')}
+        </div>
         <div class="auth-form">
           <div class="auth-field">
-            <label for="obSkills">Skills (comma separated)</label>
-            <input id="obSkills" type="text" placeholder="e.g. rigging, sound, hospitality, fire safety…">
+            <label for="obHeardAbout">How'd you hear about us? (optional)</label>
+            <input id="obHeardAbout" type="text" placeholder="A friend, an event, Instagram…">
           </div>
-          <div class="auth-field">
-            <label for="obBirthday">Birthday</label>
-            <input id="obBirthday" type="date">
-          </div>
-          <div class="auth-field">
-            <label for="obKnowsWho">Who do you know here? (optional)</label>
-            <input id="obKnowsWho" type="text" placeholder="Names, roles, whatever comes to mind…">
-          </div>
-          <div class="auth-field">
-            <label for="obHeardAbout">How did you hear about us? (optional)</label>
-            <input id="obHeardAbout" type="text" placeholder="e.g. a friend, an event, Instagram…">
-          </div>
-          <div class="auth-field">
-            <label for="obMaterials">Got materials to donate? (optional)</label>
-            <input id="obMaterials" type="text" placeholder="e.g. scrap wood, old electronics, hardware…">
-          </div>
-          <button class="auth-submit" id="obFinishBtn">Finish</button>
-          <button class="gm-btn" id="obSkipBtn" style="background:none;border:1px solid var(--border);">Skip for now</button>
+          <button class="auth-submit" id="obFinishBtn">Let’s go →</button>
+          <button class="auth-link" id="obSkipBtn">Skip for now</button>
         </div>
       </div>
     </div>
   `;
-
-  document.getElementById('obFinishBtn').addEventListener('click', async () => {
-    const skills = document.getElementById('obSkills').value.trim();
-    const birthday = document.getElementById('obBirthday').value || null;
-    const knows_who = document.getElementById('obKnowsWho').value.trim();
-    const heard_about_us = document.getElementById('obHeardAbout').value.trim();
-    const materials_to_donate = document.getElementById('obMaterials').value.trim();
-    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { skills, birthday, knows_who, heard_about_us, materials_to_donate, onboarded: true } });
+  document.querySelectorAll('.act-chip').forEach(chip => chip.addEventListener('click', () => {
+    const a = chip.dataset.act;
+    if (chosen.has(a)) chosen.delete(a); else chosen.add(a);
+    chip.classList.toggle('on', chosen.has(a));
+  }));
+  const finish = async body => {
+    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { ...body, onboarded: true } });
     profile = user;
     await loadAppData();
     render();
-  });
-  document.getElementById('obSkipBtn').addEventListener('click', async () => {
-    const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { onboarded: true } });
-    profile = user;
-    await loadAppData();
-    render();
-  });
+  };
+  document.getElementById('obFinishBtn').addEventListener('click', () => finish({
+    skills: [...chosen].join(', '),
+    heard_about_us: document.getElementById('obHeardAbout').value.trim(),
+  }));
+  document.getElementById('obSkipBtn').addEventListener('click', () => finish({}));
 }
 
 // ── App shell ────────────────────────────────────────────────────────
@@ -385,7 +374,8 @@ async function renderOnboarding() {
 const CREW_ASSIGNMENT_ENABLED = false;
 
 function currentRoute() {
-  return window.location.hash.replace(/^#\/?/, '') || (isInnerMember() ? 'hub' : 'courtyard');
+  const route = window.location.hash.replace(/^#\/?/, '');
+  return route && route !== 'join' ? route : (isInnerMember() ? 'hub' : 'courtyard');
 }
 
 let mobileNavOpen = false; // off-canvas sidebar drawer, ≤800px only (see .sidebar.open in styles.css)
@@ -504,6 +494,7 @@ function renderMainView(route) {
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'passport') { renderPassportView(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
+  if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
   // Courtyard members can open Courtyard threads (server enforces which).
   if (!isInnerMember() && route !== 'events' && !route.startsWith('post/')) { location.hash = '#/courtyard'; return; }
   if (route === 'hub') { renderCrewTabs(mainView, 'overview'); return; }
@@ -904,12 +895,23 @@ function toDatetimeLocalValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-async function renderEventsView(mainView) {
+// onlyEventId: the shareable single-event page (#/event/<id>).
+async function renderEventsView(mainView, onlyEventId = null) {
   mainView.innerHTML = `<h2>Events</h2><div class="placeholder-note">Loading…</div>`;
 
-  const { events } = await apiFetch('/api/events');
-  const canManage = isModerator();
-  const canEdit = !!profile?.is_ringleader;
+  let { events } = await apiFetch('/api/events');
+  if (onlyEventId) {
+    events = (events || []).filter(e => e.id === onlyEventId);
+    if (!events.length) {
+      const { event } = await apiFetch(`/api/events/${onlyEventId}`).catch(() => ({}));
+      mainView.innerHTML = `<a class="thread-back" href="#/events">&larr; All events</a>
+        <h2>${escapeHtml(event?.title || 'Event not found')}</h2>
+        <div class="placeholder-note">${event ? 'This one has already happened.' : "That event doesn't exist."}</div>`;
+      return;
+    }
+  }
+  const canManage = isModerator() && !onlyEventId;
+  const canEdit = !!profile?.is_ringleader && !onlyEventId;
 
   const composerHtml = canManage ? `
     <form class="composer" id="eventComposer">
@@ -933,6 +935,7 @@ async function renderEventsView(mainView) {
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
+      <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
       ${canManage || canEdit ? `<div class="post-actions">
         ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
         ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage Crew</button>` : ''}
@@ -942,11 +945,22 @@ async function renderEventsView(mainView) {
     </div>
   `).join('') : '<div class="placeholder-note">Nothing scheduled yet.</div>';
 
-  mainView.innerHTML = `
+  mainView.innerHTML = onlyEventId ? `
+    <a class="thread-back" href="#/events">&larr; All events</a>
+    <div class="post-list">${listHtml}</div>` : `
     <h2>Events</h2>${composerHtml}<div class="post-list">${listHtml}</div>
     <div class="archive-toggle-row"><button class="gm-btn" id="toggleArchivedBtn" style="background:var(--surface);color:var(--cream);">Show Past Events</button></div>
     <div id="archivedEvents"></div>
   `;
+
+  // Share: native share sheet on phones, copy-link fallback elsewhere.
+  mainView.querySelectorAll('[data-share-event]').forEach(btn => btn.addEventListener('click', async () => {
+    const url = `${location.origin}/#/event/${btn.dataset.shareEvent}`;
+    try {
+      if (navigator.share) await navigator.share({ title: btn.dataset.title, text: `Come volunteer at ${btn.dataset.title} with Carnival Society`, url });
+      else { await navigator.clipboard.writeText(url); btn.textContent = '✓ Link copied'; }
+    } catch (e) { /* share sheet dismissed */ }
+  }));
 
   (events || []).forEach(e => { renderTicketPanel(e.id); renderVolunteerRow(e.id); });
 
@@ -1017,7 +1031,7 @@ async function renderEventsView(mainView) {
     });
   }
 
-  document.getElementById('toggleArchivedBtn').addEventListener('click', async btnEvent => {
+  document.getElementById('toggleArchivedBtn')?.addEventListener('click', async btnEvent => {
     const btn = btnEvent.currentTarget;
     const el = document.getElementById('archivedEvents');
     if (el.classList.contains('open')) { el.classList.remove('open'); el.innerHTML = ''; btn.textContent = 'Show Past Events'; return; }
@@ -1040,13 +1054,14 @@ function renderVolunteerRow(eventId) {
       ${isModerator() ? `<button class="action-btn" data-show-volunteers>Volunteers</button>` : ''}
     </div>
     <form class="volunteer-form" hidden>
-      <input type="text" name="note" maxlength="500" placeholder="Anything we should know? Skills, when you can help… (optional)">
+      <input type="text" name="note" maxlength="500" placeholder="Skills or availability (optional)">
       <button type="submit" class="composer-submit">Count me in</button>
     </form>
     <div class="volunteer-list"></div>`;
 
   const form = el.querySelector('.volunteer-form');
-  el.querySelector('[data-volunteer]')?.addEventListener('click', () => {
+  el.querySelector('[data-volunteer]')?.addEventListener('click', e => {
+    e.currentTarget.hidden = true;
     form.hidden = false;
     form.querySelector('input').focus();
   });
@@ -4765,6 +4780,8 @@ async function renderCrewLoreView(mainView) {
 // ── My Profile: own details + opt-in contact sharing ────────────────
 async function renderProfileView(mainView, flash = '') {
   const p = profile;
+  // Acts are stored as comma-separated skills; keep any free-text ones too.
+  const acts = new Set((p.skills || '').split(',').map(x => x.trim()).filter(Boolean));
   const shareRow = (field, label, value) => `
     <label class="admin-ringleader-toggle share-toggle">
       <input type="checkbox" name="${field}" ${p[field] ? 'checked' : ''} ${value ? '' : 'disabled'}>
@@ -4778,7 +4795,12 @@ async function renderProfileView(mainView, flash = '') {
       <div class="auth-field"><label>City</label><input name="city" required value="${escapeHtml(p.city || '')}"></div>
       <div class="auth-field"><label>Phone</label><input name="phone" type="tel" value="${escapeHtml(p.phone || '')}"></div>
       <div class="auth-field"><label>Instagram</label><input name="instagram_handle" placeholder="@handle" value="${escapeHtml(p.instagram_handle || '')}"></div>
-      <div class="auth-field"><label>Skills (comma separated)</label><input name="skills" value="${escapeHtml(p.skills || '')}"></div>
+      <div class="auth-field"><label>Home chapter</label>
+        <select name="home_chapter_id"><option value="">None yet</option>${chapters.map(c => `<option value="${c.id}" ${p.home_chapter_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+      <div class="auth-field"><label>Your acts</label>
+        <div class="act-chips">${ACTS.map(a => `<button type="button" class="act-chip ${acts.has(a) ? 'on' : ''}" data-act="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join('')}</div></div>
+      <div class="auth-field"><label>Birthday (optional)</label><input name="birthday" type="date" value="${escapeHtml(p.birthday || '')}"></div>
+      <div class="auth-field"><label>Materials you could donate (optional)</label><input name="materials_to_donate" placeholder="Scrap wood, old electronics, hardware…" value="${escapeHtml(p.materials_to_donate || '')}"></div>
       <h3 class="passport-section">Who can reach you</h3>
       <p class="post-meta">Your contact info is private by default. Ringleaders can always see it so they can run events.
         Share it with everyone inside the guild here, or with one person at a time from a message ("Share my contact").</p>
@@ -4787,13 +4809,19 @@ async function renderProfileView(mainView, flash = '') {
       ${shareRow('share_instagram', 'Instagram', p.instagram_handle)}
       <button type="submit" class="composer-submit">Save</button>
     </form>`;
+  mainView.querySelectorAll('.act-chip').forEach(chip => chip.addEventListener('click', () => {
+    const a = chip.dataset.act;
+    if (acts.has(a)) acts.delete(a); else acts.add(a);
+    chip.classList.toggle('on', acts.has(a));
+  }));
   document.getElementById('profileForm').addEventListener('submit', async e => {
     e.preventDefault();
     const f = new FormData(e.target);
     try {
       const { user } = await apiFetch('/api/me', { method: 'PATCH', body: {
         display_name: f.get('display_name').trim(), city: f.get('city').trim(), phone: f.get('phone'),
-        instagram_handle: f.get('instagram_handle'), skills: f.get('skills').trim(),
+        instagram_handle: f.get('instagram_handle'), skills: [...acts].join(', '),
+        home_chapter_id: f.get('home_chapter_id') || null, birthday: f.get('birthday') || null, materials_to_donate: f.get('materials_to_donate').trim(),
         share_email: f.has('share_email'), share_phone: f.has('share_phone'), share_instagram: f.has('share_instagram'),
       } });
       profile = user;

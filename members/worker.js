@@ -188,9 +188,12 @@ async function api(request, env, url, ctx) {
     if (existing) return withCors(err(400, "That email is already registered."));
     const { hash, salt } = await hashPassword(password);
     const id = crypto.randomUUID();
+    // The short join form doesn't ask for a chapter; match it from the city
+    // ("Boulder, CO" → Boulder). Changeable later on My Profile.
+    const chapterId = home_chapter_id || (await env.DB.prepare("SELECT id FROM chapters WHERE instr(lower(?), lower(name)) > 0 LIMIT 1").bind(city).first())?.id || null;
     await env.DB.prepare(
       `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?)`
-    ).bind(id, email, hash, salt, display_name, home_chapter_id || null, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
+    ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
     ctx.waitUntil(sendWelcomeEmail(env, user2));
