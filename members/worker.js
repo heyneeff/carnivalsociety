@@ -1771,10 +1771,17 @@ async function ticketRoutes(request, env, url) {
     const free = tier.price_cents === 0;
     await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, tier.event_id, tier.id, user.id, free ? "paid" : "pending", tier.price_cents, ticketCode()).run();
     if (free) return json({ ticket_id: id });
-    const session = await stripeCheckout(env, checkoutParams(env, {
-      user, name: "Ticket: " + tier.name, amountCents: tier.price_cents,
-      metadata: { kind: "ticket", user_id: user.id, ticket_id: id }, successPath: "/#ticket-success"
-    }));
+    let session;
+    try {
+      session = await stripeCheckout(env, checkoutParams(env, {
+        user, name: "Ticket: " + tier.name, amountCents: tier.price_cents,
+        metadata: { kind: "ticket", user_id: user.id, ticket_id: id }, successPath: "/#ticket-success"
+      }));
+    } catch (e) {
+      // Don't let a failed Stripe call hold a capacity slot for 30 minutes.
+      await env.DB.prepare("DELETE FROM tickets WHERE id = ?").bind(id).run();
+      throw e;
+    }
     await env.DB.prepare("UPDATE tickets SET stripe_session_id = ? WHERE id = ?").bind(session.id, id).run();
     return json({ url: session.url });
   }

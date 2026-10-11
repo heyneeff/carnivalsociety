@@ -6,3 +6,5 @@ wrangler.jsonc
 worker.js
 schema.sql
 README.md
+.dev.vars
+migrations
