@@ -5260,17 +5260,47 @@ const HEAD_SVG = `<svg class="blast-head-svg" viewBox="0 0 160 190" aria-hidden=
 </svg>`;
 const artOr = (file, fallback, cls) => `<img class="${cls} blast-art" src="${ROOM}${file}" alt="" onerror="this.remove()">${fallback}`;
 
-function showBlast(blast, { live = false, preview = false } = {}) {
+// The last holler you heard, so the floor megaphone can play it again.
+function lastHoller() { try { return JSON.parse(localStorage.getItem('cs-last-holler') || 'null'); } catch (e) { return null; } }
+
+function showBlast(blast, { live = false, preview = false, replay = false } = {}) {
   blastShowing = blast.id || 'preview';
+  // In the Dressing Room the holler comes out of the megaphone on the floor:
+  // it rattles, you tap it, the Ringleader pops out and grows over the room.
+  // Anywhere else, the standing cone takes the whole screen.
+  const floorCone = document.querySelector('.room-stage [data-role="megaphone"]');
+  if (floorCone) floorCone.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  const cr = floorCone?.getBoundingClientRect();
+  const inRoom = !!cr && cr.width > 20 && cr.right > 0 && cr.left < innerWidth;
+  const scene = document.getElementById('roomScene')?.getBoundingClientRect();
+  const from = `<div class="blast-from">Ringleader ${escapeHtml(blast.sender || 'Neeff')} says:</div>`;
   const o = document.createElement('div');
-  o.className = 'blast-overlay ringing';
+  o.className = `blast-overlay ringing${inRoom ? ' in-room' : ''}`;
   o.setAttribute('role', 'dialog');
-  o.setAttribute('aria-label', `A holler from ${blast.sender || 'the Ringleader'}`);
-  o.innerHTML = `
+  o.setAttribute('aria-label', `A holler from Ringleader ${blast.sender || 'Neeff'}`);
+  o.innerHTML = inRoom ? `
+    <button class="blast-mute" aria-label="Sound on or off">${soundOff() ? '🔇' : '🔊'}</button>
+    <button class="holler-cone-hit" aria-label="Step right up and hear the message" style="left:${cr.left}px;top:${cr.top}px;width:${cr.width}px;height:${cr.height}px"></button>
+    <div class="blast-ring-words holler-words" aria-hidden="true" style="left:${cr.left + cr.width / 2}px;top:${cr.top}px"><span>HEAR YE!</span></div>
+    <div class="blast-bubble holler-bubble" hidden>
+      ${from}
+      <div class="blast-title">${escapeHtml(blast.title)}</div>
+      <div class="blast-body" aria-live="polite"></div>
+      <div class="blast-btns">
+        ${blast.url && blast.url !== '#/dressing-room' ? `<button class="forum-btn" data-go>Take me there</button>` : ''}
+        <button class="forum-btn ghost" data-done>${preview ? 'Close preview' : 'Got it!'}</button>
+      </div>
+    </div>
+    <img class="holler-head blast-head-art" src="${ROOM}head_closed.png" alt="" hidden>
+    <div class="holler-call" style="${scene ? `left:${scene.left + scene.width / 2}px;` : ''}">
+      <div class="blast-caller">📣 Ringleader ${escapeHtml(blast.sender || 'Neeff')} has something to holler!</div>
+      <button class="blast-pickup">Step right up!</button>
+    </div>` : `
     <div class="blast-stage">
       <button class="blast-mute" aria-label="Sound on or off">${soundOff() ? '🔇' : '🔊'}</button>
       <div class="blast-ring-words" aria-hidden="true"><span>HEAR YE!</span><span>HEAR YE!</span></div>
       <div class="blast-bubble" hidden>
+        ${from}
         <div class="blast-title">${escapeHtml(blast.title)}</div>
         <div class="blast-body" aria-live="polite"></div>
         <div class="blast-btns">
@@ -5283,12 +5313,13 @@ function showBlast(blast, { live = false, preview = false } = {}) {
         <span class="cone-slot"><span class="blast-head">${artOr('head_closed.png', HEAD_SVG, 'blast-head-art')}</span></span>
         <span class="cone-layer cone-l-front">${artOr('cone_front.png', CONE_FRONT_SVG, 'cone-art')}</span>
       </button>
-      <div class="blast-caller">📣 ${escapeHtml(blast.sender || 'The Ringleader')} has something to holler!</div>
+      <div class="blast-caller">📣 Ringleader ${escapeHtml(blast.sender || 'Neeff')} has something to holler!</div>
       <button class="blast-pickup">Step right up!</button>
     </div>`;
   document.body.appendChild(o);
+  if (inRoom) floorCone.classList.add('cone-ringing');
   // Warm up the face frames so the first mouth swap doesn't blink.
-  ['head_excited', 'head_open', 'head_wide', 'head_wink', 'head_cosmic'].forEach(f => { new Image().src = `${ROOM}${f}.png`; });
+  ['head_happy', 'head_open', 'head_closed', 'head_wink', 'head_cosmic'].forEach(f => { new Image().src = `${ROOM}${f}.png`; });
   let rig = megaphone();
   let stopBlare = startBlare(rig);
   let babble = () => {};
@@ -5302,27 +5333,60 @@ function showBlast(blast, { live = false, preview = false } = {}) {
     else { stopBlare = () => {}; babble = makeBabbler(rig); }
   };
   let typing = null;
-  const finish = () => { stopBlare(); clearInterval(typing); rig?.close(); o.remove(); blastShowing = null; };
+  let shrink = null;
+  const finish = () => {
+    stopBlare(); clearInterval(typing); rig?.close();
+    floorCone?.classList.remove('cone-ringing');
+    const gone = () => { o.remove(); blastShowing = null; };
+    if (shrink && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      o.classList.add('leaving');
+      shrink().onfinish = gone;
+      setTimeout(gone, 700); // the animation may not report back in a hidden tab
+    } else gone();
+  };
   const answer = () => {
     if (!o.classList.contains('ringing')) return;
     stopBlare();
     if (live && blast.id) apiFetch(`/api/me/blast/${blast.id}/seen`, { method: 'POST' }).catch(() => {});
+    if (!preview) try { localStorage.setItem('cs-last-holler', JSON.stringify({ title: blast.title, body: blast.body, url: blast.url || null, sender: blast.sender || null })); } catch (e) { /* no storage */ }
+    floorCone?.classList.remove('cone-ringing');
     // A fresh rig born from this tap, so iPhones let the babble play.
     rig?.close(); rig = megaphone();
     playBoing(rig);
     babble = makeBabbler(rig);
     o.classList.remove('ringing'); o.classList.add('answered');
     o.querySelector('.blast-bubble').hidden = false;
-    const out = o.querySelector('.blast-body'), headImg = o.querySelector('.blast-head-art'), head = o.querySelector('.blast-head');
+    const out = o.querySelector('.blast-body'), headImg = o.querySelector('.blast-head-art'), head = o.querySelector(inRoom ? '.holler-head' : '.blast-head');
+    if (inRoom) {
+      // Out of the bell (the left end of the megaphone) and up to full size
+      // over the room; the speech bubble sits on top of the head.
+      // The part of the room you can actually see (phones scroll a wide room).
+      const sl = scene && scene.width > 0 ? Math.max(scene.left, 0) : 0, sr = scene && scene.width > 0 ? Math.min(scene.right, innerWidth) : innerWidth;
+      const box = { left: sl, width: sr - sl, top: scene?.top ?? 0, height: scene?.height || innerHeight };
+      const W = Math.min(box.width * (box.width < 500 ? 0.62 : 0.5), box.height * 0.52, 400), Hh = W * 270 / 250;
+      const left = box.left + box.width / 2 - W / 2, top = Math.min(box.top + box.height * 0.94, innerHeight - 16) - Hh;
+      Object.assign(head.style, { left: `${left}px`, top: `${top}px`, width: `${W}px` });
+      o.style.setProperty('--head-top', `${top}px`);
+      o.style.setProperty('--room-mid', `${box.left + box.width / 2}px`);
+      o.style.setProperty('--room-w', `${box.width}px`);
+      head.hidden = false;
+      const bell = `translate(${cr.left + cr.width * 0.08 - (left + W / 2)}px, ${cr.top + cr.height * 0.55 - (top + Hh / 2)}px) scale(${(cr.height * 0.9 / W).toFixed(3)})`;
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        head.animate([{ transform: bell, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 620, easing: 'cubic-bezier(.2,1.4,.4,1)' });
+      }
+      shrink = () => head.animate([{ transform: 'none', opacity: 1 }, { transform: bell, opacity: 0 }], { duration: 420, easing: 'cubic-bezier(.5,0,.8,.5)', fill: 'forwards' });
+    }
     const text = blast.body || '';
     // Neeff's own faces: pops up excited, yaks (shut / talking / shouting),
     // signs off with a wink. Say something cosmic and he goes Cosmic Mode.
     const cosmic = /cosm(ic|os)/i.test(`${blast.title} ${text}`);
     const face = f => { if (headImg) headImg.src = `${ROOM}${cosmic ? 'head_cosmic' : f}.png`; };
     if (cosmic) o.classList.add('cosmic');
-    face('head_excited');
+    face('head_happy');
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { out.textContent = text; face('head_wink'); return; }
-    const mouths = ['head_open', 'head_wide', 'head_open', 'head_closed'];
+    // Easy-going yak: mouth open / shut every few letters, not every one.
+    const mouths = ['head_open', 'head_closed'];
+    let flap = 0;
     let i = 0, m = 0, said = 0;
     const done = () => { clearInterval(typing); head.classList.remove('yakking'); face('head_wink'); };
     // Let the boing land, then holler: a character every 38ms, a babble
@@ -5335,7 +5399,7 @@ function showBlast(blast, { live = false, preview = false } = {}) {
         out.textContent = text.slice(0, i);
         if (ch && /[\p{L}\p{N}!?]/u.test(ch) && (said++ % 2 === 0 || ch === '!' || ch === '?')) {
           babble(ch);
-          face(mouths[m++ % mouths.length]);
+          if (flap++ % 2 === 0) face(mouths[m++ % mouths.length]);
         }
         if (i >= text.length) done();
       }, 38);
@@ -5343,7 +5407,7 @@ function showBlast(blast, { live = false, preview = false } = {}) {
     o.querySelector('.blast-bubble').onclick = e => { if (!e.target.closest('button')) { i = text.length; out.textContent = text; done(); } };
   };
   o.querySelector('.blast-pickup').onclick = answer;
-  o.querySelector('.blast-cone').onclick = answer;
+  (o.querySelector('.blast-cone') || o.querySelector('.holler-cone-hit')).onclick = answer;
   o.addEventListener('click', e => {
     if (e.target.dataset.done !== undefined) finish();
     if (e.target.dataset.go !== undefined) { finish(); location.hash = blast.url; }
@@ -5692,13 +5756,14 @@ const ORACLES = { mercury: 'https://mercury-oracle.vercel.app/', field: 'https:/
 // or null for an invisible painted hotspot), l, t, w, h (hotspots only),
 // rot, flip, z, n (which upcoming event, for flyers), anim }. The layout
 // lives in the database (Arrange mode, Ringleaders); this is the default.
-const ROOM_ASSETS = { trunk_closed: 338 / 329, trunk_open: 322 / 393, costume_ringmaster: 156 / 327, costume_teal: 143 / 382, costume_clown: 138 / 386, costume_purple: 165 / 348, costume_pink: 178 / 418, raven_perched: 151 / 287, raven_squawk: 208 / 297, flyer_circus: 147 / 239, flyer_volunteer: 122 / 212, flyer_carnival: 127 / 219, book_lectern: 188 / 282, book_open: 232 / 228, passport_closed: 145 / 212, passport_open: 191 / 181, perch_empty: 116 / 217, hatbox_closed: 185 / 160, hatbox_open: 222 / 279, popcorn: 132 / 189, potion: 76 / 161, coat_rack: 127 / 347, vanity: 283 / 271, rug: 315 / 205 };
+const ROOM_ASSETS = { megaphone_floor: 347 / 181, trunk_closed: 338 / 329, trunk_open: 322 / 393, costume_ringmaster: 156 / 327, costume_teal: 143 / 382, costume_clown: 138 / 386, costume_purple: 165 / 348, costume_pink: 178 / 418, raven_perched: 151 / 287, raven_squawk: 208 / 297, flyer_circus: 147 / 239, flyer_volunteer: 122 / 212, flyer_carnival: 127 / 219, book_lectern: 188 / 282, book_open: 232 / 228, passport_closed: 145 / 212, passport_open: 191 / 181, perch_empty: 116 / 217, hatbox_closed: 185 / 160, hatbox_open: 222 / 279, popcorn: 132 / 189, potion: 76 / 161, coat_rack: 127 / 347, vanity: 283 / 271, rug: 315 / 205 };
 const ROOM_ANIMS = { '': 'Still', sway: 'Sway (hangs from top)', flutter: 'Flutter', float: 'Float', breathe: 'Breathe', hop: 'Hop', shimmer: 'Shimmer', wobble: 'Wobble' };
 const ROOM_ROLES = {
   decor: 'Just decoration', mirror: 'Mirror → My Profile', trunk: 'Trunk → Passport & Prizes', costume: 'Costume → Profile / acts',
   flyer: 'Flyer → an upcoming event', raven: 'Raven → volunteer requests', book: 'Big Book → the forum', drawer: 'Drawer → Letters',
   exit: 'Exit → Courtyard', hatbox: 'Hat box → Ringleader tools (only you see it)', potion: 'Secret → Mercury Oracle', stars: 'Secret → Field Oracle',
   popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
+  megaphone: 'Megaphone → hollers pop out of it',
 };
 const ROOM_DEFAULT = [
   { id: 'mirror', role: 'mirror', img: null, l: 6.5, t: 7, w: 33, h: 36 },
@@ -5734,6 +5799,9 @@ async function renderRoom(mainView) {
   const inner = isInnerMember();
   const saved = Array.isArray(layout.items) ? layout.items : ROOM_DEFAULT;
   let items = JSON.parse(JSON.stringify(saved));
+  // The barker's megaphone lies on the floor in every room (saved layouts
+  // from before it existed get one; Arrange can move it like anything else).
+  if (!items.some(i => i.role === 'megaphone')) items.push({ id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 43, t: 75, w: 24, rot: -4 });
   let selectedId = null;
 
   // What a role means right now: hover verb, destination (null = reacts in place).
@@ -5761,6 +5829,7 @@ async function renderRoom(mainView) {
       case 'popcorn': return ['Eat the Popcorn', null];
       case 'events': return ['See what’s coming up', '#/events'];
       case 'tickets': return ['Find your Tickets', '#/tickets'];
+      case 'megaphone': return [lastHoller() ? 'Pick up the Megaphone (hear the last holler)' : 'Pick up the Megaphone', null];
       default: return [null, null];
     }
   };
@@ -5897,6 +5966,11 @@ async function renderRoom(mainView) {
       el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
     },
     raven: () => say('Croak. Nothing to squawk about right now. It’s keeping watch.'),
+    megaphone: () => {
+      const last = lastHoller();
+      if (last) showBlast(last, { replay: true });
+      else say('Quiet for now. When the Ringleader hollers, it rattles right here.');
+    },
     drawer: () => say('Locked. The letters are for inner members — work two shifts to step inside.'),
   };
   host.addEventListener('mouseover', e => {

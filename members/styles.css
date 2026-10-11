@@ -1835,3 +1835,22 @@ body.forum-docked .room-arrange-btn { right: calc(var(--room-gutter) + 80px); }
 .blast-cone { width: min(250px, 60vw); aspect-ratio: 320 / 432; }
 .blast-head { left: 23%; width: 54%; }
 .cone-layer img.cone-art { object-fit: contain; }
+
+/* ── The holler in the room: out of the megaphone on the floor (2026-10-12) ── */
+.blast-from { font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: #8F6E34; margin-bottom: 4px; }
+@keyframes cone-rattle { 0%,100% { transform: rotate(0) translateY(0); } 20% { transform: rotate(-6deg) translateY(-4px); } 40% { transform: rotate(5deg) translateY(-1px); } 60% { transform: rotate(-4deg) translateY(-3px); } 80% { transform: rotate(3deg); } }
+.room-obj.cone-ringing img { animation: cone-rattle 0.45s ease-in-out infinite; transform-origin: 50% 80%; filter: drop-shadow(0 0 12px rgba(255,214,140,0.95)) drop-shadow(0 4px 4px rgba(0,0,0,0.5)); }
+.blast-overlay.in-room { display: block; padding: 0; overflow: hidden; background: radial-gradient(ellipse at var(--room-mid, 50%) 70%, rgba(20,8,6,0.15), rgba(20,8,6,0.55)); backdrop-filter: none; }
+.blast-overlay.in-room.answered { background: radial-gradient(ellipse at var(--room-mid, 50%) 70%, rgba(20,8,6,0.35), rgba(20,8,6,0.75)); }
+.blast-overlay.in-room .blast-mute { position: fixed; top: 84px; right: 18px; z-index: 3; }
+.holler-cone-hit { position: fixed; z-index: 2; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 40%; }
+.blast-overlay.in-room .holler-words { position: fixed; right: auto; width: max-content; display: block; transform: translate(-50%, -110%); }
+.blast-overlay.in-room .holler-words span { display: inline-block; font-size: clamp(24px, 4.5vh, 38px); }
+.holler-call { position: fixed; top: 110px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 32px); text-align: center; }
+.holler-call .blast-caller { text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+.holler-head { position: fixed; z-index: 2; height: auto; pointer-events: none; filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55)); }
+.holler-head.yakking { animation: td-bob 0.5s ease-in-out infinite; }
+.holler-bubble { --bw: min(560px, calc(var(--room-w, 100vw) - 24px), calc(100vw - 24px)); position: fixed; z-index: 3; left: calc(var(--room-mid, 50vw) - var(--bw) / 2); bottom: calc(100vh - var(--head-top, 50vh) + 14px); width: var(--bw); max-height: calc(var(--head-top, 50vh) - 84px); overflow-y: auto; margin: 0; }
+.blast-overlay.in-room.leaving .holler-bubble { opacity: 0; transition: opacity 0.2s; }
+@media (prefers-reduced-motion: reduce) { .room-obj.cone-ringing img, .holler-head.yakking { animation: none; } }
+.blast-overlay.in-room.answered .holler-words { display: none; }
