@@ -393,6 +393,35 @@ CREATE TABLE chat_presence (
 ALTER TABLE conversation_participants ADD COLUMN last_read_at TEXT;
 UPDATE conversation_participants SET last_read_at = datetime('now');
 
+-- ============================================================
+-- migrations/2026-10-11-push.sql
+-- ============================================================
+-- The raven on your phone: web push subscriptions + the notifications the
+-- service worker fetches when a (payload-less) push wakes it.
+CREATE TABLE push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_push_subscriptions_user ON push_subscriptions(user_id);
+CREATE TABLE notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,            -- letter | call | prize | rank | reminder | blast | test
+  title TEXT NOT NULL,
+  body TEXT,
+  url TEXT,
+  ref TEXT,                      -- dedupe key (e.g. reminder:<event_id>)
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  delivered_at TEXT
+);
+CREATE INDEX idx_notifications_user ON notifications(user_id, delivered_at);
+CREATE UNIQUE INDEX idx_notifications_ref ON notifications(user_id, ref) WHERE ref IS NOT NULL;
+-- What each member wants the raven to squawk about (all on by default).
+ALTER TABLE users ADD COLUMN notify_letters INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN notify_calls INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN notify_prizes INTEGER NOT NULL DEFAULT 1;
+
 -- Authorization note: Postgres RLS is gone — every rule below is enforced in
 -- worker.js route handlers instead. Kept here as the checklist that was ported:
 --   * users:   self can update display_name/home_chapter_id/avatar_url only;

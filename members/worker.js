@@ -117,7 +117,10 @@ export default {
   // Daily housekeeping (cron in wrangler.jsonc): expired sessions and reset
   // tokens otherwise accumulate forever — every sign-in adds a session row.
   async scheduled(event, env, ctx) {
+    await sendReminders(env);
+    if (new Date(event.scheduledTime).getUTCHours() !== 9) return;
     await env.DB.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
+    await env.DB.prepare("DELETE FROM notifications WHERE created_at < datetime('now', '-30 days')").run();
     await env.DB.prepare("DELETE FROM password_resets WHERE expires_at < datetime('now', '-1 day')").run();
     await env.DB.prepare("DELETE FROM chat_messages WHERE created_at < datetime('now', '-30 days')").run();
     await env.DB.prepare("DELETE FROM chat_presence WHERE seen_at < datetime('now', '-1 day')").run();
@@ -177,7 +180,8 @@ async function api(request, env, url, ctx) {
     return withCors(json({
       turnstile_site_key: env.TURNSTILE_SITE_KEY || null,
       payments_enabled: !!env.STRIPE_SECRET_KEY,
-      password_reset_enabled: !!env.RESEND_API_KEY
+      password_reset_enabled: !!env.RESEND_API_KEY,
+      vapid_public_key: env.VAPID_PUBLIC_KEY || null
     }));
   }
   if (pathname === "/api/auth/signup" && method === "POST") {
@@ -261,7 +265,8 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/me" && method === "PATCH") {
     const user2 = await getSessionUser(request, env);
     if (!user2) return err(401, "Not signed in.");
-    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate, celebrated_rank, city, phone, instagram_handle, share_email, share_phone, share_instagram } = await body(request);
+    const patchBody = await body(request);
+    const { display_name, home_chapter_id, avatar_url, birthday, skills, onboarded, knows_who, heard_about_us, materials_to_donate, celebrated_rank, city, phone, instagram_handle, share_email, share_phone, share_instagram } = patchBody;
     const updates = [];
     const binds = [];
     if (display_name !== void 0 && !String(display_name).trim()) return err(400, "Name can't be blank.");
@@ -272,7 +277,8 @@ async function api(request, env, url, ctx) {
         binds.push(String(val).trim() || null);
       }
     }
-    for (const [col, val] of [["share_email", share_email], ["share_phone", share_phone], ["share_instagram", share_instagram]]) {
+    const { notify_letters, notify_calls, notify_prizes } = patchBody;
+    for (const [col, val] of [["share_email", share_email], ["share_phone", share_phone], ["share_instagram", share_instagram], ["notify_letters", notify_letters], ["notify_calls", notify_calls], ["notify_prizes", notify_prizes]]) {
       if (val !== void 0) {
         updates.push(`${col} = ?`);
         binds.push(val ? 1 : 0);
@@ -430,6 +436,7 @@ async function api(request, env, url, ctx) {
     if (!title || !starts_at) return err(400, "title and starts_at required.");
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO events (id, chapter_id, title, description, location, starts_at, ends_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, chapter_id || null, title, description || null, location || null, starts_at, ends_at || null, user.id).run();
+    ctx.waitUntil(notifyEveryone(env, { kind: "call", title: `SQUAWK! ${title} needs hands`, body: `${eventWhen(starts_at)}${location ? " · " + location : ""}. Volunteer and win a Roustabout badge.`, url: `#/event/${id}`, ref: `call:${id}` }, "notify_calls", user.id));
     return json({ id });
   }
   const eventMatch = pathname.match(/^\/api\/events\/([^/]+)$/);
@@ -1731,10 +1738,14 @@ async function api(request, env, url, ctx) {
     if (!text) return err(400, "body required.");
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO direct_messages (id, conversation_id, sender_id, body) VALUES (?, ?, ?, ?)").bind(id, convId, user.id, text).run();
+    await env.DB.prepare("UPDATE conversation_participants SET last_read_at = datetime('now') WHERE conversation_id = ? AND user_id = ?").bind(convId, user.id).run();
+    const { results: others } = await env.DB.prepare("SELECT user_id FROM conversation_participants WHERE conversation_id = ? AND user_id != ?").bind(convId, user.id).all();
+    ctx.waitUntil(Promise.all(others.map((o) => notifyUser(env, o.user_id, { kind: "letter", title: `SQUAWK! A letter from ${user.display_name}`, body: text.length > 120 ? text.slice(0, 117) + "…" : text, url: `#/dm/${convId}` }, "notify_letters"))));
     return json({ id });
   }
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
+  { const r = await pushRoutes(request, env, url, user); if (r) return r; }
   { const r = await ticketRoutes(request, env, url); if (r) return r; }
   return err(404, "Not found.");
 }
@@ -1870,12 +1881,113 @@ async function volunteerRoutes(request, env, url, user) {
 }
 
 // ---------------------------------------------------------------------
+// The raven on your phone: Web Push with VAPID and NO payload. A push just
+// wakes the service worker (sw.js), which fetches the actual squawk from
+// /api/me/notifications/pending — so no content ever passes through the
+// push services, and no payload encryption is needed. Private key: secret
+// VAPID_PRIVATE_JWK; public key: var VAPID_PUBLIC_KEY.
+// ---------------------------------------------------------------------
+function b64url(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+let vapidSigningKey = null;
+async function vapidAuth(env, endpoint) {
+  if (!vapidSigningKey) {
+    vapidSigningKey = await crypto.subtle.importKey("jwk", JSON.parse(env.VAPID_PRIVATE_JWK), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  }
+  const enc = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+  const unsigned = enc({ typ: "JWT", alg: "ES256" }) + "." + enc({ aud: new URL(endpoint).origin, exp: Math.floor(Date.now() / 1e3) + 12 * 3600, sub: "mailto:hello@carnivalsociety.org" });
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, vapidSigningKey, new TextEncoder().encode(unsigned));
+  return `vapid t=${unsigned}.${b64url(new Uint8Array(sig))}, k=${env.VAPID_PUBLIC_KEY}`;
+}
+async function wakeEndpoints(env, endpoints) {
+  if (!env.VAPID_PRIVATE_JWK || !env.VAPID_PUBLIC_KEY) return;
+  await Promise.all(endpoints.map(async (endpoint) => {
+    try {
+      const res = await fetch(endpoint, { method: "POST", headers: { TTL: "86400", Urgency: "high", Authorization: await vapidAuth(env, endpoint), "Content-Length": "0" } });
+      if (res.status === 404 || res.status === 410) await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(endpoint).run();
+      else if (!res.ok) console.error("push", res.status, await res.text());
+    } catch (e) { console.error("push", e); }
+  }));
+}
+// One member. pref = the users.notify_* column that must be on (or null).
+async function notifyUser(env, userId, { kind, title, body = null, url = null, ref = null }, pref = null) {
+  if (pref) {
+    const ok = await env.DB.prepare(`SELECT ${pref} AS on_ FROM users WHERE id = ?`).bind(userId).first();
+    if (!ok || !ok.on_) return;
+  }
+  const res = await env.DB.prepare("INSERT OR IGNORE INTO notifications (user_id, kind, title, body, url, ref) VALUES (?, ?, ?, ?, ?, ?)").bind(userId, kind, title, body, url, ref).run();
+  if (!res.meta.changes) return;
+  const { results } = await env.DB.prepare("SELECT endpoint FROM push_subscriptions WHERE user_id = ?").bind(userId).all();
+  await wakeEndpoints(env, results.map((r) => r.endpoint));
+}
+// Everyone who wants this kind (pref column), except `exceptId`. One INSERT
+// for the rows; pushes capped per invocation (Workers subrequest limits) —
+// anyone past the cap still gets it in-app; move to a Queue at scale.
+async function notifyEveryone(env, { kind, title, body = null, url = null, ref = null }, pref, exceptId = "") {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO notifications (user_id, kind, title, body, url, ref) SELECT id, ?, ?, ?, ?, ? FROM users WHERE ${pref} = 1 AND id != ?`
+  ).bind(kind, title, body, url, ref, exceptId).run();
+  const { results } = await env.DB.prepare(
+    `SELECT s.endpoint FROM push_subscriptions s JOIN users u ON u.id = s.user_id WHERE u.${pref} = 1 AND u.id != ? LIMIT 45`
+  ).bind(exceptId).all();
+  await wakeEndpoints(env, results.map((r) => r.endpoint));
+}
+function eventWhen(iso) {
+  try { return new Date(iso).toLocaleString("en-US", { timeZone: "America/Denver", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; }
+}
+// Hourly: remind volunteers and ticket holders the day before.
+async function sendReminders(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT e.id, e.title, e.starts_at, e.location, x.user_id FROM events e
+     JOIN (SELECT event_id, user_id FROM event_volunteers UNION SELECT event_id, user_id FROM tickets WHERE status = 'paid') x ON x.event_id = e.id
+     WHERE e.starts_at > datetime('now', '+20 hours') AND e.starts_at <= datetime('now', '+28 hours')`
+  ).all();
+  for (const r of results) {
+    await notifyUser(env, r.user_id, { kind: "reminder", title: `Tomorrow: ${r.title}`, body: `${eventWhen(r.starts_at)}${r.location ? " · " + r.location : ""}. The raven will be watching for you.`, url: `#/event/${r.id}`, ref: `reminder:${r.id}` }, "notify_calls");
+  }
+}
+async function pushRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/push/subscribe" && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const { endpoint } = await body(request);
+    if (!endpoint || !/^https:\/\//.test(endpoint)) return err(400, "Bad subscription.");
+    await env.DB.prepare("INSERT INTO push_subscriptions (endpoint, user_id) VALUES (?, ?) ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id").bind(endpoint, user.id).run();
+    return json({ ok: true });
+  }
+  if (pathname === "/api/push/unsubscribe" && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const { endpoint } = await body(request);
+    await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?").bind(endpoint || "", user.id).run();
+    return json({ ok: true });
+  }
+  if (pathname === "/api/push/test" && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    await notifyUser(env, user.id, { kind: "test", title: "SQUAWK! Testing, testing…", body: "The raven can find you. See you under the big top.", url: "#/dressing-room" });
+    return json({ ok: true });
+  }
+  // The service worker asks what woke it: newest undelivered squawks.
+  if (pathname === "/api/me/notifications/pending" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare("SELECT id, kind, title, body, url FROM notifications WHERE user_id = ? AND delivered_at IS NULL ORDER BY id DESC LIMIT 5").bind(user.id).all();
+    await env.DB.prepare("UPDATE notifications SET delivered_at = datetime('now') WHERE user_id = ? AND delivered_at IS NULL").bind(user.id).run();
+    return json({ notifications: results });
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------
 // Carnival Passport: merit-badge stamps that earn rank. Rule lives in the
 // vault ("CSI Rank and Passport Rule"): Clown → Apprentice is automatic at
 // 3 stamps incl. 2 Roustabouts, and crosses the Threshold (tier = inner).
 // Journeyman needs a human nod; Master is conferred. Never ranked/compared.
 // ---------------------------------------------------------------------
 var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman"];
+var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."] };
 var APPRENTICE_STAMPS = 3;
 var APPRENTICE_ROUSTABOUTS = 2;
 // Unique indexes make repeats (same kind+event, or a second Fix) no-ops.
@@ -1884,7 +1996,14 @@ async function grantStamp(env, { userId, kind, eventId = null, note = null, gran
     "INSERT OR IGNORE INTO stamps (id, user_id, kind, event_id, note, granted_by) VALUES (?, ?, ?, ?, ?, ?)"
   ).bind(crypto.randomUUID(), userId, kind, eventId, note, grantedBy).run();
   const granted = !!res.meta.changes;
-  return { granted, promoted: granted ? await checkPromotion(env, userId) : false };
+  const promoted = granted ? await checkPromotion(env, userId) : false;
+  if (granted) {
+    const b = BADGE_NAMES[kind];
+    await notifyUser(env, userId, promoted
+      ? { kind: "rank", title: "You're an Apprentice!", body: "Two shifts worked, the Threshold crossed. Step inside the guild.", url: "#/dressing-room" }
+      : { kind: "prize", title: `You won a prize: ${b ? b[0] : "a stamp"}!`, body: b ? `“${b[1]}” Open your trunk to see it.` : "Open your trunk to see it.", url: "#/dressing-room" }, "notify_prizes");
+  }
+  return { granted, promoted };
 }
 async function stampCounts(env, userId) {
   const row = await env.DB.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(kind = 'roustabout'), 0) AS roustabouts FROM stamps WHERE user_id = ?").bind(userId).first();
@@ -2226,6 +2345,8 @@ async function ticketRoutes(request, env, url) {
 function courtyardAllowed(method, pathname) {
   if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout")) return true;
   if (pathname === "/api/chat" && (method === "GET" || method === "POST")) return true;
+  if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
+  if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
   if (method === "DELETE" && /^\/api\/chat\/\d+$/.test(pathname)) return true;
   // Boards/posts handlers themselves restrict courtyard members to the
   // Courtyard board, read-only (POST /api/posts stays blocked here).

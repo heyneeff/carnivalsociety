@@ -21,12 +21,14 @@
   "ratelimits": [
     { "name": "AUTH_LIMITER", "namespace_id": "1001", "simple": { "limit": 8, "period": 60 } }
   ],
-  // Daily housekeeping: expired sessions + reset tokens (scheduled() in worker.js).
-  "triggers": { "crons": ["17 9 * * *"] },
+  // Hourly: event reminders; housekeeping once a day (scheduled() in worker.js).
+  "triggers": { "crons": ["17 * * * *"] },
   // Secrets (wrangler secret put): RESEND_API_KEY, TURNSTILE_SECRET,
   // STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET. Each feature stays off until set.
   "vars": {
-    "EMAIL_FROM": "Carnival Society <hello@carnivalsociety.org>"
+    "EMAIL_FROM": "Carnival Society <hello@carnivalsociety.org>",
+    // Web push (the raven on your phone). Private half is the secret VAPID_PRIVATE_JWK.
+    "VAPID_PUBLIC_KEY": "BFHZ83VjqhFgrixwzBD8FxcoXqy-0jmluqWrzVDjvbxOTpnDJPkt_mnUfo4jBO_4-rnWhdpVohjul_GAbzflCL4"
   },
   "workers_dev": true,
   "routes": [

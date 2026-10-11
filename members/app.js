@@ -4818,8 +4818,15 @@ async function renderProfileView(mainView, flash = '') {
       ${shareRow('share_email', 'email', p.email)}
       ${shareRow('share_phone', 'phone', p.phone)}
       ${shareRow('share_instagram', 'Instagram', p.instagram_handle)}
+      <h3 class="passport-section">The raven on your phone</h3>
+      <p class="post-meta" id="ravenStatus">Checking…</p>
+      <div class="post-actions" id="ravenBtns"></div>
+      ${['notify_letters', 'notify_calls', 'notify_prizes'].map((k, i) => `
+        <label class="admin-ringleader-toggle share-toggle"><input type="checkbox" name="${k}" ${p[k] === 0 ? '' : 'checked'}>
+          Squawk about ${['letters', 'volunteer calls &amp; reminders', 'prizes &amp; rank-ups'][i]}</label>`).join('')}
       <button type="submit" class="composer-submit">Save</button>
     </form>`;
+  drawRavenSettings();
   mainView.querySelectorAll('.act-chip').forEach(chip => chip.addEventListener('click', () => {
     const a = chip.dataset.act;
     if (acts.has(a)) acts.delete(a); else acts.add(a);
@@ -4834,12 +4841,37 @@ async function renderProfileView(mainView, flash = '') {
         instagram_handle: f.get('instagram_handle'), skills: [...acts].join(', '),
         home_chapter_id: f.get('home_chapter_id') || null, birthday: f.get('birthday') || null, materials_to_donate: f.get('materials_to_donate').trim(),
         share_email: f.has('share_email'), share_phone: f.has('share_phone'), share_instagram: f.has('share_instagram'),
+        notify_letters: f.has('notify_letters'), notify_calls: f.has('notify_calls'), notify_prizes: f.has('notify_prizes'),
       } });
       profile = user;
       renderShell();
       renderProfileView(document.getElementById('mainView'), 'Saved.');
     } catch (err) { renderProfileView(mainView, err.message); }
   });
+}
+
+async function drawRavenSettings() {
+  const status = document.getElementById('ravenStatus'), btns = document.getElementById('ravenBtns');
+  if (!status) return;
+  const env = ravenEnv();
+  const on = await ravenSubscribed();
+  status.textContent = on ? 'The raven knows where to find you on this device.'
+    : env.ios && !env.standalone ? 'On iPhone, add the Guild Hall to your Home Screen first — then the raven can find you.'
+    : !env.supported ? 'This browser can’t receive the raven.' : 'The raven doesn’t know where to find you on this device yet.';
+  btns.innerHTML = on
+    ? '<button type="button" class="action-btn" data-r="test">Send me a test squawk</button><button type="button" class="action-btn" data-r="off">Stop on this device</button>'
+    : env.ios && !env.standalone ? '<button type="button" class="action-btn" data-r="ios">Show me how</button>'
+    : env.supported ? '<button type="button" class="composer-submit" data-r="on">Let the raven follow me</button>' : '';
+  if (deferredInstall) btns.insertAdjacentHTML('beforeend', '<button type="button" class="action-btn" data-r="install">Install the app</button>');
+  btns.onclick = async e => {
+    const r = e.target.dataset.r; if (!r) return;
+    if (r === 'ios') { showIosInstall(); return; }
+    if (r === 'install') { deferredInstall.prompt(); deferredInstall = null; return; }
+    if (r === 'test') { await apiFetch('/api/push/test', { method: 'POST' }); status.textContent = 'Squawk sent — check your notifications.'; return; }
+    if (r === 'on') { const res = await followRaven(); if (res === 'ios-install') { showIosInstall(); return; } status.textContent = RAVEN_RESULT[res]; }
+    if (r === 'off') await unfollowRaven();
+    setTimeout(drawRavenSettings, r === 'on' ? 1500 : 0);
+  };
 }
 
 // ── Carnival Passport ─────────────────────────────────────────────────
@@ -4985,6 +5017,77 @@ async function renderDressingRoom(mainView) {
   drawMirrorBulbs(document.getElementById('drMirror'));
   if (!needsRankCelebration()) maybeShowPrize(p);
 }
+
+// ── The raven on your phone: installable app + web push. The push carries
+// nothing; sw.js fetches what's waiting and squawks it. iPhones only allow
+// push for apps added to the Home Screen, so we walk them through that.
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; });
+const ravenEnv = () => ({
+  supported: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
+  ios: /iphone|ipad|ipod/i.test(navigator.userAgent),
+  standalone: window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
+});
+let swReg = null;
+async function registerRaven() {
+  if (!('serviceWorker' in navigator)) return null;
+  try { swReg = await navigator.serviceWorker.register('/sw.js'); } catch (e) { swReg = null; }
+  return swReg;
+}
+registerRaven();
+async function ravenSubscribed() {
+  const env = ravenEnv();
+  if (!env.supported || Notification.permission !== 'granted') return false;
+  const reg = swReg || await navigator.serviceWorker.getRegistration();
+  return !!(reg && await reg.pushManager.getSubscription());
+}
+function b64ToBytes(b64) {
+  const s = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64.length + 3) % 4));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+// Returns 'on' | 'ios-install' | 'denied' | 'unsupported' | 'error'.
+async function followRaven() {
+  const env = ravenEnv();
+  if (env.ios && !env.standalone) return 'ios-install';
+  if (!env.supported || !appConfig.vapid_public_key) return 'unsupported';
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') return 'denied';
+  try {
+    const reg = swReg || await registerRaven() || await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(appConfig.vapid_public_key) });
+    await apiFetch('/api/push/subscribe', { method: 'POST', body: { endpoint: sub.endpoint } });
+    return 'on';
+  } catch (e) { console.error(e); return 'error'; }
+}
+async function unfollowRaven() {
+  const reg = swReg || await navigator.serviceWorker.getRegistration();
+  const sub = reg && await reg.pushManager.getSubscription();
+  if (sub) { await apiFetch('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+}
+function showIosInstall() {
+  const o = document.createElement('div');
+  o.className = 'raven-modal';
+  o.innerHTML = `
+    <div class="raven-modal-card" role="dialog" aria-label="Add the Guild Hall to your Home Screen">
+      <img src="${ROOM}raven_perched.png" alt="" class="raven-modal-bird">
+      <h3>Let the raven follow you home</h3>
+      <p>On iPhone the raven can only find you from your Home Screen:</p>
+      <ol>
+        <li>Tap the <strong>Share</strong> button <span aria-hidden="true">⬆︎</span> at the bottom of Safari.</li>
+        <li>Choose <strong>Add to Home Screen</strong>.</li>
+        <li>Open <strong>Guild Hall</strong> from your Home Screen and tap the raven again.</li>
+      </ol>
+      <button class="room-plaque-btn" data-close>Got it</button>
+    </div>`;
+  document.body.appendChild(o);
+  o.addEventListener('click', e => { if (e.target === o || e.target.dataset.close !== undefined) o.remove(); });
+}
+const RAVEN_RESULT = {
+  on: 'The raven will find you now. SQUAWK!',
+  denied: 'Notifications are blocked for this site. Allow them in your browser settings to let the raven in.',
+  unsupported: 'This browser can’t receive the raven. Try Chrome, or add the Guild Hall to your Home Screen on iPhone.',
+  error: 'Something went wrong teaching the raven your address. Try again in a moment.',
+};
 
 // ── Letters (DMs): unread count for the raven + Messages badges. Checked
 // alongside the chat poll; the room listens through roomHooks.
@@ -5540,6 +5643,7 @@ async function renderRoom(mainView) {
   };
   draw();
   if (letters.unread && letters.from[0]) say(`SQUAWK! ${letters.unread === 1 ? 'A letter' : `${letters.unread} letters`} waiting — the raven has them.`);
+  offerRaven(mainView);
   // Phones: the square room is wider than the screen. Start centered, or
   // turned toward the raven when it has something to squawk about.
   const vp = document.getElementById('roomViewport');
@@ -5549,6 +5653,39 @@ async function renderRoom(mainView) {
     vp.scrollLeft = request || letters.unread ? max : max / 2;
     say('⟷ Swipe to look around · tap ✦ to see what you can touch');
   });
+}
+
+// A one-time (per device) invitation in the room for the raven to follow you.
+async function offerRaven(mainView) {
+  let dismissed = false;
+  try { dismissed = !!localStorage.getItem('cs-raven-offer'); } catch (e) { return; }
+  const env = ravenEnv();
+  if (dismissed || (!env.supported && !env.ios)) return;
+  if (await ravenSubscribed()) return;
+  setTimeout(() => {
+    if (!document.body.contains(mainView)) return;
+    const card = document.createElement('div');
+    card.className = 'raven-offer';
+    card.innerHTML = `
+      <img src="${ROOM}raven_squawk.png" alt="" class="raven-offer-bird">
+      <div class="raven-offer-text"><strong>Let the raven follow you home?</strong><span>It’ll squawk on your phone for letters, volunteer calls and prizes.</span></div>
+      <div class="raven-offer-btns">
+        <button class="room-plaque-btn" data-yes>Yes, follow me</button>
+        ${deferredInstall ? '<button class="room-plaque-btn td-close" data-install>Install the app</button>' : ''}
+        <button class="raven-offer-no" data-no>Not now</button>
+      </div>`;
+    mainView.appendChild(card);
+    const done = () => { try { localStorage.setItem('cs-raven-offer', '1'); } catch (e) { /* ignore */ } card.remove(); };
+    card.querySelector('[data-no]').onclick = done;
+    card.querySelector('[data-install]')?.addEventListener('click', () => { deferredInstall.prompt(); deferredInstall = null; });
+    card.querySelector('[data-yes]').onclick = async () => {
+      const r = await followRaven();
+      if (r === 'ios-install') { showIosInstall(); return; }
+      done();
+      const t = document.getElementById('roomToast');
+      if (t) { t.textContent = RAVEN_RESULT[r]; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 4500); }
+    };
+  }, 2500);
 }
 
 // The big fat book swings toward you and fills the screen, then the forum.
