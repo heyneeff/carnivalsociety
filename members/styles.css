@@ -1673,3 +1673,27 @@ h1, h2, h3, .dr-name, .blast-title, .forum-banner { text-wrap: balance; }
 .blast-reach, .blast-picked, .bottomtab, .topbar-dot { font-variant-numeric: tabular-nums; }
 .loading-screen { height: 100dvh; }
 .app-toast { z-index: 200; }
+
+/* ── Pages unfold out of the room (2026-10-12) ── */
+.unfold { position: fixed; z-index: 22; top: 69px; left: 0; right: 0; bottom: 0; overflow-y: auto; overscroll-behavior: contain; padding: 22px 16px 48px; background: rgba(20,12,10,0); transition: background-color 0.35s ease; }
+.unfold.in { background: rgba(20,12,10,0.62); }
+.unfold-card { position: relative; max-width: 1000px; margin: 0 auto; transform-origin: 50% 0; }
+.unfold .unfold-body.main { margin-top: 0; margin-bottom: 0; padding-bottom: 24px; }
+.unfold-close { position: sticky; top: 6px; z-index: 6; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; margin: 0 6px -46px auto; border-radius: 50%; border: 3px solid var(--gold-bright); background: var(--burgundy-red); color: var(--cream); font-size: 20px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 0 #4a2f1c, 0 8px 18px rgba(0,0,0,0.45); transition: transform 0.15s; }
+.unfold-close:hover { transform: rotate(90deg) scale(1.06); }
+.unfold-close:active { transform: translateY(2px); }
+/* the room keeps breathing behind, but its own buttons step aside */
+.main.unfolded .room-stage :is(.room-verb, .room-reveal, .room-arrange-btn, .room-editor, .room-toast, .room-plaque) { display: none; }
+body.chat-docked .unfold { left: calc(min(340px, (100vw - (100vh - 69px)) / 2 - 32px) + 32px); }
+@media (max-width: 800px) {
+  .unfold { top: 61px; bottom: calc(68px + env(safe-area-inset-bottom)); padding: 12px 8px 28px; }
+  .unfold .unfold-body.main { padding-bottom: 16px; }
+  .unfold .unfold-body.main[data-page="events"] { margin: 6px 0 0; }
+  .unfold-close { width: 44px; height: 44px; margin-bottom: -44px; }
+}
+@media (prefers-reduced-motion: reduce) { .unfold { transition: none; } .unfold-close { transition: none; } }
+/* pages without their own place yet get a velvet card in a gilt frame */
+.unfold .unfold-body.main:is([data-page="profile"], [data-page="letters"], [data-page="other"]) { max-width: 760px; margin: 0 auto; padding: 34px 30px 30px; border-radius: 18px; background: radial-gradient(ellipse at 50% 0%, #4a2026, #2c1c17 70%); border: 3px solid var(--gold); box-shadow: 0 0 0 6px var(--wood), 0 0 0 8px var(--wood-edge), 0 18px 40px rgba(0,0,0,0.55); }
+@media (max-width: 800px) {
+  .unfold .unfold-body.main:is([data-page="profile"], [data-page="letters"], [data-page="other"]) { padding: 26px 16px 22px; margin: 4px 4px 0; }
+}

@@ -504,19 +504,103 @@ function pageKind(route) {
   return 'other';
 }
 
+// ── Pages unfold out of the room (2026-10-12) ──
+// The room stays mounted behind every cozy page. A page grows out of the
+// object it belongs to (forum from the book, events from the corkboard…)
+// and folds back into it on close. Ringleader tools stay full pages.
+const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
+let roomStage = null, roomStageAt = 0, unfoldKind = null, unfoldFrom = null;
+function unfoldKindOf(route) {
+  if (route === 'tickets') return 'tickets';
+  if (route === 'blast') return 'blast';
+  if (route === 'courtyard') return 'courtyard';
+  const k = pageKind(route);
+  return ['forum', 'events', 'letters', 'profile', 'passport'].includes(k) ? k : null;
+}
+// Where the current page is drawn: the unfolded card, or the main column.
+const pageView = () => document.querySelector('.unfold-body') || document.getElementById('mainView');
+
 function renderMainView(route) {
   const mainView = document.getElementById('mainView');
-  roomHooks = {};
+  stopDMPolling();
+  if (route === 'dressing-room' || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
+  roomStage = null; unfoldKind = null; roomHooks = {};
   mainView.dataset.page = pageKind(route);
   if (route.startsWith('event/')) mainView.dataset.single = '1';
-  stopDMPolling();
+  renderPage(mainView, route);
+}
+
+function mountRoomStage(mainView, route) {
+  mainView.dataset.page = 'room';
+  mainView.classList.add('main-room');
+  const kind = route === 'dressing-room' ? null : unfoldKindOf(route);
+  // Reuse the live room while you come and go; rebuild it after two minutes.
+  if (!roomStage || Date.now() - roomStageAt > 120e3) {
+    roomHooks = {};
+    roomStage = document.createElement('div');
+    roomStage.className = 'room-stage';
+    roomStageAt = Date.now();
+    mainView.appendChild(roomStage);
+    renderRoom(roomStage);
+  } else mainView.appendChild(roomStage);
+  roomStage.inert = !!kind;
+  mainView.classList.toggle('unfolded', !!kind);
+  const again = kind && kind === unfoldKind;
+  unfoldKind = kind;
+  if (!kind) { unfoldFrom = null; return; }
+
+  const u = document.createElement('div');
+  u.className = 'unfold';
+  u.innerHTML = `
+    <div class="unfold-card">
+      <button class="unfold-close" aria-label="Back to your Dressing Room">✕</button>
+      <div class="main unfold-body" data-page="${pageKind(route)}" ${route.startsWith('event/') ? 'data-single="1"' : ''}></div>
+    </div>`;
+  mainView.appendChild(u);
+  renderPage(u.querySelector('.unfold-body'), route);
+  const card = u.querySelector('.unfold-card');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // The object this page lives in: the one you tapped, else its usual home.
+  const origin = () => {
+    if (unfoldFrom) return unfoldFrom;
+    const el = (UNFOLD_FROM[kind] || []).map(r => roomStage.querySelector(`[data-role="${r}"]`)).find(Boolean);
+    return el && el.getBoundingClientRect();
+  };
+  const toward = r => {
+    const c = card.getBoundingClientRect();
+    const s = Math.max(0.06, Math.min(0.5, r.width / c.width));
+    return `translate(${(r.left + r.width / 2 - (c.left + c.width / 2)).toFixed(0)}px, ${(r.top + r.height / 2 - c.top - (c.height * s) / 2).toFixed(0)}px) scale(${s.toFixed(3)})`;
+  };
+  if (again || reduce) u.classList.add('in');
+  else {
+    requestAnimationFrame(() => u.classList.add('in'));
+    const r = origin();
+    if (r) card.animate([{ transform: toward(r), opacity: 0.3 }, { transform: 'none', opacity: 1 }], { duration: 480, easing: 'cubic-bezier(.2,1.25,.4,1)' });
+    else card.animate([{ transform: 'scale(0.6)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 360, easing: 'cubic-bezier(.2,1.25,.4,1)' });
+  }
+  unfoldFrom = null;
+  let folding = false;
+  const fold = () => {
+    if (folding) return;
+    folding = true;
+    const r = !reduce && origin();
+    u.classList.remove('in');
+    if (!r) { location.hash = '#/dressing-room'; return; }
+    u.scrollTop = 0;
+    card.animate([{ transform: 'none', opacity: 1 }, { transform: toward(r), opacity: 0 }], { duration: 300, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' });
+    setTimeout(() => { location.hash = '#/dressing-room'; }, 290);
+  };
+  u.querySelector('.unfold-close').onclick = fold;
+  u.addEventListener('click', e => { if (e.target === u) fold(); });
+}
+
+function renderPage(mainView, route) {
   if (route === 'membership-success') { renderMembershipSuccess(mainView); return; }
   if (route === 'ticket-success') { renderTicketSuccess(mainView); return; }
   if (route === 'cancelled') { location.hash = '#/events'; return; }
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
-  if (route === 'dressing-room') { renderRoom(mainView); return; }
   if (route === 'passport') { renderDressingRoom(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
   if (route === 'blast') { renderBlastView(mainView); return; }
@@ -785,7 +869,7 @@ async function renderDMListView(mainView) {
     card.addEventListener('click', () => { window.location.hash = `#/dm/${card.dataset.convId}`; });
   });
 
-  document.getElementById('newDmBtn').addEventListener('click', () => renderMemberPicker());
+  mainView.querySelector('#newDmBtn').addEventListener('click', () => renderMemberPicker());
 }
 
 async function renderMemberPicker() {
@@ -4882,7 +4966,7 @@ async function renderProfileView(mainView, flash = '') {
       } });
       profile = user;
       renderShell();
-      renderProfileView(document.getElementById('mainView'), 'Saved.');
+      renderProfileView(pageView(), 'Saved.');
     } catch (err) { renderProfileView(mainView, err.message); }
   });
 }
@@ -5373,16 +5457,17 @@ function flashToast(msg, ms = 4000) {
 // on its own backdrop, so a click on the backdrop is how Escape closes it.
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  const tops = document.querySelectorAll('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal');
+  if (mobileNavOpen && !document.querySelector('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal')) { mobileNavOpen = false; renderShell(); return; }
+  const tops = document.querySelectorAll('.unfold, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal');
   const top = tops[tops.length - 1];
   if (top) {
     e.preventDefault();
-    if (!top.classList.contains('blast-overlay')) top.click();
+    if (top.classList.contains('unfold')) top.querySelector('.unfold-close').click();
+    else if (!top.classList.contains('blast-overlay')) top.click();
     else if (top.classList.contains('answered')) top.querySelector('[data-done]').click();
     else top.querySelector('.blast-pickup').focus(); // you can't hang up on the Ringleader
     return;
   }
-  if (mobileNavOpen) { mobileNavOpen = false; renderShell(); }
 });
 
 // ── The blast composer (Ringleaders) ──
@@ -5749,10 +5834,10 @@ async function renderRoom(mainView) {
       const sel = it.id === selectedId ? ' selected' : '';
       const handle = roomEditing ? '<span class="room-handle" data-handle></span>' : '';
       if (!v.img) {
-        return `<button class="room-hot${sel}" data-item="${it.id}" ${live ? `aria-label="${escapeHtml(label)}"` : 'tabindex="-1" aria-hidden="true"'} style="left:${it.l}%;top:${it.t}%;width:${it.w}%;height:${it.h || 10}%">${roomEditing ? `<span class="room-hot-name">${escapeHtml(ROOM_ROLES[it.role] || it.role)}</span>` : ''}${handle}</button>`;
+        return `<button class="room-hot${sel}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'tabindex="-1" aria-hidden="true"'} style="left:${it.l}%;top:${it.t}%;width:${it.w}%;height:${it.h || 10}%">${roomEditing ? `<span class="room-hot-name">${escapeHtml(ROOM_ROLES[it.role] || it.role)}</span>` : ''}${handle}</button>`;
       }
       const tag = live || roomEditing ? 'button' : 'div';
-      return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}" data-item="${it.id}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
+      return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
         <span class="room-turn" style="${tf}">${v.frames
           ? `<span class="raven-frames ${v.frames}"><img class="rf-shut" src="${ROOM}raven_perched.png" alt="" draggable="false"><img class="rf-open" src="${ROOM}raven_squawk.png" alt="" draggable="false"></span>`
           : `<img src="${ROOM}${v.img}.png" alt="" draggable="false">`}</span>${handle}</${tag}>`;
@@ -5773,6 +5858,8 @@ async function renderRoom(mainView) {
   const go = (el, it, href) => {
     if (href === 'more') { mobileNavOpen = true; renderShell(); return; }
     if (href.startsWith('http')) { window.open(href, '_blank', 'noopener'); return; }
+    // Cozy pages unfold right out of the object you tapped.
+    if (unfoldKindOf(href.slice(2))) { unfoldFrom = el.getBoundingClientRect(); location.hash = href; return; }
     if (it.role === 'book') { openBookToward(el, href); return; }
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { location.hash = href; return; }
     const sr = scene.getBoundingClientRect(), r = el.getBoundingClientRect();
