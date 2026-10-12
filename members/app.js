@@ -6664,7 +6664,10 @@ async function renderRoom(mainView, ownerId = null) {
     const first = (profile.display_name || '').split(' ')[0];
     const el = role => host.querySelector(`[data-role="${role}"]`);
     const steps = [
-      { text: `Welcome to your Dressing Room, ${escapeHtml(first)}! I’m Omen, the raven. Let me show you around. Everything glowing in here is something you can tap.` },
+      // Why we're here, before where things are.
+      { text: `Welcome to Carnival Society, ${escapeHtml(first)}! We build <b>real carnivals together</b>: out in the world, with our hands, side by side. The shows, the builds, the games, the party.`, cta: 'Tell me more' },
+      { text: 'This app is the backstage. It finds you a night, a job and a crew, then sends you out the door to make it happen. <b>Everything you win in here, you earn out there.</b>', cta: 'Show me around' },
+      { text: 'This is your Dressing Room. I’m Omen, the raven, your guide. Everything glowing in here is something you can tap.' },
       { role: 'flyer', text: 'These flyers are real upcoming events. Tap one to see it and <b>take a job</b> on the crew. That’s how you join in.' },
       { role: 'trunk', text: 'Your steamer trunk. Every time you show up and help at a real carnival, you win a badge and it lands in here. <b>Two shifts and you’re an Apprentice.</b>' },
       inner ? { role: 'book', text: 'The Big Book is the <b>Guild Hall</b>: news, plans and talk for the whole troupe.' }
@@ -6689,7 +6692,7 @@ async function renderRoom(mainView, ownerId = null) {
       tour.querySelector('.intro-text').innerHTML = st.text;
       tour.querySelector('.intro-step').textContent = `${i + 1} of ${steps.length}`;
       const next = tour.querySelector('[data-next]');
-      next.textContent = st.last ? 'Yes, notify me' : i === 0 ? 'Show me around' : 'Next';
+      next.textContent = st.last ? 'Yes, notify me' : st.cta || 'Next';
       tour.querySelector('[data-skip]').textContent = st.last ? 'Maybe later' : 'Skip the tour';
       tour.classList.toggle('no-target', !target);
       if (target) {
