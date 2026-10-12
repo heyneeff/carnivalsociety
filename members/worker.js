@@ -2347,7 +2347,7 @@ async function publicRoutes(request, env, url) {
 // Run by Ringleaders, or by whoever claimed the event's "Door" job (on
 // the night only). New faces get a Courtyard account on the spot and a
 // claim QR, since we can't email them yet.
-const DOOR_VIAS = ["ticket", "pass", "door", "comp", "crew"];
+const DOOR_VIAS = ["ticket", "pass", "door", "comp", "crew", "performer"];
 const DOOR_METHODS = ["cash", "card"];
 const DOOR_EMAIL_DOMAIN = "door.carnivalsociety.org";
 async function canRunDoor(env, user, eventId) {
@@ -2615,6 +2615,7 @@ async function doorRoutes(request, env, url, user) {
     }
     const first = await firstTimer(env, target.id);
     const give = via === "crew" ? 0 : ev.entry_tickets || 0;
+    if (via === "performer") await grantStamp(env, { userId: target.id, kind: "kinker", eventId, grantedBy: user.id });
     const { id: entryId, promoted } = await addEntry(env, {
       eventId, userId: target.id, partnerId: ev.partner_id, name: target.display_name, via, ticketId, amount: via === "door" ? amount + registration : 0, registration, method: pay,
       firstTime: first, note: (b.note || "").trim().slice(0, 140) || null, by: user.id, tickets: give,
@@ -3073,8 +3074,8 @@ async function pushRoutes(request, env, url, user) {
 // 3 stamps incl. 2 Roustabouts, and crosses the Threshold (tier = inner).
 // Journeyman needs a human nod; Master is conferred. Never ranked/compared.
 // ---------------------------------------------------------------------
-var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman"];
-var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."] };
+var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman", "kinker"];
+var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."], kinker: ["Kinker", "I took the ring."] };
 var APPRENTICE_STAMPS = 3;
 var APPRENTICE_ROUSTABOUTS = 2;
 // Unique indexes make repeats (same kind+event, or a second Fix) no-ops.

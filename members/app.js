@@ -5347,9 +5347,11 @@ const BADGES = {
   barker:     { name: 'Barker',          motto: 'Step right up!',           glyph: '📣', color: '#C77B8A', how: 'Bring someone who joins and shows up.', icon: 'M3 10v4h3l8 5V5L6 10z M18 9a4 4 0 0 1 0 6' },
   junk:       { name: 'Junk Saint',      motto: "One carnie's trash…",      glyph: '♻️', color: '#5F7A3D', how: 'Donate materials that get used in a build.', icon: 'M4 20h16 M6 20l2-9h8l2 9 M9 11V7h6v4' },
   canvasman:  { name: 'Boss Canvasman',  motto: 'Raised the big top.',      glyph: '🎪', color: '#8B5FA3', how: 'Lead a crew, teach a skill, or host newcomers.', icon: 'M3 20 12 4l9 16z M12 4v16 M12 4l3-2' },
+  // "Kinker": old circus slang for a performer.
+  kinker:     { name: 'Kinker',          motto: 'I took the ring.',         glyph: '🎭', color: '#C9A227', how: 'Perform at a Carnival: an act, a set, a show.', icon: 'M5 5c4 2 10 2 14 0v6a7 7 0 0 1-14 0z M9 10h.01 M15 10h.01 M9 14c2 2 4 2 6 0 M12 2v1 M4 2l1 1 M20 2l-1 1' },
 };
-const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman'];
-const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout'];
+const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker'];
+const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout', 'kinker'];
 
 function badgeIcon(kind, size = 28) {
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
@@ -6579,7 +6581,7 @@ async function renderRoom(mainView, ownerId = null) {
       trunkEl.style.top = `${trunkItem.t + trunkItem.w / ROOM_ASSETS.trunk_closed - trunkItem.w / ROOM_ASSETS.trunk_open}%`;
     }
     // Two gentle rows across the middle of the room; newest flies last.
-    const slots = [[20, 26], [38.5, 22], [57, 22], [75.5, 26], [20, 50], [38.5, 46], [57, 46], [75.5, 50]];
+    const slots = [[16, 25], [33, 22], [50, 21], [67, 22], [84, 25], [24.5, 49], [41.5, 47], [58.5, 47], [75.5, 49]];
     const kinds = [...BADGE_ORDER, 'mystery'];
     if (newest) { kinds.splice(kinds.indexOf(newest), 1); kinds.push(newest); }
     const sr = scene.getBoundingClientRect(), tr = trunkEl.getBoundingClientRect();
@@ -7245,7 +7247,7 @@ async function renderTicketSuccess(mainView) {
 // entry is logged with how they got in and what they paid, cash or card
 // (the Square register). Run by Ringleaders, or whoever took the Door job.
 const doorMoney = c => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
-const DOOR_VIA = { ticket: '🎟️ Ticket', pass: '🎁 Guest pass', door: '💵 Paid at door', comp: '🌟 Comp', crew: '🔨 Crew' };
+const DOOR_VIA = { ticket: '🎟️ Ticket', pass: '🎁 Guest pass', door: '💵 Paid at door', comp: '🌟 Comp', crew: '🔨 Crew', performer: '🎭 Performer' };
 async function renderCheckinView(mainView, eventId) {
   if (!eventId) {
     if (!profile?.is_ringleader) { mainView.innerHTML = '<h2>The Door</h2><div class="placeholder-note">Take the Door job on an event’s flyer to run its door.</div>'; return; }
@@ -7472,6 +7474,7 @@ async function renderCheckinView(mainView, eventId) {
         <button type="button" data-v="door" aria-pressed="${!who.crew}">💵 Paying</button>
         <button type="button" data-v="comp" aria-pressed="false">🌟 Comp</button>
         <button type="button" data-v="crew" aria-pressed="${!!who.crew}">🔨 Crew</button>
+        <button type="button" data-v="performer" aria-pressed="false">🎭 Performer</button>
       </div>
       <div class="da-pay">
         <label class="da-amount">$ <input name="amount" type="number" min="0" step="1" inputmode="decimal" value="${price != null ? price / 100 : ''}" placeholder="Amount"></label>
