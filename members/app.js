@@ -6119,8 +6119,10 @@ const ROOM_ITEMS = {
   'Furniture': ['vanity_desk', 'chair_velvet', 'chaise', 'dresser', 'tuffet_red', 'tuffet_harlequin', 'stool_short', 'cushion_round', 'pillow_star', 'screen_moon', 'coat_rack', 'costume_rack', 'dress_stand', 'gramophone'],
   'Trunks & boxes': ['trunk_blue', 'trunk_star', 'trunk_scarf', 'treasure_box', 'crate_star', 'suitcase', 'hatbox_small', 'drum_blue', 'drum_short', 'drum_tall', 'pedestal_red', 'blankets'],
   'Lights & walls': ['mirror_bulbs', 'mirror_oval', 'mirror_floor', 'lamp_fringe', 'sconce', 'lantern_gold', 'lantern_iron', 'lantern_small', 'lantern_violet', 'candle', 'star_garland', 'banner_star', 'painting_bigtop', 'frame_small', 'curtain_drape', 'rug_star', 'moon_charm'],
-  'Props & treasures': ['tophat', 'jester_hat', 'ringmaster_coat', 'leotard', 'boots', 'plumes', 'feather_vase', 'fan_feather', 'fan_stripe', 'hoop', 'rope_coil', 'toy_horn', 'ticket_admit', 'tarot_fan', 'tarot_pair', 'books', 'perfume', 'plant_vase', 'popcorn_box', 'crystal_ball', 'unicycle', 'rocking_horse', 'juggling_pins', 'rabbit_hat', 'big_top', 'aerial_silks'],
+  'Props & treasures': ['tophat', 'jester_hat', 'ringmaster_coat', 'leotard', 'boots', 'plumes', 'feather_vase', 'fan_feather', 'fan_stripe', 'hoop', 'rope_coil', 'toy_horn', 'ticket_admit', 'mercury_deck', 'tarot_fan', 'tarot_pair', 'books', 'perfume', 'plant_vase', 'popcorn_box', 'crystal_ball', 'unicycle', 'rocking_horse', 'juggling_pins', 'rabbit_hat', 'big_top', 'aerial_silks'],
 };
+// A few drawer items come already doing something (still changeable in Arrange).
+const ITEM_ROLES = { 'items/mercury_deck': 'potion', 'items/crystal_ball': 'potion' };
 const ROOM_CATS = ['sunny_sit', 'sunny_play', 'sunny_sleep', 'daisy_lie', 'daisy_drum', 'daisy_ball'];
 // Every themed room shares a shape: window left, vanity right, rug in front.
 const DRESSING_DEFAULT = [
@@ -6215,7 +6217,7 @@ async function renderRoom(mainView, ownerId = null) {
       case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
       case 'exit': return [fresh(it) ? 'Step out to the Courtyard (something new!)' : 'Step out to the Courtyard', '#/courtyard'];
       case 'hatbox': return ['Open the Ringleader’s Hat Box', 'more'];
-      case 'potion': return ['Drink the Strange Little Bottle', ORACLES.mercury];
+      case 'potion': return [it.img === 'items/mercury_deck' ? 'Draw a card from the Mercury Oracle' : it.img === 'items/crystal_ball' ? 'Gaze into the Crystal Ball' : 'Drink the Strange Little Bottle', ORACLES.mercury];
       case 'stars': return ['Touch the Hanging Stars', ORACLES.field];
       case 'popcorn': return ['Eat the Popcorn', null];
       case 'events': return ['See what’s coming up', '#/events'];
@@ -6684,7 +6686,7 @@ async function renderRoom(mainView, ownerId = null) {
       const art = add.dataset.add, id = 'x' + Math.random().toString(36).slice(2, 8);
       // Drop it somewhere near the middle of the floor, not on top of the last one.
       const l = 30 + Math.random() * 30, t = 45 + Math.random() * 25;
-      items.push(art === '__hot' ? { id, role: 'decor', img: null, l, t, w: 14, h: 14 } : { id, role: 'decor', img: art, l, t, w: 12, z: 5 });
+      items.push(art === '__hot' ? { id, role: 'decor', img: null, l, t, w: 14, h: 14 } : { id, role: ITEM_ROLES[art] || 'decor', img: art, l, t, w: 12, z: 5 });
       selectedId = id; draw(); return;
     }
     const a = e.target.dataset.a; if (!a) return;
