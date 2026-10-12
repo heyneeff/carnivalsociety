@@ -144,6 +144,8 @@ function render() {
   const claimMatch = window.location.hash.match(/^#\/claim\/([0-9a-f]+)$/);
   if (claimMatch) { renderClaimScreen(claimMatch[1]); return; }
   // Anyone, signed in or not: a carnival's "Get in" page, and a ticket.
+  const joinMatch = window.location.hash.match(/^#\/p\/([a-z0-9-]+)$/);
+  if (joinMatch) { dropForumWing(); renderJoinPage(joinMatch[1]); return; }
   const getMatch = window.location.hash.match(/^#\/get\/([a-z0-9-]+)$/);
   if (getMatch) { dropForumWing(); renderGetIn(getMatch[1]); return; }
   const ticketMatch = window.location.hash.match(/^#\/ticket\/([0-9a-f]{20})(?:\/([0-9a-f]+))?$/);
@@ -437,6 +439,7 @@ function renderShell() {
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
       ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
       ${sheetLink('#/album', 'Troupe album', is('album'), '', 'the people you’ve met')}
+      ${profile?.is_partner ? sheetLink('#/partner', '🤝 Partner desk', is('partner'), '', 'your friends, hollers, join page') : ''}
       ${lastHoller() ? '<button class="sheet-link sheet-raven" id="sheetHoller"><span>📣 Hear the last holler</span><small class="sheet-hint">it rolls back in</small></button>' : ''}
       <button class="sheet-link sheet-raven" id="sheetTour"><span>🐦‍⬛ Take the tour</span><small class="sheet-hint">the raven shows you around</small></button>
       ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
@@ -656,6 +659,7 @@ function renderPage(mainView, route) {
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
   if (route.startsWith('door-report/')) { renderDoorReport(mainView, route.split('/')[1]); return; }
+  if (route === 'partner' || route.startsWith('partner/')) { renderPartnerDesk(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'album') { renderAlbum(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
@@ -1078,6 +1082,26 @@ function toDatetimeLocalValue(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// The night's photos: paste the album link and everyone who came hears about it.
+function photosForm(e) {
+  return `<form class="photos-add" data-event="${e.id}">
+    <div class="job-add-h">📸 ${e.photos_url ? 'The photo set' : 'Photos are up?'}</div>
+    <div class="job-add-row"><input name="url" type="url" inputmode="url" placeholder="Link to the album (Google Photos, Dropbox…)" value="${escapeHtml(e.photos_url || '')}" aria-label="Photo album link" autocomplete="off">
+    <button class="composer-submit">${e.photos_url ? 'Update' : 'Tell everyone who came'}</button></div>
+  </form>`;
+}
+function wirePhotos(root, after) {
+  root.querySelectorAll('.photos-add').forEach(f => f.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const btn = f.querySelector('button'); btn.disabled = true;
+    try {
+      const r = await apiFetch(`/api/events/${f.dataset.event}/photos`, { method: 'POST', body: { url: f.url.value.trim() } });
+      flashToast(r.told ? `📸 Hollered to ${r.told} ${r.told === 1 ? 'person' : 'people'} who came. Huzzah!` : 'Saved.');
+      if (after) after(); else btn.disabled = false;
+    } catch (err) { flashToast(err.message); btn.disabled = false; }
+  }));
+}
+
 // onlyEventId: the shareable single-event page (#/event/<id>).
 async function renderEventsView(mainView, onlyEventId = null) {
   mainView.innerHTML = `<h2>Events</h2><div class="placeholder-note">Loading…</div>`;
@@ -1096,9 +1120,12 @@ async function renderEventsView(mainView, onlyEventId = null) {
   const canManage = isModerator() && !onlyEventId;
   const canEdit = !!profile?.is_ringleader && !onlyEventId;
   // Ringleader controls fold away on each card so members see one clear ask.
-  const showTools = isModerator() || !!profile?.is_ringleader;
+  // A partner gets the same tools on the events they co-host or posted.
+  const partnerHosts = e => !!profile?.is_partner && (e.partner_id === profile.id || e.created_by === profile.id);
+  const hosts = e => isModerator() || !!profile?.is_ringleader || partnerHosts(e);
+  const canPost = canManage || (!!profile?.is_partner && !onlyEventId);
 
-  const composerHtml = canManage ? `
+  const composerHtml = canPost ? `
     <form class="composer" id="eventComposer">
       <input type="text" id="eventTitle" placeholder="Title" required>
       <select id="eventChapter">
@@ -1117,7 +1144,9 @@ async function renderEventsView(mainView, onlyEventId = null) {
     <div class="post-card" style="cursor:default;">
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+      ${e.partner_name ? `<div class="presented-with">Presented with <b>${escapeHtml(e.partner_name)}</b></div>` : ''}
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
+      ${e.photos_url ? `<a class="action-btn photos-btn" href="${escapeHtml(e.photos_url)}" target="_blank" rel="noopener">📸 See the photos</a>` : ''}
       ${e.door_cents != null ? `<a class="composer-submit get-in-btn" href="#/get/${e.slug || e.id}">🎟️ Get in · ${e.door_cents ? doorMoney(e.door_cents) : 'free'}${e.entry_tickets ? ` with ${e.entry_tickets} carnival tickets` : ''}</a>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
@@ -1126,13 +1155,14 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="need-board" data-needs-for="${e.id}"></div>
       ${onlyEventId ? `<div class="crew-table" data-crew-for="${e.id}"></div>` : myVolunteering.has(e.id) ? `<a class="crew-link" href="#/event/${e.id}">🎪 Your crew table →</a>` : ''}
       <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
-      ${showTools ? `<details class="rl-tools"><summary>✎ Ringleader tools</summary><div class="rl-tools-body">
+      ${hosts(e) ? `<details class="rl-tools"><summary>✎ ${partnerHosts(e) && !isModerator() ? 'Host tools' : 'Ringleader tools'}</summary><div class="rl-tools-body">
         <div class="post-actions">
-          ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
+          ${canEdit || (partnerHosts(e) && !onlyEventId) ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
           ${profile?.is_ringleader ? `<a class="action-btn" href="#/checkin/${e.id}">🚪 The Door</a>` : ''}
           ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage crew</button>` : ''}
-          ${canManage ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
+          ${canManage || (partnerHosts(e) && !onlyEventId) ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
         </div>
+        ${photosForm(e)}
         <form class="job-add" data-event="${e.id}">
           <div class="job-add-h">Pin a job to this flyer</div>
           <input name="title" maxlength="80" placeholder="The job, e.g. Bring a truck…" aria-label="Job" required autocomplete="off">
@@ -1194,7 +1224,8 @@ async function renderEventsView(mainView, onlyEventId = null) {
   renderNeeds(mainView);
   mainView.querySelectorAll('[data-crew-for]').forEach(h => renderCrewTable(h, h.dataset.crewFor));
 
-  if (canManage) {
+  wirePhotos(mainView);
+  if (canPost) {
     document.getElementById('eventComposer').addEventListener('submit', async e => {
       e.preventDefault();
       const title = document.getElementById('eventTitle').value.trim();
@@ -1239,13 +1270,17 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="post-card archived-event" style="cursor:default;">
         <div class="post-title">${escapeHtml(e.title)}</div>
         <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
+        ${e.partner_name ? `<div class="presented-with">Presented with <b>${escapeHtml(e.partner_name)}</b></div>` : ''}
         ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
+        ${e.photos_url ? `<a class="action-btn photos-btn" href="${escapeHtml(e.photos_url)}" target="_blank" rel="noopener">📸 See the photos</a>` : ''}
+        ${hosts(e) ? photosForm(e) : ''}
         ${canManage || canEdit ? `<div class="post-actions">
           ${canEdit ? `<button class="action-btn" data-edit-archived="${e.id}">Edit</button>` : ''}
           ${canManage ? `<button class="action-btn danger" data-delete-archived="${e.id}">Delete</button>` : ''}
         </div>` : ''}
       </div>
     `).join('')}</div>` : '<div class="placeholder-note">No past events yet.</div>';
+    wirePhotos(el, loadArchivedEvents);
     el.querySelectorAll('[data-delete-archived]').forEach(delBtn => {
       delBtn.addEventListener('click', async () => {
         if (!confirm('Delete this event?')) return;
@@ -1933,6 +1968,10 @@ function renderMemberRows() {
           <input type="checkbox" data-field="is_organization" ${m.is_organization ? 'checked' : ''}>
           Organization
         </label>
+        ${m.is_organization ? `<label class="admin-ringleader-toggle" title="Partners post their own events, co-host carnivals, and holler at their friends">
+          <input type="checkbox" data-field="is_partner" ${m.is_partner ? 'checked' : ''}>
+          Partner
+        </label>${m.is_partner ? `<a class="action-btn" href="#/partner/${m.id}">Their desk</a>` : ''}` : ''}
         <label class="admin-ringleader-toggle">
           <input type="checkbox" data-field="is_ringleader" ${m.is_ringleader ? 'checked' : ''}>
           Ringleader
@@ -1979,13 +2018,14 @@ function renderMemberRows() {
         const rankSelect = row.querySelector('[data-field="rank"]');
         if (rankSelect) rankSelect.style.color = rankColor(value);
       }
-      if (field === 'is_organization') { renderDirectoryRows(); return; }
+      if (field === 'is_organization' || field === 'is_partner') { renderDirectoryRows(); return; }
       const affectsSort = (directorySortKey === 'rank' && (field === 'rank' || field === 'is_ringleader')) || (directorySortKey === 'dues' && field === 'dues_paid');
       if (affectsSort) renderDirectoryRows();
     };
 
     row.querySelector('[data-field="rank"]')?.addEventListener('change', e => patchField('rank', e.target.value));
     row.querySelector('[data-field="is_organization"]').addEventListener('change', e => patchField('is_organization', e.target.checked));
+    row.querySelector('[data-field="is_partner"]')?.addEventListener('change', e => patchField('is_partner', e.target.checked));
     row.querySelector('[data-field="is_ringleader"]').addEventListener('change', e => patchField('is_ringleader', e.target.checked));
     row.querySelector('[data-field="tier"]').addEventListener('change', e => patchField('tier', e.target.checked ? 'inner' : 'courtyard'));
     row.querySelector('[data-field="dues_paid"]').addEventListener('change', e => patchField('dues_paid', e.target.checked));
@@ -5580,11 +5620,11 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
     { transform: 'none' },
   ], { duration: 1150, easing: 'cubic-bezier(.3,.7,.4,1)' });
   const scene = document.getElementById('roomScene')?.getBoundingClientRect();
-  const from = `<div class="blast-from">Ringleader ${escapeHtml(blast.sender || 'Neeff')} says:</div>`;
+  const from = `<div class="blast-from">${blast.from_partner ? escapeHtml(blast.sender || 'A partner') : `Ringleader ${escapeHtml(blast.sender || 'Neeff')}`} says:</div>`;
   const o = document.createElement('div');
-  o.className = `blast-overlay ringing${inRoom ? ' in-room' : ''}`;
+  o.className = `blast-overlay ringing${inRoom ? ' in-room' : ''}${blast.from_partner ? ' from-partner' : ''}`;
   o.setAttribute('role', 'dialog');
-  o.setAttribute('aria-label', `A holler from Ringleader ${blast.sender || 'Neeff'}`);
+  o.setAttribute('aria-label', `A holler from ${blast.from_partner ? blast.sender : `Ringleader ${blast.sender || 'Neeff'}`}`);
   o.innerHTML = inRoom ? `
     <button class="blast-mute" aria-label="Sound on or off">${soundOff() ? '🔇' : '🔊'}</button>
     <button class="holler-cone-hit" aria-label="Step right up and hear the message" style="left:${cr.left}px;top:${cr.top}px;width:${cr.width}px;height:${cr.height}px"></button>
@@ -5600,7 +5640,7 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
     </div>
     <img class="holler-head blast-head-art" src="${ROOM}head_closed.png" alt="" hidden>
     <div class="holler-call" style="${scene ? `left:${scene.left + scene.width / 2}px;` : ''}">
-      <div class="blast-caller">📣 Ringleader ${escapeHtml(blast.sender || 'Neeff')} has something to holler!</div>
+      <div class="blast-caller">📣 ${blast.from_partner ? escapeHtml(blast.sender || 'A partner') : `Ringleader ${escapeHtml(blast.sender || 'Neeff')}`} has something to holler!</div>
       <button class="blast-pickup">Step right up!</button>
     </div>` : `
     <div class="blast-stage">
@@ -5620,7 +5660,7 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
         <span class="cone-slot"><span class="blast-head">${artOr('head_closed.png', HEAD_SVG, 'blast-head-art')}</span></span>
         <span class="cone-layer cone-l-front">${artOr('cone_front.png', CONE_FRONT_SVG, 'cone-art')}</span>
       </button>
-      <div class="blast-caller">📣 Ringleader ${escapeHtml(blast.sender || 'Neeff')} has something to holler!</div>
+      <div class="blast-caller">📣 ${blast.from_partner ? escapeHtml(blast.sender || 'A partner') : `Ringleader ${escapeHtml(blast.sender || 'Neeff')}`} has something to holler!</div>
       <button class="blast-pickup">Step right up!</button>
     </div>`;
   document.body.appendChild(o);
@@ -5663,7 +5703,7 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
     if (!o.classList.contains('ringing')) return;
     stopBlare();
     if (live && blast.id) apiFetch(`/api/me/blast/${blast.id}/seen`, { method: 'POST' }).catch(() => {});
-    if (!preview) try { localStorage.setItem('cs-last-holler', JSON.stringify({ title: blast.title, body: blast.body, url: blast.url || null, sender: blast.sender || null })); } catch (e) { /* no storage */ }
+    if (!preview) try { localStorage.setItem('cs-last-holler', JSON.stringify({ title: blast.title, body: blast.body, url: blast.url || null, sender: blast.sender || null, from_partner: !!blast.from_partner })); } catch (e) { /* no storage */ }
     floorCone?.classList.remove('cone-ringing');
     // A fresh rig born from this tap, so iPhones let the babble play.
     rig?.close(); rig = megaphone();
@@ -5725,7 +5765,7 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
   (o.querySelector('.blast-cone') || o.querySelector('.holler-cone-hit')).onclick = answer;
   o.addEventListener('click', e => {
     if (e.target.dataset.done !== undefined) finish();
-    if (e.target.dataset.go !== undefined) { finish(); location.hash = blast.url; }
+    if (e.target.dataset.go !== undefined) { finish(); if (/^https?:/.test(blast.url)) window.open(blast.url, '_blank', 'noopener'); else location.hash = blast.url; }
   });
 }
 
@@ -7230,6 +7270,7 @@ async function renderCheckinView(mainView, eventId) {
         <label>Carnival tickets with entry <input type="number" name="give" min="0" max="100" inputmode="numeric" value="${ev.entry_tickets ?? ''}" placeholder="5"></label>
         <label>Extra tickets, $ each <input type="number" name="each" min="0" step="0.25" inputmode="decimal" value="${ev.ticket_cents != null ? ev.ticket_cents / 100 : ''}" placeholder="1"></label>
         <label>How many fit <input type="number" name="capacity" min="0" inputmode="numeric" value="${ev.capacity ?? ''}" placeholder="No limit"></label>
+        ${d.partners?.length ? `<label>Presented with <select name="partner"><option value="">Just us</option>${d.partners.map(p => `<option value="${p.id}" ${p.id === ev.partner_id ? 'selected' : ''}>${escapeHtml(p.display_name)}</option>`).join('')}</select></label>` : ''}
         <label class="ds-wide">Public link: ${location.origin}/t/<input name="slug" value="${escapeHtml(ev.slug || '')}" placeholder="kooks" autocomplete="off" autocapitalize="off"></label>
         <button class="composer-submit" type="submit">Save</button>
         <div class="ds-link" id="doorLink"></div>
@@ -7324,7 +7365,8 @@ async function renderCheckinView(mainView, eventId) {
     const capacity = f.capacity.value === '' ? null : Number(f.capacity.value), door_cents = f.price.value === '' ? null : Math.round(Number(f.price.value) * 100);
     const entry_tickets = f.give.value === '' ? 0 : Number(f.give.value), ticket_cents = f.each.value === '' ? null : Math.round(Number(f.each.value) * 100);
     try {
-      const r = await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents, entry_tickets, ticket_cents, slug: f.slug.value } });
+      const r = await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents, entry_tickets, ticket_cents, slug: f.slug.value, ...(f.partner ? { partner_id: f.partner.value || null } : {}) } });
+      if (f.partner) ev.partner_id = f.partner.value || null;
       Object.assign(ev, { capacity, door_cents, entry_tickets, ticket_cents });
       d.link = r.link; drawLink(); drawCount(d.totals); flashToast('Door settings saved.');
     } catch (err) { flashToast(err.message); }
@@ -7653,6 +7695,7 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
           <h1>${escapeHtml(ev.title)}</h1>
           ${getinDate(ev.starts_at)}
           ${ev.location ? `<p class="gi-where">📍 ${escapeHtml(ev.location)}</p>` : ''}
+          ${d.partner ? `<p class="gi-with">Presented with <b>${escapeHtml(d.partner.name)}</b></p>` : ''}
           ${ev.description ? `<p class="gi-desc">${escapeHtml(ev.description)}</p>` : ''}
           ${!d.open ? '<div class="gi-note"><b>This one’s over.</b> Thanks to everyone who came!</div>'
           : !priced ? '<div class="gi-note"><b>Tickets open soon.</b> Check back, or ask a Ringleader.</div>'
@@ -7668,6 +7711,7 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
             <form class="gi-form" id="getinForm">
               <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
               <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
+              ${d.partner ? `<label class="gi-join"><input type="checkbox" name="join" checked> Also join <b>${escapeHtml(d.partner.name)}</b> and hear about their nights</label>` : ''}
               ${errorMsg ? `<p class="gi-error" role="alert">${escapeHtml(errorMsg)}</p>` : ''}
               ${payNow ? '<button class="gi-btn" type="submit" data-pay="1">Pay now · Apple Pay or card</button>' : ''}
               <button class="${payNow ? 'gi-btn gi-btn-2' : 'gi-btn'}" type="submit" data-pay="0">${free ? 'Get my ticket' : 'Save my spot · pay at the door'}</button>
@@ -7682,7 +7726,7 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
     f.querySelectorAll('button').forEach(b => { b.disabled = true; });
     if (e.submitter) e.submitter.textContent = pay ? 'Off to pay…' : 'Punching your ticket…';
     try {
-      const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay } });
+      const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay, join_partner: !!f.join?.checked } });
       if (r.url) { window.location.href = r.url; return; }
       location.hash = `#/ticket/${r.code}${r.claim ? '/' + r.claim : ''}`;
     } catch (err) { renderGetIn(idOrSlug, err.message); }
@@ -7725,6 +7769,127 @@ async function renderTicketPage(code, claim, tries = 0) {
       </div>
     </div>`;
   app.querySelector('[data-share]')?.addEventListener('click', () => navigator.share({ title: `My ticket: ${t.title}`, url: location.href }).catch(() => {}));
+}
+
+// ── Partners (2026-10-15) ─────────────────────────────────────────────
+// The partner's desk (#/partner): their friends, their carnivals, a holler
+// to their friends, and their join page. Ringleaders can open any partner's
+// desk from the Directory (#/partner/<id>).
+async function renderPartnerDesk(mainView, partnerId) {
+  mainView.innerHTML = '<h2>Partner desk</h2><div class="placeholder-note">Loading…</div>';
+  let d;
+  try { d = await apiFetch(`/api/partner${partnerId ? `?id=${partnerId}` : ''}`); }
+  catch (err) { mainView.innerHTML = `<h2>Partner desk</h2><div class="placeholder-note">${escapeHtml(err.message)}</div>`; return; }
+  const p = d.partner, mine = p.id === profile.id;
+  const past = d.events.filter(e => sqlTime(e.ends_at || e.starts_at) < Date.now());
+  mainView.innerHTML = `
+    <div class="partner-desk">
+      <div class="door-kicker">🤝 Partner desk</div>
+      <h2>${escapeHtml(p.name)}</h2>
+      <div class="dr-tiles">
+        <div><b>${d.friends}</b><span>friends made through Carnival Society</span></div>
+        <div><b>${d.events.reduce((n, e) => n + e.came, 0)}</b><span>came through the door at ${d.events.length} ${d.events.length === 1 ? 'carnival' : 'carnivals'} you hosted</span></div>
+      </div>
+
+      <section class="pd-card">
+        <h3>Your join page</h3>
+        <p class="post-meta">Anyone who joins here becomes your friend and hears your hollers. Everyone let in at a carnival you co-host joins too.</p>
+        ${d.join_url ? `<div class="ds-link"><div class="ticket-qr">${qrSvg(d.join_url)}</div><div><a href="${escapeHtml(d.join_url)}" target="_blank" rel="noopener">${escapeHtml(d.join_url)}</a><br><span class="post-meta">Put the QR on your flyers, your merch table, your socials.</span></div></div>` : ''}
+        <form class="pd-form" id="pdPage">
+          <label>Link name <span class="pd-slug">${location.origin}/p/<input name="slug" value="${escapeHtml(p.slug || '')}" placeholder="${escapeHtml(p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}" autocomplete="off" autocapitalize="off"></span></label>
+          <label>A line about you<textarea name="blurb" maxlength="400" rows="3" placeholder="Who you are and why people should join…">${escapeHtml(p.blurb || '')}</textarea></label>
+          <label>Your website or Instagram<input name="link" type="url" inputmode="url" value="${escapeHtml(p.link || '')}" placeholder="https://…"></label>
+          <button class="composer-submit">Save my join page</button>
+        </form>
+      </section>
+
+      <section class="pd-card">
+        <h3>📣 Holler at your friends</h3>
+        <form class="pd-form" id="pdHoller">
+          <label>Who hears it<select name="who"><option value="friends">All ${d.friends} of your friends</option>${past.map(e => `<option value="${e.id}">Everyone who came to ${escapeHtml(e.title)}</option>`).join('')}</select></label>
+          <label>Headline<input name="title" maxlength="120" required placeholder="We’re back on the 31st!"></label>
+          <label>Message<textarea name="body" maxlength="1500" rows="4" required placeholder="What’s happening, and why they should come…"></textarea></label>
+          <label>Link (optional)<input name="url" type="url" inputmode="url" placeholder="https://…"></label>
+          <div class="post-meta" id="pdReach"></div>
+          <button class="composer-submit">📣 Send the holler</button>
+        </form>
+      </section>
+
+      <section class="pd-card">
+        <h3>Your carnivals</h3>
+        ${d.events.length ? d.events.map(e => `
+          <div class="door-entry"><div><b>${escapeHtml(e.title)}</b><div class="post-meta">${formatEventDate(e.starts_at)} · ${e.came} came${e.first_time ? `, ${e.first_time} for the first time` : ''}${e.photos_url ? ' · 📸 photos up' : ''}</div></div>
+          <a class="raven-offer-no" href="#/event/${e.id}">Open</a></div>`).join('') : '<div class="placeholder-note">No carnivals yet. Post one from Events, or ask the Ringleader to put you on theirs.</div>'}
+        <a class="action-btn" href="#/events">+ Post an event</a>
+      </section>
+
+      <section class="pd-card">
+        <h3>Newest friends</h3>
+        ${d.recent.length ? d.recent.map(f => `<div class="door-entry"><div><b>${escapeHtml(f.display_name)}</b><div class="post-meta">${escapeHtml(f.city || '')}${f.event_title ? `${f.city ? ' · ' : ''}met at ${escapeHtml(f.event_title)}` : `${f.city ? ' · ' : ''}joined your page`} · ${new Date(sqlTime(f.met_at)).toLocaleDateString()}</div></div></div>`).join('') : '<div class="placeholder-note">No friends yet. Share your join page!</div>'}
+      </section>
+    </div>`;
+  const page = document.getElementById('pdPage');
+  page.addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await apiFetch(`/api/partner${partnerId ? `?id=${partnerId}` : ''}`, { method: 'PATCH', body: { slug: page.slug.value, blurb: page.blurb.value, link: page.link.value } }); flashToast('Join page saved.'); renderPartnerDesk(mainView, partnerId); }
+    catch (err) { flashToast(err.message); }
+  });
+  const h = document.getElementById('pdHoller');
+  const audience = () => h.who.value === 'friends' ? { type: 'friends', value: p.id, label: `${p.name}’s friends` } : { type: 'attended', value: h.who.value, label: h.who.selectedOptions[0].textContent };
+  const reach = async () => {
+    try { const r = await apiFetch('/api/blasts/preview', { method: 'POST', body: { audience: audience() } }); document.getElementById('pdReach').textContent = `Reaches ${r.recipients} ${r.recipients === 1 ? 'person' : 'people'} (${r.phones} with notifications on).`; }
+    catch (e) { document.getElementById('pdReach').textContent = ''; }
+  };
+  if (mine) reach(); else h.querySelector('button').disabled = true;
+  h.who.addEventListener('change', reach);
+  h.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = h.querySelector('button'); btn.disabled = true;
+    try {
+      const r = await apiFetch('/api/blasts', { method: 'POST', body: { title: h.title.value, body: h.body.value, url: h.url.value.trim() || null, audience: audience() } });
+      flashToast(`📣 Hollered to ${r.recipients} ${r.recipients === 1 ? 'person' : 'people'}.`); h.reset(); reach();
+    } catch (err) { flashToast(err.message); }
+    btn.disabled = false;
+  });
+}
+
+// A partner's public join page (/p/<slug>): name + email, no password.
+async function renderJoinPage(slug, errorMsg = '', joined = null) {
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Join the troupe')}<div class="gi-body"><p class="gi-fine">One moment…</p></div></div></div>`;
+  let d;
+  try { d = await apiFetch(`/api/public/partners/${encodeURIComponent(slug)}`); }
+  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Hmm.')}<div class="gi-body"><p>${escapeHtml(err.message)}</p></div></div></div>`; return; }
+  const pt = d.partner;
+  const events = d.events.map(e => `<a class="gi-event" href="#/get/${e.slug || e.id}"><span>${new Date(sqlTime(e.starts_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><b>${escapeHtml(e.title)}</b>${e.door_cents != null ? '<em>Get in →</em>' : ''}</a>`).join('');
+  app.innerHTML = `
+    <div class="getin">
+      <div class="getin-card">
+        ${getinMarquee('Join the troupe')}
+        <div class="gi-body">
+          <div class="gi-x">Carnival Society <span>×</span></div>
+          <h1>${escapeHtml(pt.name)}</h1>
+          ${pt.blurb ? `<p class="gi-desc gi-center">${escapeHtml(pt.blurb)}</p>` : ''}
+          ${pt.link ? `<p><a class="gi-link" href="${escapeHtml(pt.link)}" target="_blank" rel="noopener">${escapeHtml(pt.link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</a></p>` : ''}
+          ${d.friends >= 5 ? `<p class="gi-count"><b>${d.friends}</b> friends and counting</p>` : ''}
+          ${joined ? `<div class="gi-status paid">🤝 ${joined.already ? 'You’re already friends!' : `You joined ${escapeHtml(pt.name)}!`} You’ll hear when they holler.</div>
+            ${joined.claim ? `<a class="gi-btn" href="#/claim/${joined.claim}">Claim your Dressing Room →</a><p class="gi-fine">You’re in the Carnival Society now too. Set a password to see your room and what’s coming up.</p>` : ''}`
+          : `<form class="gi-form" id="joinForm">
+              <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
+              <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
+              ${errorMsg ? `<p class="gi-error" role="alert">${escapeHtml(errorMsg)}</p>` : ''}
+              <button class="gi-btn" type="submit">🤝 Join ${escapeHtml(pt.name)}</button>
+              <p class="gi-fine">No password, no spam. You’ll hear about their nights through Carnival Society, and your email stays private.</p>
+            </form>`}
+          ${events ? `<h3 class="gi-h3">Coming up</h3><div class="gi-events">${events}</div>` : ''}
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('joinForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target; f.querySelector('button').disabled = true;
+    try { const r = await apiFetch(`/api/public/partners/${encodeURIComponent(slug)}/join`, { method: 'POST', body: { name: f.name.value, email: f.email.value } }); renderJoinPage(slug, '', r); }
+    catch (err) { renderJoinPage(slug, err.message); }
+  });
 }
 
 boot();

@@ -115,6 +115,8 @@ export default {
     // Short public links for flyers: /t/kooks → that carnival's page.
     const short = url.pathname.match(/^\/t\/([a-z0-9-]{2,40})\/?$/);
     if (short) return Response.redirect(`${url.origin}/#/get/${short[1]}`, 302);
+    const join = url.pathname.match(/^\/p\/([a-z0-9-]{2,40})\/?$/);
+    if (join) return Response.redirect(`${url.origin}/#/p/${join[1]}`, 302);
     return env.ASSETS.fetch(request);
   },
   // Daily housekeeping (cron in wrangler.jsonc): expired sessions and reset
@@ -370,7 +372,7 @@ async function api(request, env, url, ctx) {
   // Courtyard gate: free accounts reach public info, the Courtyard board
   // (read-only), volunteering, and the path to becoming an inner member.
   // Everything else below needs tier = inner.
-  if (user && !isInner(user) && !courtyardAllowed(method, pathname)) return err(403, "Inner members only.");
+  if (user && !isInner(user) && !courtyardAllowed(method, pathname) && !(user.is_partner && partnerAllowed(method, pathname))) return err(403, "Inner members only.");
   if (pathname === "/api/chapters" && method === "GET") {
     const { results } = await env.DB.prepare("SELECT * FROM chapters ORDER BY name").all();
     return withCors(json({ chapters: results }));
@@ -455,10 +457,10 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/events" && method === "GET") {
     const archived = url.searchParams.get("scope") === "archived";
     const { results } = await env.DB.prepare(
-      archived ? `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
-           LEFT JOIN chapters ON chapters.id = events.chapter_id
-           WHERE COALESCE(events.ends_at, events.starts_at) < datetime('now') ORDER BY events.starts_at DESC` : `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug FROM events
-           LEFT JOIN chapters ON chapters.id = events.chapter_id
+      archived ? `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug, pu.display_name AS partner_name FROM events
+           LEFT JOIN chapters ON chapters.id = events.chapter_id LEFT JOIN users pu ON pu.id = events.partner_id
+           WHERE COALESCE(events.ends_at, events.starts_at) < datetime('now') ORDER BY events.starts_at DESC` : `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug, pu.display_name AS partner_name FROM events
+           LEFT JOIN chapters ON chapters.id = events.chapter_id LEFT JOIN users pu ON pu.id = events.partner_id
            WHERE COALESCE(events.ends_at, events.starts_at) >= datetime('now') ORDER BY events.starts_at ASC`
     ).all();
     return json({ events: results.map(shapeEvent) }, { headers: { "Access-Control-Allow-Origin": "*" } });
@@ -466,12 +468,18 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/events" && method === "POST") {
     const authErr = requireAuth();
     if (authErr) return authErr;
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    if (!isModerator(user) && !user.is_partner) return err(403, "Moderators only.");
     const { title, chapter_id, starts_at, ends_at, location, description } = await body(request);
     if (!title || !starts_at) return err(400, "title and starts_at required.");
     const id = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO events (id, chapter_id, title, description, location, starts_at, ends_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, chapter_id || null, title, description || null, location || null, starts_at, ends_at || null, user.id).run();
-    ctx.waitUntil(notifyEveryone(env, { kind: "call", title: `SQUAWK! ${title} needs hands`, body: `${eventWhen(starts_at)}${location ? " · " + location : ""}. Volunteer and win a Roustabout badge.`, url: `#/event/${id}`, ref: `call:${id}` }, "notify_calls", user.id));
+    // A partner's own event is co-hosted by them.
+    const partnerId = !isModerator(user) && user.is_partner ? user.id : null;
+    await env.DB.prepare("INSERT INTO events (id, chapter_id, title, description, location, starts_at, ends_at, created_by, partner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, chapter_id || null, title, description || null, location || null, starts_at, ends_at || null, user.id, partnerId).run();
+    // A Ringleader's new event squawks to everyone; a partner's, to their friends.
+    if (partnerId) {
+      const { results: fr } = await env.DB.prepare("SELECT CASE WHEN user_a = ? THEN user_b ELSE user_a END AS id FROM handshakes WHERE (user_a = ? OR user_b = ?) AND met_at IS NOT NULL").bind(user.id, user.id, user.id).all();
+      ctx.waitUntil(Promise.all(fr.map((f) => notifyUser(env, f.id, { kind: "call", title: `${user.display_name}: ${title}`, body: `${eventWhen(starts_at)}${location ? " · " + location : ""}`, url: `#/event/${id}`, ref: `call:${id}` }, "notify_calls"))));
+    } else ctx.waitUntil(notifyEveryone(env, { kind: "call", title: `SQUAWK! ${title} needs hands`, body: `${eventWhen(starts_at)}${location ? " · " + location : ""}. Volunteer and win a Roustabout badge.`, url: `#/event/${id}`, ref: `call:${id}` }, "notify_calls", user.id));
     return json({ id });
   }
   const eventMatch = pathname.match(/^\/api\/events\/([^/]+)$/);
@@ -486,7 +494,7 @@ async function api(request, env, url, ctx) {
   if (eventMatch && method === "PATCH") {
     const authErr = requireAuth();
     if (authErr) return authErr;
-    if (!user.is_ringleader) return err(403, "Ringleaders only.");
+    if (!user.is_ringleader && !await ownsEvent(env, user, eventMatch[1])) return err(403, "Ringleaders only.");
     const { title, chapter_id, starts_at, ends_at, location, description } = await body(request);
     const updates = [];
     const binds = [];
@@ -524,7 +532,7 @@ async function api(request, env, url, ctx) {
   if (eventMatch && method === "DELETE") {
     const authErr = requireAuth();
     if (authErr) return authErr;
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    if (!isModerator(user) && !await ownsEvent(env, user, eventMatch[1])) return err(403, "Moderators only.");
     await env.DB.prepare("DELETE FROM events WHERE id = ?").bind(eventMatch[1]).run();
     return json({ ok: true });
   }
@@ -1411,7 +1419,7 @@ async function api(request, env, url, ctx) {
     const authErr = requireAuth();
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
-    const { display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us, materials_to_donate, tier } = await body(request);
+    const { is_partner, display_name, home_chapter_id, birthday, skills, rank, is_ringleader, is_organization, dues_paid, dues_amount, dues_date, steward_role, email, password, city, phone, instagram_handle, knows_who, heard_about_us, materials_to_donate, tier } = await body(request);
     const updates = [];
     const binds = [];
     if (tier !== void 0) {
@@ -1482,6 +1490,10 @@ async function api(request, env, url, ctx) {
     if (is_organization !== void 0) {
       updates.push("is_organization = ?");
       binds.push(is_organization ? 1 : 0);
+    }
+    if (is_partner !== void 0) {
+      updates.push("is_partner = ?");
+      binds.push(is_partner ? 1 : 0);
     }
     if (is_ringleader !== void 0) {
       updates.push("is_ringleader = ?");
@@ -1782,6 +1794,7 @@ async function api(request, env, url, ctx) {
   { const r = await jobRoutes(request, env, url, user); if (r) return r; }
   { const r = await crewRoutes(request, env, url, user); if (r) return r; }
   { const r = await doorRoutes(request, env, url, user); if (r) return r; }
+  { const r = await partnerRoutes(request, env, url, user, ctx); if (r) return r; }
   { const r = await roomRoutes(request, env, url, user); if (r) return r; }
   { const r = await needRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
@@ -1813,6 +1826,9 @@ function shapeEvent(row) {
     starts_at: row.starts_at,
     ends_at: row.ends_at,
     door_cents: row.door_cents ?? null,
+    partner_id: row.partner_id ?? null,
+    partner_name: row.partner_name ?? null,
+    photos_url: row.photos_url ?? null,
     entry_tickets: row.entry_tickets ?? null,
     slug: row.slug ?? null,
     created_by: row.created_by,
@@ -1842,6 +1858,7 @@ function shapeMember(row) {
     heard_about_us: row.heard_about_us || null,
     materials_to_donate: row.materials_to_donate || null,
     is_organization: !!row.is_organization,
+    is_partner: !!row.is_partner,
     tier: row.tier || "courtyard",
     last_seen_at: row.last_seen_at || null,
     created_at: row.created_at
@@ -1858,6 +1875,7 @@ function shapeMemberPublic(row) {
     rank: row.rank,
     is_ringleader: !!row.is_ringleader,
     is_organization: !!row.is_organization,
+    is_partner: !!row.is_partner,
     home_chapter_id: row.home_chapter_id,
     home_chapter: row.home_chapter_id ? { name: row.c_name } : null,
     city: row.city || null,
@@ -1957,7 +1975,7 @@ async function jobRoutes(request, env, url, user) {
   }
   const postMatch = pathname.match(/^\/api\/events\/([^/]+)\/jobs$/);
   if (postMatch && method === "POST") {
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    if (!await canHost(env, user, postMatch[1])) return err(403, "Moderators only.");
     const evt = await env.DB.prepare(`SELECT e.id FROM events e WHERE e.id = ? AND ${UPCOMING}`).bind(postMatch[1]).first();
     if (!evt) return err(404, "That event has already happened.");
     const { title, details, shift, slots } = await body(request);
@@ -1971,7 +1989,8 @@ async function jobRoutes(request, env, url, user) {
   }
   const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)$/);
   if (jobMatch && method === "DELETE") {
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    const jobEv = await env.DB.prepare("SELECT event_id FROM event_jobs WHERE id = ?").bind(jobMatch[1]).first();
+    if (!jobEv || !await canHost(env, user, jobEv.event_id)) return err(403, "Moderators only.");
     await env.DB.prepare("DELETE FROM event_jobs WHERE id = ?").bind(jobMatch[1]).run();
     return json({ ok: true });
   }
@@ -2197,7 +2216,7 @@ async function roomGifts(env, ownerId, { wrappedOnly = false } = {}) {
 // system: a new account (with a claim link), or the one you already have.
 // Entry is the event's door price plus the one-time registration the first
 // time, and comes with entry_tickets paper carnival tickets.
-const EVENT_COLS = "id, title, description, location, starts_at, ends_at, capacity, door_cents, entry_tickets, ticket_cents, slug";
+const EVENT_COLS = "id, title, description, location, starts_at, ends_at, capacity, door_cents, entry_tickets, ticket_cents, slug, partner_id, photos_url, (SELECT display_name FROM users WHERE id = events.partner_id) AS partner_name";
 // SQLite and ISO times both, read as UTC.
 const whenMs = (t) => Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(t) ? t : String(t).replace(" ", "T") + "Z");
 async function findEvent(env, idOrSlug) {
@@ -2215,6 +2234,20 @@ async function entryTier(env, ev) {
 async function hasFix(env, userId) {
   return !!await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(userId).first();
 }
+// Name + email → an account: the one that email already has, or a new
+// Courtyard account with a claim link (never a claim link for an old one).
+async function userByEmail(env, name, email, heard) {
+  const user = await env.DB.prepare("SELECT id, email, display_name FROM users WHERE lower(email) = ?").bind(email).first();
+  if (user) return { user, claim: null };
+  const id = crypto.randomUUID();
+  const { hash, salt } = await hashPassword(bytesToHex(crypto.getRandomValues(new Uint8Array(24))));
+  await env.DB.prepare("INSERT INTO users (id, email, password_hash, salt, display_name, rank, heard_about_us) VALUES (?, ?, ?, ?, ?, 'clown', ?)")
+    .bind(id, email, hash, salt, name, (heard || "").trim().slice(0, 120) || null).run();
+  const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+  await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+60 days'))").bind(await sha256Hex(token), id).run();
+  return { user: { id, email, display_name: name }, claim: token };
+}
+const friendCount = async (env, id) => (await env.DB.prepare("SELECT COUNT(*) AS n FROM handshakes WHERE (user_a = ? OR user_b = ?) AND met_at IS NOT NULL").bind(id, id).first()).n;
 async function publicRoutes(request, env, url) {
   const { pathname } = url;
   const method = request.method;
@@ -2224,7 +2257,8 @@ async function publicRoutes(request, env, url) {
     const ev = await findEvent(env, evMatch[1]);
     if (!ev) return err(404, "No such carnival.");
     const taken = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE event_id = ? AND status IN ('paid', 'reserved')").bind(ev.id).first();
-    return json({ event: ev, registration_cents: reg, payments_enabled: !!env.STRIPE_SECRET_KEY,
+    const host = ev.partner_id ? await env.DB.prepare("SELECT display_name, partner_slug FROM users WHERE id = ?").bind(ev.partner_id).first() : null;
+    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug }, registration_cents: reg, payments_enabled: !!env.STRIPE_SECRET_KEY,
       spots_left: ev.capacity ? Math.max(0, ev.capacity - taken.n) : null, open: whenMs(ev.ends_at || ev.starts_at) > Date.now() - 6 * 3600e3 });
   }
   const getMatch = pathname.match(/^\/api\/public\/events\/([^/]+)\/get$/);
@@ -2238,19 +2272,9 @@ async function publicRoutes(request, env, url) {
     const email = normalizeEmail(b.email || "");
     if (!name) return err(400, "What's your name?");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "That email doesn't look right.");
-    let user = await env.DB.prepare("SELECT id, email, display_name FROM users WHERE lower(email) = ?").bind(email).first();
-    let claim = null;
-    if (!user) {
-      const id = crypto.randomUUID();
-      const { hash, salt } = await hashPassword(bytesToHex(crypto.getRandomValues(new Uint8Array(24))));
-      await env.DB.prepare("INSERT INTO users (id, email, password_hash, salt, display_name, rank, heard_about_us) VALUES (?, ?, ?, ?, ?, 'clown', ?)")
-        .bind(id, email, hash, salt, name, (b.heard || "").trim().slice(0, 120) || null).run();
-      user = { id, email, display_name: name };
-      // Only a brand-new account gets a claim link: never hand out someone else's.
-      const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
-      await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+60 days'))").bind(await sha256Hex(token), id).run();
-      claim = token;
-    }
+    const { user, claim } = await userByEmail(env, name, email, b.heard);
+    // "Also join <co-host>": friends now, not just once they're through the door.
+    if (b.join_partner && ev.partner_id) await befriendPartner(env, ev.partner_id, user.id, ev.id);
     const have = await env.DB.prepare("SELECT code, status FROM tickets WHERE event_id = ? AND user_id = ? AND status IN ('paid', 'reserved') LIMIT 1").bind(ev.id, user.id).first();
     if (have) return json({ code: have.code, already: true, claim });
     const first = !await hasFix(env, user.id);
@@ -2275,6 +2299,32 @@ async function publicRoutes(request, env, url) {
     }
     await env.DB.prepare("UPDATE tickets SET stripe_session_id = ? WHERE id = ?").bind(session.id, id).run();
     return json({ url: session.url });
+  }
+  // A partner's join page.
+  const pMatch = pathname.match(/^\/api\/public\/partners\/([a-z0-9-]{2,40})(\/join)?$/);
+  if (pMatch) {
+    const pt = await env.DB.prepare("SELECT id, display_name, partner_slug, partner_blurb, partner_link FROM users WHERE partner_slug = ? AND is_partner = 1").bind(pMatch[1]).first();
+    if (!pt) return err(404, "No partner by that name.");
+    if (!pMatch[2] && method === "GET") {
+      const { results: events } = await env.DB.prepare(
+        `SELECT id, title, starts_at, location, door_cents, entry_tickets, slug FROM events WHERE partner_id = ? AND COALESCE(ends_at, starts_at) >= datetime('now') ORDER BY starts_at LIMIT 6`
+      ).bind(pt.id).all();
+      return json({ partner: { name: pt.display_name, slug: pt.partner_slug, blurb: pt.partner_blurb, link: pt.partner_link }, friends: await friendCount(env, pt.id), events });
+    }
+    if (pMatch[2] && method === "POST") {
+      if (await rateLimited(env, request, "signup")) return err(429, "Too many tries. Wait a minute and try again.");
+      const b = await body(request);
+      const name = (b.name || "").trim().slice(0, 60), email = normalizeEmail(b.email || "");
+      if (!name) return err(400, "What's your name?");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "That email doesn't look right.");
+      const { user, claim } = await userByEmail(env, name, email, `Joined ${pt.display_name}`);
+      if (user.id === pt.id) return err(400, "That's you!");
+      const [x, y] = pt.id < user.id ? [pt.id, user.id] : [user.id, pt.id];
+      const was = await env.DB.prepare("SELECT met_at FROM handshakes WHERE user_a = ? AND user_b = ?").bind(x, y).first();
+      await befriendPartner(env, pt.id, user.id, null);
+      if (!was?.met_at) await notifyUser(env, pt.id, { kind: "letter", title: `🤝 ${name} joined ${pt.display_name}`, body: "A new friend from your join page.", url: "#/partner" }, "notify_letters");
+      return json({ ok: true, already: !!was?.met_at, claim, name: pt.display_name });
+    }
   }
   // A ticket, by its code: what the buyer's phone shows at the door.
   const tMatch = pathname.match(/^\/api\/public\/tickets\/([0-9a-f]{20})$/);
@@ -2340,6 +2390,16 @@ async function firstTimer(env, userId) {
 async function admitted(env, eventId, userId) {
   return env.DB.prepare("SELECT id, created_at FROM door_entries WHERE event_id = ? AND user_id = ? AND voided_at IS NULL").bind(eventId, userId).first();
 }
+// Let in at a co-hosted carnival = the partner's friend: a handshake both
+// sides already agreed to, so it lands in each other's Troupe Album.
+async function befriendPartner(env, partnerId, userId, eventId) {
+  if (!partnerId || !userId || partnerId === userId) return;
+  const [a, b] = partnerId < userId ? [partnerId, userId] : [userId, partnerId];
+  await env.DB.prepare(
+    `INSERT INTO handshakes (user_a, user_b, event_id, asked_by, met_at) VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(user_a, user_b) DO UPDATE SET met_at = COALESCE(handshakes.met_at, datetime('now'))`
+  ).bind(a, b, eventId, partnerId).run();
+}
 async function addEntry(env, e) {
   const id = crypto.randomUUID();
   await env.DB.prepare(
@@ -2348,6 +2408,7 @@ async function addEntry(env, e) {
   ).bind(id, e.eventId, e.userId || null, e.name, e.via, e.ticketId || null, e.giftId || null, e.amount || 0, e.registration || 0, e.method || null, e.firstTime ? 1 : 0, e.note || null, e.by, e.tickets || 0).run();
   // Being let in is the Ticket Punched stamp; paying the $5 is The Fix.
   let promoted = false;
+  if (e.userId && e.partnerId) await befriendPartner(env, e.partnerId, e.userId, e.eventId);
   if (e.userId) {
     promoted = (await grantStamp(env, { userId: e.userId, kind: "ticket", eventId: e.eventId, grantedBy: e.by })).promoted;
     if (e.registration) promoted = (await grantStamp(env, { userId: e.userId, kind: "fix", grantedBy: e.by })).promoted || promoted;
@@ -2373,7 +2434,7 @@ async function doorScan(env, user, ev, code) {
     if (t.status !== "paid") return err(404, "That ticket was never paid for.");
     await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
     const first = await firstTimer(env, t.user_id);
-    const { promoted } = await addEntry(env, { eventId, userId: t.user_id, name: t.display_name, via: "ticket", ticketId: t.id, firstTime: first, by: user.id, tickets: give });
+    const { promoted } = await addEntry(env, { eventId, userId: t.user_id, name: t.display_name, via: "ticket", ticketId: t.id, firstTime: first, by: user.id, tickets: give, partnerId: ev.partner_id });
     return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name === "Entry" ? "Paid ahead" : t.tier_name, first_time: !!first, promoted, tickets_given: give });
   }
   const g = await env.DB.prepare(
@@ -2389,6 +2450,57 @@ async function doorScan(env, user, ev, code) {
   await env.DB.prepare("UPDATE room_gifts SET redeemed_at = datetime('now'), redeemed_event_id = ?, opened_at = COALESCE(opened_at, datetime('now')) WHERE id = ?").bind(eventId, g.id).run();
   await addEntry(env, { eventId, name: `${g.display_name}'s guest`, via: "pass", giftId: g.id, firstTime: 1, by: user.id, tickets: give });
   return json({ ok: true, display_name: `${g.display_name}'s guest`, tier_name: "Guest pass (Admit One)", guest: true, first_time: true, tickets_given: give });
+}
+// The partner's desk: their friends, their carnivals, their join page.
+async function partnerRoutes(request, env, url, user, ctx) {
+  const { pathname } = url;
+  const method = request.method;
+  if (pathname === "/api/partner") {
+    if (!user) return err(401, "Sign in required.");
+    const pid = user?.is_ringleader && url.searchParams.get("id") ? url.searchParams.get("id") : user?.id;
+    const pt = await env.DB.prepare("SELECT id, display_name, is_partner, partner_slug, partner_blurb, partner_link FROM users WHERE id = ?").bind(pid || "").first();
+    if (!pt || !pt.is_partner || (pt.id !== user.id && !user.is_ringleader)) return err(403, "Partners only.");
+    if (method === "PATCH") {
+      const b = await body(request);
+      const slug = (b.slug || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || null;
+      if (slug && await env.DB.prepare("SELECT 1 FROM users WHERE partner_slug = ? AND id != ?").bind(slug, pt.id).first()) return err(400, `Someone already has /p/${slug}.`);
+      const link = (b.link || "").trim().slice(0, 200);
+      if (link && !/^https?:\/\//.test(link)) return err(400, "Links start with https://");
+      await env.DB.prepare("UPDATE users SET partner_slug = ?, partner_blurb = ?, partner_link = ? WHERE id = ?").bind(slug, (b.blurb || "").trim().slice(0, 400) || null, link || null, pt.id).run();
+      return json({ ok: true });
+    }
+    if (method !== "GET") return null;
+    const { results: friends } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.city, h.met_at, e.title AS event_title FROM handshakes h
+       JOIN users u ON u.id = CASE WHEN h.user_a = ? THEN h.user_b ELSE h.user_a END LEFT JOIN events e ON e.id = h.event_id
+       WHERE (h.user_a = ? OR h.user_b = ?) AND h.met_at IS NOT NULL ORDER BY h.met_at DESC LIMIT 60`
+    ).bind(pt.id, pt.id, pt.id).all();
+    const { results: events } = await env.DB.prepare(
+      `SELECT e.id, e.title, e.starts_at, e.ends_at, e.photos_url, e.slug,
+         (SELECT COUNT(*) FROM door_entries d WHERE d.event_id = e.id AND d.voided_at IS NULL) AS came,
+         (SELECT COALESCE(SUM(d.first_time), 0) FROM door_entries d WHERE d.event_id = e.id AND d.voided_at IS NULL) AS first_time
+       FROM events e WHERE e.partner_id = ? OR e.created_by = ? ORDER BY e.starts_at DESC LIMIT 20`
+    ).bind(pt.id, pt.id).all();
+    return json({ partner: { id: pt.id, name: pt.display_name, slug: pt.partner_slug, blurb: pt.partner_blurb, link: pt.partner_link },
+      join_url: pt.partner_slug ? siteUrl(env) + "/p/" + pt.partner_slug : null, friends: await friendCount(env, pt.id), recent: friends, events });
+  }
+  // The night's photos: set the link, and everyone who came hears about it.
+  const ph = pathname.match(/^\/api\/events\/([^/]+)\/photos$/);
+  if (ph && method === "POST") {
+    if (!await canHost(env, user, ph[1])) return err(403, "Only the hosts can add the photos.");
+    const link = ((await body(request)).url || "").trim().slice(0, 300);
+    if (link && !/^https?:\/\//.test(link)) return err(400, "Paste the full link, starting with https://");
+    const ev = await env.DB.prepare("SELECT id, title, photos_url FROM events WHERE id = ?").bind(ph[1]).first();
+    if (!ev) return err(404, "No such carnival.");
+    await env.DB.prepare("UPDATE events SET photos_url = ? WHERE id = ?").bind(link || null, ev.id).run();
+    let told = 0;
+    if (link && link !== ev.photos_url) {
+      const r = await sendBlast(env, ctx, user, { title: `📸 The photos from ${ev.title} are up!`, body: "Go find yourself. Tag your friends, and save your favorites.", url: link, audience: { type: "attended", value: ev.id, label: `Everyone who came to ${ev.title}` } });
+      told = r.recipients;
+    }
+    return json({ ok: true, told });
+  }
+  return null;
 }
 async function doorRoutes(request, env, url, user) {
   const { pathname } = url;
@@ -2413,7 +2525,8 @@ async function doorRoutes(request, env, url, user) {
       `SELECT s.id, s.qty, s.amount_cents, s.method, s.created_at, s.voided_at, b.display_name AS by_name FROM door_sales s LEFT JOIN users b ON b.id = s.by_user
        WHERE s.event_id = ? ORDER BY s.created_at DESC LIMIT 10`
     ).bind(eventId).all();
-    return json({ event: ev, totals: await doorTotals(env, eventId), entries, sales, ringleader: isModerator(user), registration_cents: Number(env.MEMBERSHIP_PRICE_CENTS || 500), link: ev.slug ? siteUrl(env) + "/t/" + ev.slug : null });
+    const partners = isModerator(user) ? (await env.DB.prepare("SELECT id, display_name FROM users WHERE is_partner = 1 ORDER BY display_name").all()).results : [];
+    return json({ event: ev, partners, totals: await doorTotals(env, eventId), entries, sales, ringleader: isModerator(user), registration_cents: Number(env.MEMBERSHIP_PRICE_CENTS || 500), link: ev.slug ? siteUrl(env) + "/t/" + ev.slug : null });
   }
   if (!part && method === "PATCH") {
     if (!isModerator(user)) return err(403, "Ringleaders set the door.");
@@ -2424,7 +2537,16 @@ async function doorRoutes(request, env, url, user) {
     const each = b.ticket_cents === null || b.ticket_cents === "" ? null : Math.max(0, Math.round(Number(b.ticket_cents)) || 0);
     const slug = (b.slug || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || null;
     if (slug && await env.DB.prepare("SELECT 1 FROM events WHERE slug = ? AND id != ?").bind(slug, eventId).first()) return err(400, `Another carnival already uses /t/${slug}.`);
-    await env.DB.prepare("UPDATE events SET capacity = ?, door_cents = ?, entry_tickets = ?, ticket_cents = ?, slug = ? WHERE id = ?").bind(cap, price, give, each, slug, eventId).run();
+    let partner = ev.partner_id;
+    if (b.partner_id !== undefined) {
+      partner = b.partner_id || null;
+      if (partner && !await env.DB.prepare("SELECT 1 FROM users WHERE id = ? AND is_partner = 1").bind(partner).first()) return err(400, "That isn't a partner yet. Mark them as one in the Directory.");
+    }
+    await env.DB.prepare("UPDATE events SET capacity = ?, door_cents = ?, entry_tickets = ?, ticket_cents = ?, slug = ?, partner_id = ? WHERE id = ?").bind(cap, price, give, each, slug, partner, eventId).run();
+    if (partner && partner !== ev.partner_id) {
+      const { results: inside } = await env.DB.prepare("SELECT DISTINCT user_id FROM door_entries WHERE event_id = ? AND user_id IS NOT NULL AND voided_at IS NULL").bind(eventId).all();
+      for (const r of inside) await befriendPartner(env, partner, r.user_id, eventId);
+    }
     if (price != null) await entryTier(env, { ...ev, door_cents: price });
     return json({ ok: true, link: slug ? siteUrl(env) + "/t/" + slug : null });
   }
@@ -2494,7 +2616,7 @@ async function doorRoutes(request, env, url, user) {
     const first = await firstTimer(env, target.id);
     const give = via === "crew" ? 0 : ev.entry_tickets || 0;
     const { id: entryId, promoted } = await addEntry(env, {
-      eventId, userId: target.id, name: target.display_name, via, ticketId, amount: via === "door" ? amount + registration : 0, registration, method: pay,
+      eventId, userId: target.id, partnerId: ev.partner_id, name: target.display_name, via, ticketId, amount: via === "door" ? amount + registration : 0, registration, method: pay,
       firstTime: first, note: (b.note || "").trim().slice(0, 140) || null, by: user.id, tickets: give,
     });
     // New faces (and anyone who never set a password) get a 30-day claim link.
@@ -2661,7 +2783,7 @@ async function needRoutes(request, env, url, user) {
   }
   const addMatch = pathname.match(/^\/api\/events\/([^/]+)\/needs$/);
   if (addMatch && method === "POST") {
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    if (!await canHost(env, user, addMatch[1])) return err(403, "Moderators only.");
     const { item, category, priority } = await body(request);
     const t = (item || "").trim().slice(0, 80);
     if (!t) return err(400, "What's needed?");
@@ -2707,7 +2829,7 @@ async function needRoutes(request, env, url, user) {
   }
   const runAdd = pathname.match(/^\/api\/events\/([^/]+)\/run$/);
   if (runAdd && method === "POST") {
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    if (!await canHost(env, user, runAdd[1])) return err(403, "Moderators only.");
     const { at, title, who, place } = await body(request);
     const t = (title || "").trim().slice(0, 80);
     const when = Date.parse(at || "");
@@ -2718,13 +2840,15 @@ async function needRoutes(request, env, url, user) {
   }
   const runDel = pathname.match(/^\/api\/run\/([^/]+)$/);
   if (runDel && method === "DELETE") {
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    const runEv = await env.DB.prepare("SELECT event_id FROM run_of_show WHERE id = ?").bind(runDel[1]).first();
+    if (!runEv || !await canHost(env, user, runEv.event_id)) return err(403, "Moderators only.");
     await env.DB.prepare("DELETE FROM run_of_show WHERE id = ?").bind(runDel[1]).run();
     return json({ ok: true });
   }
   const delMatch = pathname.match(/^\/api\/needs\/([^/]+)$/);
   if (delMatch && method === "DELETE") {
-    if (!isModerator(user)) return err(403, "Moderators only.");
+    const needEv = await env.DB.prepare("SELECT event_id FROM event_materials WHERE id = ?").bind(delMatch[1]).first();
+    if (!needEv || !await canHost(env, user, needEv.event_id)) return err(403, "Moderators only.");
     await env.DB.prepare("DELETE FROM event_materials WHERE id = ?").bind(delMatch[1]).run();
     return json({ ok: true });
   }
@@ -2745,6 +2869,10 @@ function blastAudienceSql(a) {
     case "chapter": return ["SELECT id FROM users WHERE home_chapter_id = ?", [a.value || ""]];
     case "city": return ["SELECT id FROM users WHERE lower(city) LIKE lower(?) || '%'", [String(a.value || "").trim()]];
     case "event": return ["SELECT user_id AS id FROM event_volunteers WHERE event_id = ? UNION SELECT user_id FROM tickets WHERE event_id = ? AND status = 'paid'", [a.value || "", a.value || ""]];
+    // Everyone let in at that carnival's door.
+    case "attended": return ["SELECT DISTINCT user_id AS id FROM door_entries WHERE event_id = ? AND user_id IS NOT NULL AND voided_at IS NULL", [a.value || ""]];
+    // Everyone someone has shaken hands with (a partner's friends).
+    case "friends": return ["SELECT CASE WHEN user_a = ? THEN user_b ELSE user_a END AS id FROM handshakes WHERE (user_a = ? OR user_b = ?) AND met_at IS NOT NULL", [a.value || "", a.value || "", a.value || ""]];
     default: return null;
   }
 }
@@ -2753,40 +2881,63 @@ function blastAudience(a, senderId) {
   const q = blastAudienceSql(a);
   return q && [`SELECT id FROM (${q[0]}) WHERE id != ?`, [...q[1], senderId]];
 }
+// A partner runs the events they co-host (or posted themselves).
+async function ownsEvent(env, user, eventId) {
+  if (!user?.is_partner) return false;
+  return !!await env.DB.prepare("SELECT 1 FROM events WHERE id = ? AND (partner_id = ? OR created_by = ?)").bind(eventId, user.id, user.id).first();
+}
+// Ringleaders run every event; a partner runs the ones they co-host.
+async function canHost(env, user, eventId) {
+  return isModerator(user) || await ownsEvent(env, user, eventId);
+}
+// A partner may holler at their own friends, or at who came to their carnival.
+async function mayHoller(env, user, a) {
+  if (user?.is_ringleader) return true;
+  if (!user?.is_partner) return false;
+  if (a?.type === "friends") return a.value === user.id;
+  if (a?.type === "attended") return !!await env.DB.prepare("SELECT 1 FROM events WHERE id = ? AND partner_id = ?").bind(a.value || "", user.id).first();
+  return false;
+}
+// Ring everyone in an audience: receipts, in-app notices, phones.
+async function sendBlast(env, ctx, sender, { title: t, body: b, url: link, audience, postToCourtyard = false }) {
+  const q = blastAudience(audience, sender.id);
+  if (!q) throw new Error("Pick who to ring.");
+  const res = await env.DB.prepare("INSERT INTO blasts (sender_id, title, body, url, audience) VALUES (?, ?, ?, ?, ?)").bind(sender.id, t, b, link || null, JSON.stringify(audience)).run();
+  const blastId = res.meta.last_row_id;
+  await env.DB.prepare(`INSERT OR IGNORE INTO blast_receipts (blast_id, user_id) SELECT ?, id FROM (${q[0]})`).bind(blastId, ...q[1]).run();
+  const { n } = await env.DB.prepare("SELECT COUNT(*) AS n FROM blast_receipts WHERE blast_id = ?").bind(blastId).first();
+  await env.DB.prepare("UPDATE blasts SET recipients = ? WHERE id = ?").bind(n, blastId).run();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO notifications (user_id, kind, title, body, url, ref) SELECT user_id, 'blast', ?, ?, ?, ? FROM blast_receipts WHERE blast_id = ?"
+  ).bind(`📣 ${sender.is_ringleader ? "HEAR YE! " : sender.display_name + ": "}${t}`, b.length > 140 ? b.slice(0, 137) + "…" : b, "#/dressing-room", `blast:${blastId}`, blastId).run();
+  if (postToCourtyard) {
+    const yard = await env.DB.prepare("SELECT id FROM boards WHERE slug = 'courtyard'").first();
+    if (yard) await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, title, body) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), yard.id, sender.id, t, b).run();
+  }
+  // Wake phones (capped per invocation; everyone still gets it in-app).
+  const { results: subs } = await env.DB.prepare("SELECT s.endpoint FROM push_subscriptions s JOIN blast_receipts r ON r.user_id = s.user_id WHERE r.blast_id = ? LIMIT 45").bind(blastId).all();
+  ctx.waitUntil(wakeEndpoints(env, subs.map((r) => r.endpoint)));
+  return { id: blastId, recipients: n, phones: subs.length };
+}
 async function blastRoutes(request, env, url, user, ctx) {
   const { pathname } = url;
   const method = request.method;
   if (pathname === "/api/blasts/preview" && method === "POST") {
-    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
-    const q = blastAudience((await body(request)).audience, user.id);
+    const audience = (await body(request)).audience;
+    if (!await mayHoller(env, user, audience)) return err(403, "Ringleaders only.");
+    const q = blastAudience(audience, user.id);
     if (!q) return err(400, "Pick who to ring.");
     const row = await env.DB.prepare(`SELECT COUNT(*) AS n, (SELECT COUNT(DISTINCT s.user_id) FROM push_subscriptions s WHERE s.user_id IN (${q[0]})) AS phones FROM (${q[0]})`).bind(...q[1], ...q[1]).first();
     return json({ recipients: row.n, phones: row.phones });
   }
   if (pathname === "/api/blasts" && method === "POST") {
-    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
     const { title, body: text, audience, url: link, post_to_courtyard } = await body(request);
+    if (!await mayHoller(env, user, audience)) return err(403, "Ringleaders only.");
     const t = String(title || "").trim(), b = String(text || "").trim();
     if (!t || !b) return err(400, "A blast needs a title and a message.");
     if (t.length > 120 || b.length > 1500) return err(400, "Keep it under 120 characters for the title and 1500 for the message.");
-    const q = blastAudience(audience, user.id);
-    if (!q) return err(400, "Pick who to ring.");
-    const res = await env.DB.prepare("INSERT INTO blasts (sender_id, title, body, url, audience) VALUES (?, ?, ?, ?, ?)").bind(user.id, t, b, link || null, JSON.stringify(audience)).run();
-    const blastId = res.meta.last_row_id;
-    await env.DB.prepare(`INSERT OR IGNORE INTO blast_receipts (blast_id, user_id) SELECT ?, id FROM (${q[0]})`).bind(blastId, ...q[1]).run();
-    const { n } = await env.DB.prepare("SELECT COUNT(*) AS n FROM blast_receipts WHERE blast_id = ?").bind(blastId).first();
-    await env.DB.prepare("UPDATE blasts SET recipients = ? WHERE id = ?").bind(n, blastId).run();
-    await env.DB.prepare(
-      "INSERT OR IGNORE INTO notifications (user_id, kind, title, body, url, ref) SELECT user_id, 'blast', ?, ?, ?, ? FROM blast_receipts WHERE blast_id = ?"
-    ).bind(`📣 HEAR YE! ${t}`, b.length > 140 ? b.slice(0, 137) + "…" : b, "#/dressing-room", `blast:${blastId}`, blastId).run();
-    if (post_to_courtyard) {
-      const yard = await env.DB.prepare("SELECT id FROM boards WHERE slug = 'courtyard'").first();
-      if (yard) await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, title, body) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), yard.id, user.id, t, b).run();
-    }
-    // Wake phones (capped per invocation; everyone still gets it in-app).
-    const { results: subs } = await env.DB.prepare("SELECT s.endpoint FROM push_subscriptions s JOIN blast_receipts r ON r.user_id = s.user_id WHERE r.blast_id = ? LIMIT 45").bind(blastId).all();
-    ctx.waitUntil(wakeEndpoints(env, subs.map((r) => r.endpoint)));
-    return json({ id: blastId, recipients: n, phones: subs.length });
+    if (!blastAudience(audience, user.id)) return err(400, "Pick who to ring.");
+    return json(await sendBlast(env, ctx, user, { title: t, body: b, url: link, audience, postToCourtyard: !!post_to_courtyard && !!user.is_ringleader }));
   }
   if (pathname === "/api/blasts" && method === "GET") {
     if (!user?.is_ringleader) return err(403, "Ringleaders only.");
@@ -2800,7 +2951,7 @@ async function blastRoutes(request, env, url, user, ctx) {
   if (pathname === "/api/me/blast" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const row = await env.DB.prepare(
-      `SELECT b.id, b.title, b.body, b.url, b.created_at, u.display_name AS sender FROM blast_receipts r
+      `SELECT b.id, b.title, b.body, b.url, b.created_at, u.display_name AS sender, (u.is_ringleader = 0) AS from_partner FROM blast_receipts r
        JOIN blasts b ON b.id = r.blast_id LEFT JOIN users u ON u.id = b.sender_id
        WHERE r.user_id = ? AND r.seen_at IS NULL AND b.created_at > datetime('now', '-14 days')
        ORDER BY b.id DESC LIMIT 1`
@@ -3281,6 +3432,17 @@ async function ticketRoutes(request, env, url) {
   return null;
 }
 
+// Partners (often Courtyard-tier org accounts) may also post and run their
+// own events and holler at their friends; each route checks ownership.
+function partnerAllowed(method, pathname) {
+  if (pathname === "/api/events" && method === "POST") return true;
+  if (/^\/api\/events\/[^/]+$/.test(pathname) && (method === "PATCH" || method === "DELETE")) return true;
+  if (/^\/api\/events\/[^/]+\/photos$/.test(pathname)) return true;
+  if (pathname === "/api/blasts" || pathname === "/api/blasts/preview" || pathname === "/api/partner") return true;
+  if (method === "POST" && /^\/api\/events\/[^/]+\/(jobs|needs|run)$/.test(pathname)) return true;
+  if (method === "DELETE" && /^\/api\/(jobs|needs|run)\/[^/]+$/.test(pathname)) return true;
+  return false;
+}
 function courtyardAllowed(method, pathname) {
   if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room" || pathname === "/api/materials" || pathname === "/api/run")) return true;
   if ((method === "POST" || method === "DELETE") && /^\/api\/materials\/[^/]+\/pledge$/.test(pathname)) return true;
