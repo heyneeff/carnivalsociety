@@ -1008,6 +1008,7 @@ async function renderDMThreadView(mainView, convId) {
     <div class="dm-thread" id="dmThread">${(messages || []).map(dmBubbleHtml).join('')}</div>
     <form class="composer" id="dmComposer">
       <textarea id="dmBody" placeholder="Write your letter…" required aria-label="Your letter"></textarea>
+      ${profile.is_ringleader ? '<label class="dm-holler"><input type="checkbox" id="dmHoller" checked> 📣 Holler it: rings through their cone, just for them</label>' : ''}
       <div class="post-actions">
         <button type="submit" class="composer-submit">Send the letter</button>
         <button type="button" class="action-btn" id="shareContactBtn">📇 Share my contact</button>
@@ -1047,8 +1048,10 @@ async function renderDMThreadView(mainView, convId) {
     if (!text) return;
     bodyInput.value = '';
     appendDMMessage({ sender_id: profile.id, body: text });
-    const { id } = await apiFetch(`/api/dm/${convId}/messages`, { method: 'POST', body: { body: text } });
+    const holler = !!document.getElementById('dmHoller')?.checked;
+    const { id, hollered } = await apiFetch(`/api/dm/${convId}/messages`, { method: 'POST', body: { body: text, holler } });
     dmSeenIds.add(id);
+    if (hollered) flashToast(`📣 Hollered to ${other?.display_name || 'them'}. It rings when they open the app.`);
   });
 
   // Realtime is gone with Supabase — poll for new messages while this thread
@@ -5353,17 +5356,10 @@ const BADGES = {
 const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker'];
 const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout', 'kinker'];
 
-// Neeff's drawn badge emblems (assets/badges/csi_stamp_<kind>.png, black ink)
-// replace the stand-in icons as each file appears; the ink is used as a mask
-// so it takes the patch's color like the stand-ins do.
-const BADGE_ART = new Set();
-[...Object.keys(BADGES), 'mystery'].forEach(k => { const im = new Image(); im.onload = () => BADGE_ART.add(k); im.src = `assets/badges/csi_stamp_${k}.png`; });
-function badgeArt(kind, size) {
-  const u = `url(assets/badges/csi_stamp_${kind}.png)`;
-  return `<span class="badge-art" aria-hidden="true" style="width:${Math.round(size * 1.35)}px;height:${Math.round(size * 1.35)}px;-webkit-mask-image:${u};mask-image:${u}"></span>`;
-}
+// Neeff's painted badge patches (assets/badges/badge_<kind>.webp): the whole
+// round patch, name and motto included, used wherever a badge is shown big.
+const badgePatch = (kind, cls = 'badge-art-img') => `<img class="${cls}" src="assets/badges/badge_${kind}.webp" alt="" draggable="false">`;
 function badgeIcon(kind, size = 28) {
-  if (BADGE_ART.has(kind)) return badgeArt(kind, size);
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
 }
 
@@ -5960,7 +5956,7 @@ function maybePrize(st) {
   o.innerHTML = `${confetti}
     <div class="prize-card">
       <div class="prize-kicker">Huzzah! You won a prize!</div>
-      <div class="prize-patch" style="--badge:${b.color}">${badgeIcon(st.kind, 64)}</div>
+      <div class="prize-patch has-art">${badgePatch(st.kind)}</div>
       <h2>${escapeHtml(b.name)}</h2>
       <p class="prize-motto">“${escapeHtml(b.motto)}”</p>
       ${st.event_title ? `<p class="prize-where">for ${escapeHtml(st.event_title)}</p>` : ''}
@@ -6172,7 +6168,6 @@ const ROOM_ROLES = {
   flyer: 'Flyer → an upcoming event', raven: 'Raven → volunteer requests', book: 'Big Book → the forum', drawer: 'Drawer → Letters',
   exit: 'Exit → Courtyard', hatbox: 'Hat box → Ringleader tools (only you see it)', potion: 'Secret → Mercury Oracle', stars: 'Secret → Field Oracle',
   popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
-  megaphone: 'Megaphone → hollers pop out of it',
 };
 // ── Personal rooms (2026-10-12): themes, the item drawer, starter layout ──
 const ROOM_THEMES = { classic: 'The Classic', fire: 'Flame Breather', aerial: 'The Aerialist', celestial: 'The Fortune-Teller', original: 'The Original' };
@@ -6335,8 +6330,8 @@ async function renderRoom(mainView, ownerId = null) {
   const wrapped = () => gifts.filter(g => !g.opened_at);
   const giftOf = it => it.gift && gifts.find(g => g.id === it.gift);
   const ownerName = room.owner?.display_name || 'Someone';
-  // The barker's megaphone lies on the floor in every room (saved layouts
-  // from before it existed get one; Arrange can move it like anything else).
+  // The barker's cone isn't a room item: it lives in code and rolls into
+  // whatever room is on screen when the Ringleader hollers (showBlast).
 
   let selectedId = null;
 
@@ -6610,7 +6605,7 @@ async function renderRoom(mainView, ownerId = null) {
       const b = BADGES[k];
       const dx = tx - (x / 100) * sr.width, dy = ty - (y / 100) * sr.height;
       return `<button class="td-badge ${won ? 'won' : 'ghost'} ${k === newest ? 'newest' : ''}" data-kind="${k}" style="left:${x}%;top:${y}%;--dx:${dx.toFixed(0)}px;--dy:${dy.toFixed(0)}px;--delay:${(i * 0.12).toFixed(2)}s;${b ? `--badge:${b.color}` : ''}" aria-label="${escapeHtml(b ? b.name : 'Mystery prize')}${won ? ', won' : ', not yet won'}">
-        <span class="td-patch">${b ? badgeIcon(k, 34) : BADGE_ART.has('mystery') ? badgeArt('mystery', 34) : '<span class="td-q">?</span>'}${won > 1 ? `<span class="td-count">×${won}</span>` : ''}</span>
+        <span class="td-patch has-art">${badgePatch(b ? k : 'mystery')}${won > 1 ? `<span class="td-count">×${won}</span>` : ''}</span>
         <span class="td-name">${escapeHtml(b ? b.name : '???')}</span>
         ${k === newest ? '<span class="td-new">NEW!</span>' : ''}
       </button>`;
@@ -6830,7 +6825,7 @@ async function renderRoom(mainView, ownerId = null) {
     };
     const drawer = Object.entries(ROOM_ITEMS).map(([cat, list]) => `<div class="re-cat"><b>${cat}</b><div class="re-grid">${list.map(n => thumb(`items/${n}`, n.replace(/_/g, ' '))).join('')}</div></div>`).join('')
       + (profile.is_ringleader ? `<div class="re-cat"><b>Sunny &amp; Daisy</b><div class="re-grid">${ROOM_CATS.map(n => thumb(`cats/${n}`, n.replace(/_/g, ' '))).join('')}</div></div>` : '')
-      + `<div class="re-cat"><b>Room stickers</b><div class="re-grid">${Object.keys(ROOM_ASSETS).map(n => thumb(n, n.replace(/_/g, ' '))).join('')}<button class="re-thumb re-hot" data-add="__hot" title="Invisible hotspot (for painted things)">⬚</button></div></div>`;
+      + `<div class="re-cat"><b>Room stickers</b><div class="re-grid">${Object.keys(ROOM_ASSETS).filter(n => n !== 'megaphone_floor').map(n => thumb(n, n.replace(/_/g, ' '))).join('')}<button class="re-thumb re-hot" data-add="__hot" title="Invisible hotspot (for painted things)">⬚</button></div></div>`;
     editor.innerHTML = `
       <div class="re-row re-title"><strong>Arrange your room</strong><span class="re-hint">Drag to move · gold corner to resize</span></div>
       <div class="re-row"><label class="re-wide">Your room<select id="reTheme">${Object.entries(ROOM_THEMES).map(([k, v]) => `<option value="${k}" ${k === theme ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
@@ -6838,7 +6833,7 @@ async function renderRoom(mainView, ownerId = null) {
         <div class="re-row"><label>It does<select data-f="role">${opt(ROOM_ROLES, it.role)}</select></label></div>
         ${it.role === 'flyer' ? `<div class="re-row"><label>Which event<select data-f="n">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === (it.n || 0) ? 'selected' : ''}>${['Next', '2nd', '3rd', '4th', '5th', '6th'][n]} upcoming</option>`).join('')}</select></label></div>` : ''}
         ${it.img ? `<div class="re-row"><label>Moves<select data-f="anim">${opt(ROOM_ANIMS, it.anim)}</select></label>
-          ${ROOM_ASSETS[it.img] ? `<label>Art<select data-f="img">${Object.keys(ROOM_ASSETS).map(k => `<option ${k === it.img ? 'selected' : ''}>${k}</option>`).join('')}</select></label>` : ''}</div>` : ''}
+          ${ROOM_ASSETS[it.img] ? `<label>Art<select data-f="img">${Object.keys(ROOM_ASSETS).filter(k => k !== 'megaphone_floor').map(k => `<option ${k === it.img ? 'selected' : ''}>${k}</option>`).join('')}</select></label>` : ''}</div>` : ''}
         <div class="re-row"><label class="re-wide">Rotate <input type="range" min="-45" max="45" step="1" value="${it.rot || 0}" data-f="rot"></label></div>
         <div class="re-row re-btns">
           ${it.img ? '<button data-a="flip">Flip</button>' : ''}

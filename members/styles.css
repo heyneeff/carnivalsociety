@@ -2305,5 +2305,14 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .gi-event { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--gi-ink); border-radius: 12px; background: #fff; color: var(--gi-ink); text-decoration: none; box-shadow: 3px 3px 0 var(--gi-ink); }
 .gi-event span { font-family: 'Rye', serif; font-size: 13px; color: #f4e8d0; background: var(--gi-red); padding: 4px 8px; border-radius: 6px; text-transform: uppercase; }
 .gi-event em { font-style: normal; font-size: 13px; font-weight: 700; color: var(--gi-red); }
-/* Drawn badge emblems: black ink used as a mask, tinted by the patch's color. */
-.badge-art { display: inline-block; background: currentColor; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; -webkit-mask-mode: alpha; mask-mode: alpha; }
+/* Neeff's painted badge patches: the art is the whole patch, so the CSS disc steps aside.
+   Not won yet = the same patch, dimmed and drained of color. */
+.td-patch.has-art, .td-badge.won .td-patch.has-art, .td-badge.ghost .td-patch.has-art { background: none; border: none; outline: none; }
+.td-badge.won .td-patch.has-art { filter: drop-shadow(0 6px 0 rgba(0,0,0,0.45)); }
+.td-patch.has-art { display: block; aspect-ratio: auto; height: auto; }
+.td-patch.has-art .badge-art-img { display: block; width: 100%; height: auto; }
+.td-badge.ghost .td-patch.has-art .badge-art-img { filter: grayscale(1) brightness(0.55); opacity: 0.45; }
+.td-badge.newest .td-patch.has-art { box-shadow: none; filter: drop-shadow(0 0 14px rgba(255,214,140,0.9)); }
+.td-badge.picked .td-patch.has-art { outline: none; }
+.prize-patch.has-art { width: 170px; height: 170px; background: none; border: none; box-shadow: none; filter: drop-shadow(0 10px 24px rgba(0,0,0,0.35)) drop-shadow(0 0 30px rgba(255,214,140,0.55)); }
+.prize-patch.has-art .badge-art-img { width: 100%; height: 100%; display: block; }

@@ -1781,12 +1781,18 @@ async function api(request, env, url, ctx) {
     const convId = dmMessagesMatch[1];
     const participant = await env.DB.prepare("SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?").bind(convId, user.id).first();
     if (!participant) return err(403, "Not a participant.");
-    const { body: text } = await body(request);
+    const { body: text, holler } = await body(request);
     if (!text) return err(400, "body required.");
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO direct_messages (id, conversation_id, sender_id, body) VALUES (?, ?, ?, ?)").bind(id, convId, user.id, text).run();
     await env.DB.prepare("UPDATE conversation_participants SET last_read_at = datetime('now') WHERE conversation_id = ? AND user_id = ?").bind(convId, user.id).run();
     const { results: others } = await env.DB.prepare("SELECT user_id FROM conversation_participants WHERE conversation_id = ? AND user_id != ?").bind(convId, user.id).all();
+    // The Ringleader's letter can ring through the cone, for them alone.
+    if (holler && user.is_ringleader) {
+      const said = text.length > 1400 ? text.slice(0, 1399) + "… (the rest is in your letters)" : text;
+      for (const o of others) await sendBlast(env, ctx, user, { title: "A letter, just for you", body: said, url: `#/dm/${convId}`, audience: { type: "user", value: o.user_id, label: "A letter" } });
+      return json({ id, hollered: others.length });
+    }
     ctx.waitUntil(Promise.all(others.map((o) => notifyUser(env, o.user_id, { kind: "letter", title: `SQUAWK! A letter from ${user.display_name}`, body: text.length > 120 ? text.slice(0, 117) + "…" : text, url: `#/dm/${convId}` }, "notify_letters"))));
     return json({ id });
   }
@@ -2173,6 +2179,7 @@ function cleanRoomItems(raw, { ringleader, unlocked }) {
     if (img && img.startsWith("cats/") && !ringleader) throw new Error("Sunny and Daisy live in the Ringmaster's office.");
     if (img && ROOM_SPECIALS[img] && !unlocked.includes(img)) throw new Error(`Not unlocked yet: ${ROOM_SPECIALS[img].how}`);
     const role = ROOM_ITEM_ROLES.includes(it.role) ? it.role : "decor";
+    if (role === "megaphone" || img === "megaphone_floor") return null; // the cone lives in code, not in rooms
     if (role === "hatbox" && !ringleader) throw new Error("The hat box is the Ringleader's.");
     return {
       id: String(it.id || "").slice(0, 16) || Math.random().toString(36).slice(2, 8), role, img,
@@ -2181,7 +2188,7 @@ function cleanRoomItems(raw, { ringleader, unlocked }) {
       ...(ROOM_ANIM.includes(it.anim) && it.anim ? { anim: it.anim } : {}), ...(role === "flyer" ? { n: Math.round(num(it.n, 0, 5, 0)) } : {}),
       ...(typeof it.gift === "string" && /^[a-f0-9]{8,32}$/.test(it.gift) ? { gift: it.gift } : {}),
     };
-  });
+  }).filter(Boolean);
 }
 async function roomFor(env, ownerId) {
   const owner = await env.DB.prepare("SELECT id, display_name, rank, is_ringleader FROM users WHERE id = ?").bind(ownerId).first();
@@ -2870,6 +2877,8 @@ function blastAudienceSql(a) {
     case "chapter": return ["SELECT id FROM users WHERE home_chapter_id = ?", [a.value || ""]];
     case "city": return ["SELECT id FROM users WHERE lower(city) LIKE lower(?) || '%'", [String(a.value || "").trim()]];
     case "event": return ["SELECT user_id AS id FROM event_volunteers WHERE event_id = ? UNION SELECT user_id FROM tickets WHERE event_id = ? AND status = 'paid'", [a.value || "", a.value || ""]];
+    // Just one person (a Ringleader's letter, hollered).
+    case "user": return ["SELECT id FROM users WHERE id = ?", [a.value || ""]];
     // Everyone let in at that carnival's door.
     case "attended": return ["SELECT DISTINCT user_id AS id FROM door_entries WHERE event_id = ? AND user_id IS NOT NULL AND voided_at IS NULL", [a.value || ""]];
     // Everyone someone has shaken hands with (a partner's friends).
