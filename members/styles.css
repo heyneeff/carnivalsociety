@@ -2305,3 +2305,5 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .gi-event { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--gi-ink); border-radius: 12px; background: #fff; color: var(--gi-ink); text-decoration: none; box-shadow: 3px 3px 0 var(--gi-ink); }
 .gi-event span { font-family: 'Rye', serif; font-size: 13px; color: #f4e8d0; background: var(--gi-red); padding: 4px 8px; border-radius: 6px; text-transform: uppercase; }
 .gi-event em { font-style: normal; font-size: 13px; font-weight: 700; color: var(--gi-red); }
+/* Drawn badge emblems: black ink used as a mask, tinted by the patch's color. */
+.badge-art { display: inline-block; background: currentColor; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; -webkit-mask-mode: alpha; mask-mode: alpha; }

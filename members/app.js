@@ -5353,7 +5353,17 @@ const BADGES = {
 const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker'];
 const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout', 'kinker'];
 
+// Neeff's drawn badge emblems (assets/badges/csi_stamp_<kind>.png, black ink)
+// replace the stand-in icons as each file appears; the ink is used as a mask
+// so it takes the patch's color like the stand-ins do.
+const BADGE_ART = new Set();
+[...Object.keys(BADGES), 'mystery'].forEach(k => { const im = new Image(); im.onload = () => BADGE_ART.add(k); im.src = `assets/badges/csi_stamp_${k}.png`; });
+function badgeArt(kind, size) {
+  const u = `url(assets/badges/csi_stamp_${kind}.png)`;
+  return `<span class="badge-art" aria-hidden="true" style="width:${Math.round(size * 1.35)}px;height:${Math.round(size * 1.35)}px;-webkit-mask-image:${u};mask-image:${u}"></span>`;
+}
 function badgeIcon(kind, size = 28) {
+  if (BADGE_ART.has(kind)) return badgeArt(kind, size);
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
 }
 
@@ -6600,7 +6610,7 @@ async function renderRoom(mainView, ownerId = null) {
       const b = BADGES[k];
       const dx = tx - (x / 100) * sr.width, dy = ty - (y / 100) * sr.height;
       return `<button class="td-badge ${won ? 'won' : 'ghost'} ${k === newest ? 'newest' : ''}" data-kind="${k}" style="left:${x}%;top:${y}%;--dx:${dx.toFixed(0)}px;--dy:${dy.toFixed(0)}px;--delay:${(i * 0.12).toFixed(2)}s;${b ? `--badge:${b.color}` : ''}" aria-label="${escapeHtml(b ? b.name : 'Mystery prize')}${won ? ', won' : ', not yet won'}">
-        <span class="td-patch">${b ? badgeIcon(k, 34) : '<span class="td-q">?</span>'}${won > 1 ? `<span class="td-count">×${won}</span>` : ''}</span>
+        <span class="td-patch">${b ? badgeIcon(k, 34) : BADGE_ART.has('mystery') ? badgeArt('mystery', 34) : '<span class="td-q">?</span>'}${won > 1 ? `<span class="td-count">×${won}</span>` : ''}</span>
         <span class="td-name">${escapeHtml(b ? b.name : '???')}</span>
         ${k === newest ? '<span class="td-new">NEW!</span>' : ''}
       </button>`;
