@@ -428,6 +428,7 @@ function renderShell() {
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
       ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
       ${sheetLink('#/album', 'Troupe album', is('album'), '', 'the people you’ve met')}
+      ${lastHoller() ? '<button class="sheet-link sheet-raven" id="sheetHoller"><span>📣 Hear the last holler</span><small class="sheet-hint">it rolls back in</small></button>' : ''}
       <button class="sheet-link sheet-raven" id="sheetTour"><span>🐦‍⬛ Take the tour</span><small class="sheet-hint">the raven shows you around</small></button>
       ${sheetLink('#/tickets', 'My tickets', is('tickets'))}
       ${(ravenEnv().ios && !ravenEnv().standalone) || ('Notification' in window && Notification.permission !== 'granted') ? '<button class="sheet-link sheet-raven" id="sheetRaven"><span>📲 Get live updates</span><small class="sheet-hint">job reminders, letters, hollers</small></button>' : ''}
@@ -500,6 +501,12 @@ function renderShell() {
   };
   document.getElementById('moreBtn').onclick = () => { mobileNavOpen = !mobileNavOpen; renderShell(); };
   document.getElementById('sheetRaven')?.addEventListener('click', () => { mobileNavOpen = false; renderShell(); inviteRaven('menu'); });
+  document.getElementById('sheetHoller')?.addEventListener('click', () => {
+    mobileNavOpen = false;
+    const go = () => { const last = lastHoller(); if (last && !blastShowing) showBlast(last, { replay: true }); };
+    if (currentRoute() === 'dressing-room') { renderShell(); setTimeout(go, 400); }
+    else { location.hash = '#/dressing-room'; setTimeout(go, 1500); }
+  });
   document.getElementById('sheetTour')?.addEventListener('click', () => {
     mobileNavOpen = false;
     if (currentRoute() === 'dressing-room') { renderShell(); setTimeout(() => roomHooks.startIntro?.(), 400); }
@@ -5387,7 +5394,7 @@ async function checkBlast(waited = 0) {
     if (document.querySelector('.prize-pop, .intro-tour, .rank-celebration')) { setTimeout(() => checkBlast(waited), 1500); return; }
     // In the Dressing Room, give the room a moment to draw so the holler
     // comes out of the floor megaphone rather than the stand-in cone.
-    if (ROOM_ROUTES.includes(currentRoute()) && !document.querySelector('.room-stage [data-role="megaphone"]') && waited < 6) {
+    if (ROOM_ROUTES.includes(currentRoute()) && !document.querySelector('.room-stage #roomItems [data-item]') && waited < 6) {
       setTimeout(() => checkBlast(waited + 1), 500);
       return;
     }
@@ -5534,14 +5541,31 @@ function lastHoller() { try { return JSON.parse(localStorage.getItem('cs-last-ho
 
 function showBlast(blast, { live = false, preview = false, replay = false } = {}) {
   blastShowing = blast.id || 'preview';
-  // In the Dressing Room the holler comes out of the megaphone on the floor:
-  // it rattles, you tap it, the Ringleader pops out and grows over the room.
-  // Anywhere else, the standing cone takes the whole screen.
-  const floorCone = document.querySelector('.room-stage [data-role="megaphone"]');
-  if (floorCone) floorCone.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  // In the Dressing Room the megaphone rolls in from the right, rattles; you
+  // tap it, the Ringleader pops out of the bell and grows over the room, and
+  // afterwards it rolls back out. Anywhere else (or behind an unfolded page)
+  // the standing cone takes the whole screen.
+  const roomItems = document.querySelector('.room-stage #roomItems');
+  let floorCone = null;
+  if (roomItems && roomItems.getBoundingClientRect().width > 20 && !document.querySelector('.unfold')) {
+    floorCone = document.createElement('div');
+    floorCone.className = 'room-obj holler-cone';
+    floorCone.style.cssText = 'left:38%;top:76%;width:24%';
+    floorCone.innerHTML = `<span class="room-turn" style="transform:rotate(-4deg)"><img src="${ROOM}megaphone_floor.png" alt="" draggable="false"></span>`;
+    roomItems.appendChild(floorCone);
+    floorCone.scrollIntoView?.({ block: 'nearest', inline: 'center' });
+  }
   const cr = floorCone?.getBoundingClientRect();
-  // Only when the room itself is showing (not behind an unfolded page).
-  const inRoom = !!cr && cr.width > 20 && cr.right > 0 && cr.left < innerWidth && !document.querySelector('.unfold');
+  const inRoom = !!cr && cr.width > 20 && cr.right > 0 && cr.left < innerWidth;
+  if (floorCone && !inRoom) { floorCone.remove(); floorCone = null; }
+  const offRight = cr ? innerWidth - cr.left + 40 : 0;
+  const rollIn = !!floorCone && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (rollIn) floorCone.animate([
+    { transform: `translateX(${offRight}px) rotate(18deg)` },
+    { transform: `translateX(${Math.round(offRight * 0.4)}px) translateY(-6px) rotate(-8deg)`, offset: 0.45 },
+    { transform: 'translateX(-14px) rotate(5deg)', offset: 0.8 },
+    { transform: 'none' },
+  ], { duration: 1150, easing: 'cubic-bezier(.3,.7,.4,1)' });
   const scene = document.getElementById('roomScene')?.getBoundingClientRect();
   const from = `<div class="blast-from">Ringleader ${escapeHtml(blast.sender || 'Neeff')} says:</div>`;
   const o = document.createElement('div');
@@ -5587,7 +5611,7 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
       <button class="blast-pickup">Step right up!</button>
     </div>`;
   document.body.appendChild(o);
-  if (inRoom) floorCone.classList.add('cone-ringing');
+  if (inRoom) setTimeout(() => { if (floorCone && o.classList.contains('ringing')) floorCone.classList.add('cone-ringing'); }, rollIn ? 1150 : 0);
   // Warm up the face frames so the first mouth swap doesn't blink.
   ['head_happy', 'head_open', 'head_closed', 'head_wink', 'head_cosmic'].forEach(f => { new Image().src = `${ROOM}${f}.png`; });
   let rig = megaphone();
@@ -5607,7 +5631,15 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
   const finish = () => {
     stopBlare(); clearInterval(typing); rig?.close();
     floorCone?.classList.remove('cone-ringing');
-    const gone = () => { o.remove(); blastShowing = null; };
+    // …and rolls back out to the right when it's done.
+    const rollOut = () => {
+      if (!floorCone) return;
+      const c = floorCone; floorCone = null;
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { c.remove(); return; }
+      c.animate([{ transform: 'none' }, { transform: `translateX(${offRight}px) rotate(20deg)` }], { duration: 800, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' });
+      setTimeout(() => c.remove(), 820);
+    };
+    const gone = () => { if (!o.isConnected) return; o.remove(); blastShowing = null; rollOut(); };
     if (shrink && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       o.classList.add('leaving');
       shrink().onfinish = gone;
@@ -6099,7 +6131,6 @@ const DRESSING_DEFAULT = [
   { id: 'trunk', role: 'trunk', img: 'trunk_closed', l: 3, t: 69, w: 19 },
   { id: 'book', role: 'book', img: 'book_lectern', l: 61, t: 53, w: 11, anim: 'float' },
   { id: 'raven', role: 'raven', img: 'raven_perched', l: 49, t: 46, w: 8.5, anim: 'breathe' },
-  { id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 40, t: 80, w: 22, rot: -4 },
   { id: 'popcorn', role: 'popcorn', img: 'popcorn', l: 81, t: 45, w: 4.5, anim: 'wobble' },
   { id: 'potion', role: 'potion', img: 'potion', l: 88.5, t: 46.5, w: 2.4, anim: 'shimmer' },
 ];
@@ -6155,7 +6186,7 @@ async function renderRoom(mainView, ownerId = null) {
   const ownerName = room.owner?.display_name || 'Someone';
   // The barker's megaphone lies on the floor in every room (saved layouts
   // from before it existed get one; Arrange can move it like anything else).
-  if (!visiting && !items.some(i => i.role === 'megaphone')) items.push({ id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 43, t: 75, w: 24, rot: -4 });
+
   let selectedId = null;
 
   // What a role means right now: hover verb, destination (null = reacts in place).
@@ -6169,14 +6200,14 @@ async function renderRoom(mainView, ownerId = null) {
       case 'raven': {
         if (letters.unread) {
           const f = letters.from[0];
-          return [`Hear the Raven (a letter from ${f.display_name}!)`, letters.from.length === 1 ? `#/dm/${f.conversation_id}` : '#/dm'];
+          return [`Hear Omen (a letter from ${f.display_name}!)`, letters.from.length === 1 ? `#/dm/${f.conversation_id}` : '#/dm'];
         }
         const nf = items.find(f => f.role === 'flyer' && visible(f) && fresh(f));
-        if (shakeAsk) return ['Hear the Raven (someone wants to shake hands!)', `#/event/${shakeAsk.id}`];
-        if (nf) return [`Hear the Raven (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
-        if (shortHanded) return [`Hear the Raven (jobs open at ${shortHanded.title})`, `#/event/${shortHanded.id}`];
-        if (shakeOpen) return [`Hear the Raven (shake hands with your ${shakeOpen.title} crew)`, `#/event/${shakeOpen.id}`];
-        return request ? [`Hear the Raven (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet the Raven', null];
+        if (shakeAsk) return ['Hear Omen (someone wants to shake hands!)', `#/event/${shakeAsk.id}`];
+        if (nf) return [`Hear Omen (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
+        if (shortHanded) return [`Hear Omen (jobs open at ${shortHanded.title})`, `#/event/${shortHanded.id}`];
+        if (shakeOpen) return [`Hear Omen (shake hands with your ${shakeOpen.title} crew)`, `#/event/${shakeOpen.id}`];
+        return request ? [`Hear Omen (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet Omen', null];
       }
       case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
       case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
@@ -6233,7 +6264,7 @@ async function renderRoom(mainView, ownerId = null) {
       default: return false;
     }
   };
-  const visible = it => roomEditing || ((it.role !== 'hatbox' || profile.is_ringleader) && (it.role !== 'flyer' || !!flyerEvent(it)));
+  const visible = it => it.role !== 'megaphone' && (roomEditing || ((it.role !== 'hatbox' || profile.is_ringleader) && (it.role !== 'flyer' || !!flyerEvent(it))));
 
   const bulbs = [[9.2,19.2],[8.4,27.5],[8.8,35.6],[10.3,43.2],[15.6,13.8],[20.2,11.6],[26.5,13.9],[31.9,16.8],[34.7,23.1],[36.3,29.9],[37.1,37.1],[30.6,23.6]];
   const motes = Array.from({ length: 14 }, (_, i) => `<span class="room-mote" style="left:${(8 + (i * 61) % 84)}%;top:${(20 + (i * 37) % 60)}%;animation-delay:${(i * 0.9) % 11}s;animation-duration:${9 + (i % 5) * 2}s"></span>`).join('');
@@ -6286,7 +6317,21 @@ async function renderRoom(mainView, ownerId = null) {
           : `<img src="${ROOM}${v.img}.png" alt="" draggable="false">`}</span>${handle}</${tag}>`;
     }).join('') + (roomEditing ? '' : extras());
     if (roomEditing) renderEditor();
+    requestAnimationFrame(fitSquawk);
   }
+  // Omen's speech bubble always stays inside the painting.
+  function fitSquawk() {
+    const b = host.querySelector('.room-squawk.said');
+    if (!b) return;
+    b.style.setProperty('--sx', '0px'); b.style.setProperty('--sy', '0px');
+    const sr = scene.getBoundingClientRect(), r = b.getBoundingClientRect(), pad = 8;
+    let dx = 0, dy = 0;
+    if (r.right > sr.right - pad) dx = sr.right - pad - r.right;
+    if (r.left + dx < sr.left + pad) dx = sr.left + pad - r.left;
+    if (r.top < sr.top + pad) dy = sr.top + pad - r.top;
+    b.style.setProperty('--sx', `${Math.round(dx)}px`); b.style.setProperty('--sy', `${Math.round(dy)}px`);
+  }
+  window.addEventListener('resize', () => { if (scene.isConnected) fitSquawk(); });
   // Squawk bubble, exit sign and trunk glow ride along with their items.
   function extras() {
     let out = '';
@@ -6299,10 +6344,9 @@ async function renderRoom(mainView, ownerId = null) {
         out += `<button class="room-note" data-note="${n.id}" style="left:${l}%;top:${t}%;--tilt:${((k * 47) % 11) - 5}deg" aria-label="Note from ${escapeHtml(n.display_name)}: ${escapeHtml(n.body)}"><b>${escapeHtml(n.display_name.split(' ')[0])}</b>${escapeHtml(n.body.length > 28 ? n.body.slice(0, 27) + '…' : n.body)}</button>`;
       });
     }
-    const raven = items.find(i => i.role === 'raven'), exit = items.find(i => i.role === 'exit'), trunk = items.find(i => i.role === 'trunk');
+    const raven = items.find(i => i.role === 'raven'), trunk = items.find(i => i.role === 'trunk');
     const said = raven && squawk();
     if (said) out += `<div class="room-squawk said ${letters.unread ? 'letter' : ''}" style="left:${raven.l + raven.w * 0.55}%;top:${raven.t - 1.5}%" aria-hidden="true"><b>SQUAWK!</b> ${escapeHtml(said)}</div>`;
-    if (exit) out += `<div class="room-exit-sign${fresh(exit) ? ' is-new' : ''}" style="left:${exit.l - 4}%;top:${exit.t + (exit.h || 10) - 5}%" aria-hidden="true">Courtyard →</div>`;
     // NEW! tags pinned to whatever has something waiting.
     items.filter(it => visible(it) && ['flyer', 'book'].includes(it.role) && fresh(it)).forEach(it => {
       out += `<div class="room-new" style="left:${it.role === 'book' ? it.l + it.w * 0.12 : it.l + it.w / 2}%;top:${it.t - 1.5}%" aria-hidden="true">NEW!</div>`;
@@ -6460,14 +6504,13 @@ async function renderRoom(mainView, ownerId = null) {
     const first = (profile.display_name || '').split(' ')[0];
     const el = role => host.querySelector(`[data-role="${role}"]`);
     const steps = [
-      { text: `Welcome to your Dressing Room, ${escapeHtml(first)}! I’m the raven. Let me show you around. Everything glowing in here is something you can tap.` },
+      { text: `Welcome to your Dressing Room, ${escapeHtml(first)}! I’m Omen, the raven. Let me show you around. Everything glowing in here is something you can tap.` },
       { role: 'flyer', text: 'These flyers are real upcoming events. Tap one to see it and <b>take a job</b> on the crew. That’s how you join in.' },
       { role: 'trunk', text: 'Your steamer trunk. Every time you show up and help at a real carnival, you win a badge and it lands in here. <b>Two shifts and you’re an Apprentice.</b>' },
       inner ? { role: 'book', text: 'The Big Book is the <b>Guild Hall</b>: news, plans and talk for the whole troupe.' }
             : { role: 'exit', text: 'Step out to the <b>Courtyard</b> for guild news and calls for helping hands.' },
       { role: 'mirror', text: 'Look in the mirror to <b>pick your acts</b> (fire, clowning, building, costumes…) so your crew knows what you love.' },
-      { role: 'raven', text: 'And me! When there’s a letter, a new flyer or a job that needs hands, <b>I squawk about it</b> right here.' },
-      { role: 'megaphone', text: 'When the Ringleader hollers, it comes out of this megaphone. Tap it any time to hear the last one.' },
+      { role: 'raven', text: 'And me, <b>Omen</b>! When there’s a letter, a new flyer or a job that needs hands, <b>I squawk about it</b> right here.' },
       { text: 'That’s the tour! Want me to find you on your phone too, with job reminders, letters and hollers?', last: true },
     ].filter(st => !st.role || el(st.role));
     const tour = document.createElement('div');
@@ -6531,7 +6574,7 @@ async function renderRoom(mainView, ownerId = null) {
   const labels = document.getElementById('roomLabels');
   document.getElementById('roomReveal').addEventListener('click', () => {
     const sr = scene.getBoundingClientRect();
-    const SHORT = { mirror: 'Mirror', drawer: 'Drawer', stars: 'Stars', exit: 'Courtyard', costume: 'Costumes', flyer: 'Flyers', potion: 'Bottle', popcorn: 'Popcorn', book: 'Big Book', raven: 'Raven', trunk: 'Trunk', hatbox: 'Hat Box', events: 'Events', tickets: 'Tickets' };
+    const SHORT = { mirror: 'Mirror', drawer: 'Drawer', stars: 'Stars', exit: 'Courtyard', costume: 'Costumes', flyer: 'Flyers', potion: 'Bottle', popcorn: 'Popcorn', book: 'Big Book', raven: 'Omen', trunk: 'Trunk', hatbox: 'Hat Box', events: 'Events', tickets: 'Tickets' };
     const groups = {};
     host.querySelectorAll('[data-item]').forEach(el => {
       const it = items.find(i => i.id === el.dataset.item);
@@ -6653,7 +6696,6 @@ async function renderRoom(mainView, ownerId = null) {
     if (a === 'reset') {
       if (!confirm('Start this room over with the starter arrangement?')) return;
       items = defaultRoom(theme);
-      if (!items.some(i => i.role === 'megaphone')) items.push({ id: 'megaphone', role: 'megaphone', img: 'megaphone_floor', l: 43, t: 75, w: 24, rot: -4 });
       selectedId = null; draw(); say('Fresh start. Save to keep it.');
     }
     if (a === 'save') {

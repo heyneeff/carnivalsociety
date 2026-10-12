@@ -2054,3 +2054,12 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .run-del { flex: none; min-height: 24px; padding: 0 8px; border-radius: 999px; border: 1px solid #9B3036; background: #fffaf0; color: #9B3036; font-size: 11px; cursor: pointer; }
 .run-add input[type="datetime-local"] { flex: 0 0 auto; }
 @media (prefers-reduced-motion: reduce) { .run-item.now { box-shadow: 0 0 0 2px #c99a2e; } }
+
+/* ── Launch polish (2026-10-12) ── */
+/* Omen's bubble: nudged by --sx/--sy so it always stays inside the painting */
+@keyframes room-squawk-said3 { 0%,100% { transform: translate(calc(-60% + var(--sx, 0px)), calc(-100% + var(--sy, 0px))) rotate(-2deg); } 50% { transform: translate(calc(-60% + var(--sx, 0px)), calc(-100% + var(--sy, 0px))) rotate(2deg) scale(1.05); } }
+.room-squawk.said { animation-name: room-squawk-said3; }
+@media (prefers-reduced-motion: reduce) { .room-squawk.said { transform: translate(calc(-60% + var(--sx, 0px)), calc(-100% + var(--sy, 0px))); } }
+/* the holler megaphone that rolls in */
+.holler-cone { position: absolute; z-index: 6; pointer-events: none; }
+.holler-cone img { width: 100%; aspect-ratio: 347 / 181; display: block; }
