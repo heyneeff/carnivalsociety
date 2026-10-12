@@ -253,6 +253,31 @@ async function api(request, env, url, ctx) {
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(row.user_id).first();
     return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(sessionToken, SESSION_DAYS * 86400) } });
   }
+  // Claiming an account made at the door: set a real email (if we only had
+  // a placeholder) and a password, from the QR the door crew showed them.
+  if (pathname === "/api/auth/claim" && method === "POST") {
+    if (await rateLimited(env, request, "reset")) return err(429, "Too many attempts. Wait a minute and try again.");
+    const { token, password, email: rawEmail } = await body(request);
+    const tokenHash = await sha256Hex(token || "");
+    const row = await env.DB.prepare("SELECT r.user_id, u.email, u.display_name FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > datetime('now')").bind(tokenHash).first();
+    if (!row) return err(400, "That link has already been used or has expired. Ask a Ringleader for a new one.");
+    if (url.searchParams.get("peek")) return json({ display_name: row.display_name, needs_email: row.email.endsWith("@door.carnivalsociety.org") });
+    if (!password || password.length < 6) return err(400, "Password must be at least 6 characters.");
+    let email = row.email;
+    if (email.endsWith("@door.carnivalsociety.org")) {
+      email = normalizeEmail(rawEmail || "");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "Add your email so you can sign in.");
+      if (await env.DB.prepare("SELECT 1 FROM users WHERE lower(email) = ? AND id != ?").bind(email, row.user_id).first()) return err(400, "That email already has an account. Sign in with it instead.");
+    }
+    const { hash, salt } = await hashPassword(password);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE token_hash = ?").bind(tokenHash),
+      env.DB.prepare("UPDATE users SET email = ?, password_hash = ?, salt = ? WHERE id = ?").bind(email, hash, salt, row.user_id),
+    ]);
+    const sessionToken = await createSession(env, row.user_id);
+    const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(row.user_id).first();
+    return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(sessionToken, SESSION_DAYS * 86400) } });
+  }
   if (pathname === "/api/auth/signout" && method === "POST") {
     const token = parseCookie(request.headers.get("Cookie"), "session");
     if (token) await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(token).run();
@@ -1752,6 +1777,7 @@ async function api(request, env, url, ctx) {
   { const r = await volunteerRoutes(request, env, url, user); if (r) return r; }
   { const r = await jobRoutes(request, env, url, user); if (r) return r; }
   { const r = await crewRoutes(request, env, url, user); if (r) return r; }
+  { const r = await doorRoutes(request, env, url, user); if (r) return r; }
   { const r = await roomRoutes(request, env, url, user); if (r) return r; }
   { const r = await needRoutes(request, env, url, user); if (r) return r; }
   { const r = await passportRoutes(request, env, url, user); if (r) return r; }
@@ -2157,6 +2183,215 @@ async function roomGifts(env, ownerId, { wrappedOnly = false } = {}) {
   ).bind(ownerId).all();
   return results.map((g) => (g.opened_at ? g : { ...g, code: null }));
 }
+// ---------------------------------------------------------------------
+// The door (2026-10-14). Every person let in at a physical event becomes a
+// door_entries row: how they got in, what they paid at the door and how.
+// Run by Ringleaders, or by whoever claimed the event's "Door" job (on
+// the night only). New faces get a Courtyard account on the spot and a
+// claim QR, since we can't email them yet.
+const DOOR_VIAS = ["ticket", "pass", "door", "comp", "crew"];
+const DOOR_METHODS = ["cash", "card"];
+const DOOR_EMAIL_DOMAIN = "door.carnivalsociety.org";
+async function canRunDoor(env, user, eventId) {
+  if (!user) return false;
+  if (isModerator(user)) return true;
+  const row = await env.DB.prepare(
+    `SELECT 1 FROM job_claims c JOIN event_jobs j ON j.id = c.job_id JOIN events e ON e.id = j.event_id
+     WHERE j.event_id = ? AND c.user_id = ? AND lower(j.title) LIKE '%door%'
+       AND datetime('now') BETWEEN datetime(e.starts_at, '-8 hours') AND datetime(COALESCE(e.ends_at, datetime(e.starts_at, '+12 hours')), '+4 hours')`
+  ).bind(eventId, user.id).first();
+  return !!row;
+}
+async function doorTotals(env, eventId) {
+  const t = await env.DB.prepare(
+    `SELECT COUNT(*) AS inside, COALESCE(SUM(first_time), 0) AS first_time,
+       COALESCE(SUM(CASE WHEN method = 'cash' THEN amount_cents END), 0) AS cash,
+       COALESCE(SUM(CASE WHEN method = 'card' THEN amount_cents END), 0) AS card,
+       COALESCE(SUM(registration_cents), 0) AS registration,
+       COALESCE(SUM(registration_cents > 0), 0) AS registrations
+     FROM door_entries WHERE event_id = ? AND voided_at IS NULL`
+  ).bind(eventId).first();
+  const { results } = await env.DB.prepare("SELECT via, COUNT(*) AS n FROM door_entries WHERE event_id = ? AND voided_at IS NULL GROUP BY via").bind(eventId).all();
+  return { ...t, by_via: Object.fromEntries(results.map((r) => [r.via, r.n])) };
+}
+// First time at any carnival = never been let in before, by entry or stamp.
+async function firstTimer(env, userId) {
+  const seen = await env.DB.prepare(
+    "SELECT 1 FROM door_entries WHERE user_id = ? AND voided_at IS NULL UNION SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'ticket' LIMIT 1"
+  ).bind(userId, userId).first();
+  return seen ? 0 : 1;
+}
+async function admitted(env, eventId, userId) {
+  return env.DB.prepare("SELECT id, created_at FROM door_entries WHERE event_id = ? AND user_id = ? AND voided_at IS NULL").bind(eventId, userId).first();
+}
+async function addEntry(env, e) {
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO door_entries (id, event_id, user_id, name, via, ticket_id, gift_id, amount_cents, registration_cents, method, first_time, note, by_user)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, e.eventId, e.userId || null, e.name, e.via, e.ticketId || null, e.giftId || null, e.amount || 0, e.registration || 0, e.method || null, e.firstTime ? 1 : 0, e.note || null, e.by).run();
+  // Being let in is the Ticket Punched stamp; paying the $5 is The Fix.
+  let promoted = false;
+  if (e.userId) {
+    promoted = (await grantStamp(env, { userId: e.userId, kind: "ticket", eventId: e.eventId, grantedBy: e.by })).promoted;
+    if (e.registration) promoted = (await grantStamp(env, { userId: e.userId, kind: "fix", grantedBy: e.by })).promoted || promoted;
+  }
+  return { id, promoted };
+}
+// A scanned code: a ticket, or a guest pass from a Surprise.
+async function doorScan(env, user, eventId, code) {
+  const t = await env.DB.prepare(
+    `SELECT tickets.*, users.display_name, ticket_tiers.name AS tier_name FROM tickets
+     JOIN users ON users.id = tickets.user_id JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id
+     WHERE tickets.code = ? AND tickets.event_id = ?`
+  ).bind(code || "", eventId).first();
+  if (t) {
+    if (t.status !== "paid") return err(404, "That ticket was never paid for.");
+    const was = await admitted(env, eventId, t.user_id);
+    if (was || t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: was?.created_at || t.checked_in_at });
+    await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
+    const first = await firstTimer(env, t.user_id);
+    const { promoted } = await addEntry(env, { eventId, userId: t.user_id, name: t.display_name, via: "ticket", ticketId: t.id, firstTime: first, by: user.id });
+    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name, first_time: !!first, promoted });
+  }
+  const g = await env.DB.prepare(
+    `SELECT g.id, g.event_id, g.redeemed_at, u.display_name, e.title AS event_title FROM room_gifts g
+     JOIN users u ON u.id = g.room_user_id LEFT JOIN events e ON e.id = g.event_id WHERE g.code = ? AND g.kind = 'pass'`
+  ).bind(code || "").first();
+  if (!g) {
+    const other = await env.DB.prepare("SELECT e.title FROM tickets t JOIN events e ON e.id = t.event_id WHERE t.code = ?").bind(code || "").first();
+    return err(404, other ? `That ticket is for ${other.title}.` : "No valid ticket for that code.");
+  }
+  if (g.event_id && g.event_id !== eventId) return err(400, `That guest pass is for ${g.event_title}.`);
+  if (g.redeemed_at) return json({ ok: false, already: true, display_name: `${g.display_name}'s guest`, checked_in_at: g.redeemed_at });
+  await env.DB.prepare("UPDATE room_gifts SET redeemed_at = datetime('now'), redeemed_event_id = ?, opened_at = COALESCE(opened_at, datetime('now')) WHERE id = ?").bind(eventId, g.id).run();
+  await addEntry(env, { eventId, name: `${g.display_name}'s guest`, via: "pass", giftId: g.id, firstTime: 1, by: user.id });
+  return json({ ok: true, display_name: `${g.display_name}'s guest`, tier_name: "Guest pass (Admit One)", guest: true, first_time: true });
+}
+async function doorRoutes(request, env, url, user) {
+  const { pathname } = url;
+  const method = request.method;
+  const m = pathname.match(/^\/api\/events\/([^/]+)\/(door|checkin)(?:\/([a-z]+))?(?:\/([^/]+))?$/);
+  if (!m) return null;
+  const [, eventId, base, part, arg] = m;
+  if (!await canRunDoor(env, user, eventId)) return err(403, "Only the door crew runs the door.");
+  const ev = await env.DB.prepare("SELECT id, title, starts_at, ends_at, location, capacity, door_cents FROM events WHERE id = ?").bind(eventId).first();
+  if (!ev) return err(404, "No such carnival.");
+
+  // The old scanner route, kept working.
+  if (base === "checkin" && method === "POST" && !part) return doorScan(env, user, eventId, (await body(request)).code);
+  if (base !== "door") return null;
+
+  if (!part && method === "GET") {
+    const { results: entries } = await env.DB.prepare(
+      `SELECT d.id, d.name, d.via, d.amount_cents, d.registration_cents, d.method, d.first_time, d.note, d.created_at, d.voided_at, b.display_name AS by_name
+       FROM door_entries d LEFT JOIN users b ON b.id = d.by_user WHERE d.event_id = ? ORDER BY d.created_at DESC LIMIT 40`
+    ).bind(eventId).all();
+    return json({ event: ev, totals: await doorTotals(env, eventId), entries, ringleader: isModerator(user), registration_cents: Number(env.MEMBERSHIP_PRICE_CENTS || 500) });
+  }
+  if (!part && method === "PATCH") {
+    if (!isModerator(user)) return err(403, "Ringleaders set the door.");
+    const b = await body(request);
+    const cap = b.capacity === null || b.capacity === "" ? null : Math.max(0, Math.round(Number(b.capacity)) || 0);
+    const price = b.door_cents === null || b.door_cents === "" ? null : Math.max(0, Math.round(Number(b.door_cents)) || 0);
+    await env.DB.prepare("UPDATE events SET capacity = ?, door_cents = ? WHERE id = ?").bind(cap, price, eventId).run();
+    return json({ ok: true });
+  }
+  if (part === "scan" && method === "POST") return doorScan(env, user, eventId, (await body(request)).code);
+
+  // Find a member by name: just enough to let them in.
+  if (part === "search" && method === "GET") {
+    const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+    if (q.length < 2) return json({ members: [] });
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.city,
+         EXISTS (SELECT 1 FROM stamps s WHERE s.user_id = u.id AND s.kind = 'fix') AS has_fix,
+         (SELECT t.code FROM tickets t WHERE t.user_id = u.id AND t.event_id = ? AND t.status = 'paid' LIMIT 1) AS ticket_code,
+         EXISTS (SELECT 1 FROM job_claims c JOIN event_jobs j ON j.id = c.job_id WHERE c.user_id = u.id AND j.event_id = ?) AS crew,
+         (SELECT d.created_at FROM door_entries d WHERE d.user_id = u.id AND d.event_id = ? AND d.voided_at IS NULL) AS admitted_at
+       FROM users u WHERE lower(u.display_name) LIKE ? ORDER BY u.display_name LIMIT 8`
+    ).bind(eventId, eventId, eventId, `%${q}%`).all();
+    return json({ members: results.map((r) => ({ ...r, has_fix: !!r.has_fix, crew: !!r.crew })) });
+  }
+
+  // Let someone in: a member by id, or a new face (makes their account).
+  if (part === "admit" && method === "POST") {
+    const b = await body(request);
+    const via = DOOR_VIAS.includes(b.via) && !["ticket", "pass"].includes(b.via) ? b.via : "door";
+    const amount = Math.max(0, Math.round(Number(b.amount_cents) || 0));
+    const pay = via === "door" && amount > 0 ? (DOOR_METHODS.includes(b.method) ? b.method : null) : null;
+    if (via === "door" && amount > 0 && !pay) return err(400, "Cash or card?");
+    let target, claim = null, isNew = false;
+    if (b.user_id) {
+      target = await env.DB.prepare("SELECT id, display_name FROM users WHERE id = ?").bind(b.user_id).first();
+      if (!target) return err(404, "No such member.");
+    } else {
+      const name = (b.name || "").trim().slice(0, 60);
+      if (!name) return err(400, "What's their name?");
+      const email = normalizeEmail(b.email || "");
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "That email doesn't look right.");
+      const phone = (b.phone || "").trim().slice(0, 30) || null;
+      if (email) target = await env.DB.prepare("SELECT id, display_name FROM users WHERE lower(email) = ?").bind(email).first();
+      if (!target) {
+        // A Courtyard account with no usable password; the claim QR sets one.
+        const id = crypto.randomUUID();
+        const { hash, salt } = await hashPassword(bytesToHex(crypto.getRandomValues(new Uint8Array(24))));
+        const city = (b.city || "").trim().slice(0, 60) || null;
+        const chapterId = city ? (await env.DB.prepare("SELECT id FROM chapters WHERE instr(lower(?), lower(name)) > 0 LIMIT 1").bind(city).first())?.id || null : null;
+        await env.DB.prepare(
+          "INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, rank, heard_about_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?)"
+        ).bind(id, email || `${id}@${DOOR_EMAIL_DOMAIN}`, hash, salt, name, chapterId, city, phone, (b.heard || "").trim().slice(0, 120) || null).run();
+        target = { id, display_name: name };
+        isNew = true;
+      }
+    }
+    const was = await admitted(env, eventId, target.id);
+    if (was) return json({ ok: false, already: true, display_name: target.display_name, checked_in_at: was.created_at });
+    const hasFix = !!await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(target.id).first();
+    const regCents = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
+    const registration = b.registration && !hasFix && via === "door" && amount >= regCents ? regCents : 0;
+    const first = await firstTimer(env, target.id);
+    const { id: entryId, promoted } = await addEntry(env, {
+      eventId, userId: target.id, name: target.display_name, via, amount: via === "door" ? amount : 0, registration, method: pay,
+      firstTime: first, note: (b.note || "").trim().slice(0, 140) || null, by: user.id,
+    });
+    // New faces (and anyone who never set a password) get a 30-day claim link.
+    if (isNew) {
+      const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+      await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))").bind(await sha256Hex(token), target.id).run();
+      claim = siteUrl(env) + "/#/claim/" + token;
+    }
+    return json({ ok: true, id: entryId, display_name: target.display_name, first_time: !!first, new_account: isNew, claim, promoted });
+  }
+
+  // Undo a mistake: the row stays, out of every count.
+  if (part === "entries" && arg && method === "DELETE") {
+    const e = await env.DB.prepare("SELECT id, gift_id, ticket_id, user_id FROM door_entries WHERE id = ? AND event_id = ? AND voided_at IS NULL").bind(arg, eventId).first();
+    if (!e) return err(404, "Already undone.");
+    await env.DB.prepare("UPDATE door_entries SET voided_at = datetime('now') WHERE id = ?").bind(e.id).run();
+    if (e.ticket_id) await env.DB.prepare("UPDATE tickets SET checked_in_at = NULL WHERE id = ?").bind(e.ticket_id).run();
+    if (e.gift_id) await env.DB.prepare("UPDATE room_gifts SET redeemed_at = NULL, redeemed_event_id = NULL WHERE id = ?").bind(e.gift_id).run();
+    if (e.user_id) await env.DB.prepare("DELETE FROM stamps WHERE user_id = ? AND kind = 'ticket' AND event_id = ?").bind(e.user_id, eventId).run();
+    return json({ ok: true });
+  }
+
+  // The night's report: everything, for the Ringleader.
+  if (part === "report" && method === "GET") {
+    if (!isModerator(user)) return err(403, "Ringleaders only.");
+    const { results: entries } = await env.DB.prepare(
+      `SELECT d.*, b.display_name AS by_name, u.city, u.email AS user_email FROM door_entries d
+       LEFT JOIN users b ON b.id = d.by_user LEFT JOIN users u ON u.id = d.user_id WHERE d.event_id = ? ORDER BY d.created_at`
+    ).bind(eventId).all();
+    const sold = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS cents FROM tickets WHERE event_id = ? AND status = 'paid'").bind(eventId).first();
+    const { results: hours } = await env.DB.prepare(
+      "SELECT strftime('%Y-%m-%dT%H:00:00Z', created_at) AS hour, COUNT(*) AS n FROM door_entries WHERE event_id = ? AND voided_at IS NULL GROUP BY hour ORDER BY hour"
+    ).bind(eventId).all();
+    return json({ event: ev, totals: await doorTotals(env, eventId), advance: sold, hours,
+      entries: entries.map((e) => ({ ...e, user_email: e.user_email && e.user_email.endsWith("@" + DOOR_EMAIL_DOMAIN) ? null : e.user_email })) });
+  }
+  return null;
+}
+
 async function roomRoutes(request, env, url, user) {
   const { pathname } = url;
   const method = request.method;
@@ -2880,34 +3115,6 @@ async function ticketRoutes(request, env, url) {
     return json({ tickets: results, passes });
   }
 
-  const checkinMatch = pathname.match(/^\/api\/events\/([^/]+)\/checkin$/);
-  if (checkinMatch && method === "POST") {
-    const user = await getSessionUser(request, env);
-    if (!isModerator(user)) return err(403, "Moderators only.");
-    const { code } = await body(request);
-    const t = await env.DB.prepare(
-      `SELECT tickets.*, users.display_name, ticket_tiers.name AS tier_name FROM tickets
-       JOIN users ON users.id = tickets.user_id JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id
-       WHERE tickets.code = ? AND tickets.event_id = ?`
-    ).bind(code || "", checkinMatch[1]).first();
-    if (!t) {
-      // Not a ticket? Maybe a guest pass the Ringleader gave someone.
-      const g = await env.DB.prepare(
-        `SELECT g.id, g.event_id, g.redeemed_at, u.display_name, e.title AS event_title FROM room_gifts g
-         JOIN users u ON u.id = g.room_user_id LEFT JOIN events e ON e.id = g.event_id WHERE g.code = ? AND g.kind = 'pass'`
-      ).bind(code || "").first();
-      if (!g) return err(404, "No valid ticket for that code.");
-      if (g.event_id && g.event_id !== checkinMatch[1]) return err(400, `That guest pass is for ${g.event_title}.`);
-      if (g.redeemed_at) return json({ ok: false, already: true, display_name: `${g.display_name}'s guest`, checked_in_at: g.redeemed_at });
-      await env.DB.prepare("UPDATE room_gifts SET redeemed_at = datetime('now'), redeemed_event_id = ?, opened_at = COALESCE(opened_at, datetime('now')) WHERE id = ?").bind(checkinMatch[1], g.id).run();
-      return json({ ok: true, display_name: `${g.display_name}'s guest`, tier_name: "Guest pass (Admit One)", guest: true });
-    }
-    if (t.status !== "paid") return err(404, "No valid ticket for that code.");
-    if (t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: t.checked_in_at });
-    await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
-    const { promoted } = await grantStamp(env, { userId: t.user_id, kind: "ticket", eventId: t.event_id, grantedBy: user.id });
-    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name, promoted });
-  }
   return null;
 }
 
@@ -2915,6 +3122,8 @@ function courtyardAllowed(method, pathname) {
   if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room" || pathname === "/api/materials" || pathname === "/api/run")) return true;
   if ((method === "POST" || method === "DELETE") && /^\/api\/materials\/[^/]+\/pledge$/.test(pathname)) return true;
   if (method === "PUT" && pathname === "/api/me/room") return true;
+  // Door crew can be Courtyard folk; doorRoutes checks the Door job.
+  if (/^\/api\/events\/[^/]+\/(door|checkin)(\/|$)/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/gifts\/[a-f0-9]+\/open$/.test(pathname)) return true;
   if (method === "GET" && /^\/api\/rooms\/[^/]+$/.test(pathname)) return true;
   if ((method === "POST" && /^\/api\/rooms\/[^/]+\/notes$/.test(pathname)) || (method === "DELETE" && /^\/api\/rooms\/[^/]+\/notes\/\d+$/.test(pathname))) return true;

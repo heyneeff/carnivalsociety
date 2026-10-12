@@ -141,6 +141,8 @@ function render() {
   mobileNavOpen = false; // any navigation closes the mobile drawer
   const resetMatch = window.location.hash.match(/^#\/reset\/([0-9a-f]+)$/);
   if (resetMatch) { renderResetScreen(resetMatch[1]); return; }
+  const claimMatch = window.location.hash.match(/^#\/claim\/([0-9a-f]+)$/);
+  if (claimMatch) { renderClaimScreen(claimMatch[1]); return; }
   if (!session || !profile) { session = false; profile = null; dropForumWing(); renderAuthScreen(defaultAuthMode()); return; }
   if (!profile.onboarded) { dropForumWing(); renderOnboarding(); return; }
   renderShell();
@@ -450,7 +452,7 @@ function renderShell() {
       <div class="sheet-label">The Ringleader’s office</div>
       ${sheetLink('#/blast', '📣 Holler at everyone', is('blast'))}
       ${sheetLink('#/directory', 'Directory', is('directory'), newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : '', 'members, tiers, new sign-ups')}
-      ${sheetLink('#/checkin', 'Door check-in', is('checkin', 'checkin/'))}
+      ${sheetLink('#/checkin', 'The Door', is('checkin', 'checkin/'))}
       ${sheetLink('#/impact', 'Impact log', is('impact'))}
       ${sheetLink('#/field', 'Guild map', is('field'))}
       ${sheetLink('#/network', 'Member network', is('network'))}
@@ -648,6 +650,7 @@ function renderPage(mainView, route) {
   if (route === 'cancelled') { location.hash = '#/events'; return; }
   if (route === 'tickets') { renderMyTicketsView(mainView); return; }
   if (route.startsWith('checkin')) { renderCheckinView(mainView, route.split('/')[1] || null); return; }
+  if (route.startsWith('door-report/')) { renderDoorReport(mainView, route.split('/')[1]); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'album') { renderAlbum(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
@@ -1120,7 +1123,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       ${showTools ? `<details class="rl-tools"><summary>✎ Ringleader tools</summary><div class="rl-tools-body">
         <div class="post-actions">
           ${canEdit ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
-          ${profile?.is_ringleader ? `<a class="action-btn" href="#/checkin/${e.id}">Door check-in</a>` : ''}
+          ${profile?.is_ringleader ? `<a class="action-btn" href="#/checkin/${e.id}">🚪 The Door</a>` : ''}
           ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage crew</button>` : ''}
           ${canManage ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
         </div>
@@ -1431,6 +1434,7 @@ async function renderJobs(mainView) {
           <div class="jt-head"><span class="jt-title">${escapeHtml(j.title)}</span>${j.shift ? `<span class="jt-shift">${escapeHtml(j.shift)}</span>` : ''}</div>
           ${j.details ? `<div class="jt-details">${escapeHtml(j.details)}</div>` : ''}
           <div class="jt-foot"><span class="jt-crew">${seats}</span>${me && !me.done ? '<span class="jt-yours">It’s yours!</span>' : ''}${action}</div>
+          ${me && /door/i.test(j.title) ? `<a class="action-btn jt-door" href="#/checkin/${j.event_id}">🚪 Run the door</a>` : ''}
           ${mod ? `<div class="jt-tools">${j.claims.map(c => `<span class="jt-tool-row">${escapeHtml(c.display_name)} ${c.done ? '✓' : `<button data-done-job="${j.id}" data-user="${c.user_id}">Mark done</button>`}<button data-drop-job="${j.id}" data-user="${c.user_id}" aria-label="Take ${escapeHtml(c.display_name)} off this job">✕</button></span>`).join('')}<button class="jt-delete" data-delete-job="${j.id}">Remove this job</button></div>` : ''}
         </div>`;
       }).join('')}`;
@@ -7188,108 +7192,348 @@ async function renderTicketSuccess(mainView) {
   location.hash = '#/tickets';
 }
 
-// Ringleader door scanner. Typed code always works; camera scan is used when
-// the browser has BarcodeDetector (Chrome/Android; recent Safari).
+// ── The door (2026-10-14) ─────────────────────────────────────────────
+// One screen for the night: Scan (tickets, guest passes), Find (members by
+// name), New face (makes their account; they claim it from a QR). Every
+// entry is logged with how they got in and what they paid, cash or card
+// (the Square register). Run by Ringleaders, or whoever took the Door job.
+const doorMoney = c => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
+const DOOR_VIA = { ticket: '🎟️ Ticket', pass: '🎁 Guest pass', door: '💵 Paid at door', comp: '🌟 Comp', crew: '🔨 Crew' };
 async function renderCheckinView(mainView, eventId) {
-  if (!profile?.is_ringleader) { mainView.innerHTML = '<h2>Door Check-in</h2><div class="placeholder-note">Ringleaders only.</div>'; return; }
   if (!eventId) {
+    if (!profile?.is_ringleader) { mainView.innerHTML = '<h2>The Door</h2><div class="placeholder-note">Take the Door job on an event’s flyer to run its door.</div>'; return; }
     const { events } = await apiFetch('/api/events');
-    mainView.innerHTML = `<h2>Door Check-in</h2><div class="post-list">${events.map(e => `<a class="post-card" href="#/checkin/${e.id}"><div class="post-title">${escapeHtml(e.title)}</div><div class="post-meta">${formatEventDate(e.starts_at)}</div></a>`).join('') || '<div class="placeholder-note">No upcoming events.</div>'}</div>`;
+    mainView.innerHTML = `<h2>The Door</h2><div class="post-list">${events.map(e => `<a class="post-card" href="#/checkin/${e.id}"><div class="post-title">${escapeHtml(e.title)}</div><div class="post-meta">${formatEventDate(e.starts_at)}</div></a>`).join('') || '<div class="placeholder-note">No upcoming events.</div>'}</div>`;
     return;
   }
+  let d;
+  try { d = await apiFetch(`/api/events/${eventId}/door`); }
+  catch (err) { mainView.innerHTML = `<h2>The Door</h2><div class="placeholder-note">${escapeHtml(err.message)} The door opens to its crew on the night.</div>`; return; }
+  const ev = d.event;
+  let lane = 'scan';
   mainView.innerHTML = `
-    <h2>Door Check-in</h2>
-    <div class="ticket-box">
-      <video id="scanVideo" playsinline muted style="display:none;width:100%;max-width:360px;border-radius:6px;"></video>
-      <form id="checkinForm" class="ticket-tier-form">
-        <input type="text" id="checkinCode" placeholder="Ticket code" autocomplete="off" autocapitalize="off" autofocus>
-        <button type="submit" class="composer-submit">Check in</button>
+    <div class="door">
+      <div class="door-head">
+        <div><div class="door-kicker">🚪 The Door</div><h2>${escapeHtml(ev.title)}</h2></div>
+        ${d.ringleader ? `<div class="door-head-btns"><button class="action-btn" data-door-settings>⚙ Door settings</button><a class="action-btn" href="#/door-report/${eventId}">The night’s report</a></div>` : ''}
+      </div>
+      <div class="door-count" id="doorCount" aria-live="polite"></div>
+      <form class="door-settings" id="doorSettings" hidden>
+        <label>How many fit <input type="number" name="capacity" min="0" inputmode="numeric" value="${ev.capacity ?? ''}" placeholder="No limit"></label>
+        <label>Door price $ <input type="number" name="price" min="0" step="1" inputmode="decimal" value="${ev.door_cents != null ? ev.door_cents / 100 : ''}" placeholder="Pay what you can"></label>
+        <button class="composer-submit" type="submit">Save</button>
       </form>
-      <div id="checkinResult" class="post-meta"></div>
-    </div>
-    <div class="ticket-box">
-      <h3 class="passport-section">Walk-ins &amp; crew</h3>
-      <input type="text" id="doorSearch" placeholder="Find a member by name" autocomplete="off">
-      <div id="doorResults" class="volunteer-list"></div>
+      <div class="door-lanes" role="tablist">
+        <button role="tab" data-lane="scan" aria-selected="true">📷 Scan</button>
+        <button role="tab" data-lane="find" aria-selected="false">🔎 Find a member</button>
+        <button role="tab" data-lane="new" aria-selected="false">✨ New face</button>
+      </div>
+      <div class="door-lane" data-for="scan">
+        <div class="door-cam"><video id="scanVideo" playsinline muted hidden></video><canvas id="scanCanvas" hidden></canvas><p class="door-cam-hint" id="camHint">Starting the camera…</p></div>
+        <form id="checkinForm" class="door-code"><input type="text" id="checkinCode" placeholder="…or type the ticket code" autocomplete="off" autocapitalize="off"><button type="submit" class="composer-submit">Check</button></form>
+      </div>
+      <div class="door-lane" data-for="find" hidden>
+        <input type="search" id="doorSearch" class="door-input" placeholder="Their name" autocomplete="off">
+        <div id="doorResults" class="door-results"></div>
+      </div>
+      <form class="door-lane door-new" data-for="new" id="doorNew" hidden>
+        <input class="door-input" name="name" placeholder="Name (what they go by)" required maxlength="60" autocomplete="off">
+        <input class="door-input" name="email" type="email" placeholder="Email (optional)" autocomplete="off" inputmode="email">
+        <input class="door-input" name="phone" type="tel" placeholder="Phone (optional)" autocomplete="off">
+        <input class="door-input" name="city" placeholder="City (optional)" autocomplete="off">
+        <input class="door-input" name="heard" placeholder="How’d they hear about us? (optional)" autocomplete="off">
+        <button class="composer-submit" type="submit">Next: how they’re getting in →</button>
+      </form>
+      <div class="door-result" id="doorResult" aria-live="assertive"></div>
+      <h3 class="door-recent-h">Just came in</h3>
+      <div class="door-recent" id="doorRecent"></div>
     </div>`;
-  const result = document.getElementById('checkinResult');
+  const $ = s => mainView.querySelector(s);
+  const result = $('#doorResult');
 
-  // Stamp people who don't have a QR ticket: punch them in, take cash for
-  // The Fix, or mark crew shifts.
-  const doorResults = document.getElementById('doorResults');
-  let doorTimer = null;
-  async function drawDoor(flash = '') {
-    const q = document.getElementById('doorSearch').value.trim();
-    if (!q) { doorResults.innerHTML = flash ? `<div class="stamp-flash">${flash}</div>` : ''; return; }
-    const [{ members }, { stamps }] = await Promise.all([
-      apiFetch(`/api/members/search?q=${encodeURIComponent(q)}`),
-      apiFetch(`/api/events/${eventId}/stamps`),
-    ]);
-    const has = (uid, kind) => stamps.some(s => s.user_id === uid && s.kind === kind);
-    const btn = (m, kind, label) => has(m.id, kind)
-      ? `<span class="volunteer-yes">${BADGES[kind].glyph} ${label} ✓</span>`
-      : `<button class="action-btn" data-door-stamp="${kind}" data-uid="${m.id}" data-name="${escapeHtml(m.display_name)}">${BADGES[kind].glyph} ${label}</button>`;
-    doorResults.innerHTML = (flash ? `<div class="stamp-flash">${flash}</div>` : '') + (members.slice(0, 8).map(m => `
-      <div class="volunteer-item">
-        <strong>${escapeHtml(m.display_name)}</strong>
-        <span class="post-meta">${escapeHtml(m.city || '')} · ${escapeHtml(rankLabel(m.rank))}</span>
-        <div class="post-actions">
-          ${btn(m, 'ticket', 'Punch ticket')}
-          <button class="action-btn" data-door-stamp="fix" data-uid="${m.id}" data-name="${escapeHtml(m.display_name)}">${BADGES.fix.glyph} Took their $5</button>
-          ${btn(m, 'roustabout', 'Worked a shift')}
-        </div>
-      </div>`).join('') || '<div class="placeholder-note">No one by that name.</div>');
-    doorResults.querySelectorAll('[data-door-stamp]').forEach(b => b.addEventListener('click', async () => {
-      b.disabled = true;
-      const kind = b.dataset.doorStamp;
-      const r = await apiFetch('/api/stamps', { method: 'POST', body: { user_id: b.dataset.uid, kind, event_id: kind === 'fix' ? null : eventId } });
-      const name = escapeHtml(b.dataset.name);
-      drawDoor(r.promoted ? `🎉 ${name} just became an Apprentice and stepped inside!`
-        : !r.granted && kind === 'fix' ? `${name} already greased the palm. No double charge recorded.`
-        : `${BADGES[kind].glyph} ${name}: ${escapeHtml(BADGES[kind].name)} stamped.`);
-    }));
+  function drawCount(t) {
+    const cap = ev.capacity;
+    const pct = cap ? Math.min(100, Math.round((t.inside / cap) * 100)) : 0;
+    $('#doorCount').innerHTML = `
+      <div class="dc-big"><b>${t.inside}</b><span>inside${cap ? ` of ${cap}` : ''}</span></div>
+      ${cap ? `<div class="dc-bar ${pct >= 90 ? 'full' : ''}"><i style="width:${pct}%"></i></div>` : ''}
+      <div class="dc-row"><span>✨ ${t.first_time} first-timer${t.first_time === 1 ? '' : 's'}</span><span>💵 ${doorMoney(t.cash)} cash</span><span>💳 ${doorMoney(t.card)} card</span></div>`;
   }
-  document.getElementById('doorSearch').addEventListener('input', () => {
-    clearTimeout(doorTimer);
-    doorTimer = setTimeout(() => drawDoor(), 250);
-  });
-  async function submit(code) {
-    try {
-      const r = await apiFetch(`/api/events/${eventId}/checkin`, { method: 'POST', body: { code } });
-      result.style.color = r.ok ? '#8FD19E' : '#E0B060';
-      result.textContent = r.ok ? `✓ ${r.display_name} — ${r.tier_name}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}` : `Already checked in: ${r.display_name} (${r.checked_in_at} UTC)`;
-    } catch (err) {
-      result.style.color = '#E08A8A';
-      result.textContent = '✗ ' + err.message;
-    }
+  function drawRecent(entries) {
+    $('#doorRecent').innerHTML = entries.length ? entries.map(e => `
+      <div class="door-entry ${e.voided_at ? 'voided' : ''}">
+        <div><b>${escapeHtml(e.name)}</b>${e.first_time ? ' <span class="door-first">first time!</span>' : ''}
+          <div class="post-meta">${DOOR_VIA[e.via] || e.via}${e.amount_cents ? ` · ${doorMoney(e.amount_cents)} ${e.method || ''}${e.registration_cents ? ' (incl. $5 registration)' : ''}` : ''} · ${new Date(sqlTime(e.created_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${e.by_name ? ` · by ${escapeHtml(e.by_name.split(' ')[0])}` : ''}${e.note ? ` · ${escapeHtml(e.note)}` : ''}</div></div>
+        ${e.voided_at ? '<span class="post-meta">undone</span>' : `<button class="raven-offer-no" data-undo="${e.id}">Undo</button>`}
+      </div>`).join('') : '<div class="placeholder-note">Nobody yet. Doors open soon!</div>';
   }
-  document.getElementById('checkinForm').addEventListener('submit', e => {
+  async function refresh() {
+    try { d = await apiFetch(`/api/events/${eventId}/door`); drawCount(d.totals); drawRecent(d.entries); } catch (e) { /* keep what's on screen */ }
+  }
+  drawCount(d.totals); drawRecent(d.entries);
+  const poll = setInterval(() => { if (!document.body.contains(mainView.querySelector('.door'))) clearInterval(poll); else refresh(); }, 15000);
+
+  const flash = (ok, html) => {
+    result.className = `door-result show ${ok === true || ok === 'keep' ? 'ok' : ok === false ? 'warn' : 'bad'}`;
+    result.innerHTML = html;
+    if (ok !== 'keep') clearTimeout(flash.t), flash.t = setTimeout(() => { if (!result.querySelector('.door-claim')) result.classList.remove('show'); }, 6000);
+    try { navigator.vibrate?.(ok === true ? 60 : [80, 60, 80]); } catch (e) { /* no buzz */ }
+  };
+  const said = r => r.ok
+    ? `<b>✓ ${escapeHtml(r.display_name)}</b>${r.tier_name ? ` · ${escapeHtml(r.tier_name)}` : ''}${r.first_time ? ' · <span class="door-first">first time! Welcome them in</span>' : ''}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}`
+    : `<b>Already in:</b> ${escapeHtml(r.display_name)} (since ${new Date(sqlTime(r.checked_in_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})`;
+
+  // Lanes.
+  mainView.querySelectorAll('[data-lane]').forEach(b => b.addEventListener('click', () => {
+    lane = b.dataset.lane;
+    mainView.querySelectorAll('[data-lane]').forEach(x => x.setAttribute('aria-selected', x === b));
+    mainView.querySelectorAll('.door-lane').forEach(x => { x.hidden = x.dataset.for !== lane; });
+    closeAdmit();
+    if (lane === 'find') $('#doorSearch').focus();
+    if (lane === 'new') $('#doorNew [name=name]').focus();
+  }));
+  $('[data-door-settings]')?.addEventListener('click', () => { $('#doorSettings').hidden = !$('#doorSettings').hidden; });
+  $('#doorSettings').addEventListener('submit', async e => {
     e.preventDefault();
-    const input = document.getElementById('checkinCode');
-    if (input.value.trim()) submit(input.value.trim());
+    const f = e.target;
+    const capacity = f.capacity.value === '' ? null : Number(f.capacity.value), door_cents = f.price.value === '' ? null : Math.round(Number(f.price.value) * 100);
+    await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents } });
+    ev.capacity = capacity; ev.door_cents = door_cents; f.hidden = true; drawCount(d.totals); flashToast('Door settings saved.');
+  });
+
+  // Scan: tickets and guest passes.
+  async function scan(code) {
+    try { const r = await apiFetch(`/api/events/${eventId}/door/scan`, { method: 'POST', body: { code } }); flash(r.ok, said(r)); refresh(); }
+    catch (err) { flash('bad', `✗ ${escapeHtml(err.message)}`); }
+  }
+  $('#checkinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = $('#checkinCode');
+    if (input.value.trim()) scan(input.value.trim());
     input.value = '';
   });
-  if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      const video = document.getElementById('scanVideo');
-      video.srcObject = stream; video.style.display = 'block'; await video.play();
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      let last = '', lastAt = 0;
-      const tick = async () => {
-        if (!document.body.contains(video)) { stream.getTracks().forEach(t => t.stop()); return; }
-        try {
-          const codes = await detector.detect(video);
-          if (codes.length && (codes[0].rawValue !== last || Date.now() - lastAt > 4000)) {
-            last = codes[0].rawValue; lastAt = Date.now();
-            await submit(last);
-          }
-        } catch (e) { /* frame not ready */ }
-        requestAnimationFrame(tick);
-      };
-      tick();
-    } catch (e) { /* camera denied — typed entry still works */ }
+
+  // Find a member.
+  let findTimer;
+  $('#doorSearch').addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(find, 250); });
+  async function find() {
+    const q = $('#doorSearch').value.trim();
+    if (q.length < 2) { $('#doorResults').innerHTML = ''; return; }
+    const { members } = await apiFetch(`/api/events/${eventId}/door/search?q=${encodeURIComponent(q)}`);
+    $('#doorResults').innerHTML = members.map(m => `
+      <div class="door-member">
+        <div><b>${escapeHtml(m.display_name)}</b><div class="post-meta">${escapeHtml(m.city || '')}${m.crew ? ' · 🔨 on the crew' : ''}${m.ticket_code ? ' · 🎟️ has a ticket' : ''}${m.has_fix ? '' : ' · hasn’t paid the $5 yet'}</div></div>
+        ${m.admitted_at ? '<span class="volunteer-yes">✓ In</span>'
+          : m.ticket_code ? `<button class="composer-submit" data-ticket="${m.ticket_code}">Use their ticket</button>`
+          : `<button class="composer-submit" data-admit="${m.id}" data-name="${escapeHtml(m.display_name)}" data-fix="${m.has_fix ? 1 : 0}" data-crew="${m.crew ? 1 : 0}">Let in…</button>`}
+      </div>`).join('') || `<div class="placeholder-note">No one by that name. <button class="raven-offer-no" data-to-new>New face?</button></div>`;
   }
+  $('#doorResults').addEventListener('click', e => {
+    const t = e.target.closest('[data-ticket]');
+    if (t) { scan(t.dataset.ticket); setTimeout(find, 600); return; }
+    const a = e.target.closest('[data-admit]');
+    if (a) { openAdmit({ user_id: a.dataset.admit, name: a.dataset.name, hasFix: a.dataset.fix === '1', crew: a.dataset.crew === '1' }, a.closest('.door-member')); return; }
+    if (e.target.closest('[data-to-new]')) { mainView.querySelector('[data-lane="new"]').click(); $('#doorNew [name=name]').value = $('#doorSearch').value; }
+  });
+
+  // New face → the same "how are they getting in" sheet.
+  $('#doorNew').addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target;
+    openAdmit({ name: f.name.value.trim(), email: f.email.value.trim(), phone: f.phone.value.trim(), city: f.city.value.trim(), heard: f.heard.value.trim(), hasFix: false, fresh: true }, f);
+  });
+
+  // How they're getting in, and what they paid.
+  let sheet = null;
+  function closeAdmit() { sheet?.remove(); sheet = null; }
+  function openAdmit(who, after) {
+    closeAdmit();
+    const reg = d.registration_cents;
+    const price = ev.door_cents;
+    sheet = document.createElement('form');
+    sheet.className = 'door-admit';
+    sheet.innerHTML = `
+      <div class="da-who">Letting in <b>${escapeHtml(who.name)}</b>${who.fresh ? ' <span class="door-first">new face</span>' : ''}</div>
+      <div class="da-seg" data-seg="via">
+        <button type="button" data-v="door" aria-pressed="${!who.crew}">💵 Paying</button>
+        <button type="button" data-v="comp" aria-pressed="false">🌟 Comp</button>
+        <button type="button" data-v="crew" aria-pressed="${!!who.crew}">🔨 Crew</button>
+      </div>
+      <div class="da-pay">
+        <label class="da-amount">$ <input name="amount" type="number" min="0" step="1" inputmode="decimal" value="${price != null ? price / 100 : ''}" placeholder="Amount"></label>
+        <div class="da-seg" data-seg="method">
+          <button type="button" data-v="cash" aria-pressed="false">💵 Cash</button>
+          <button type="button" data-v="card" aria-pressed="false">💳 Card (Square)</button>
+        </div>
+        ${who.hasFix ? '' : `<label class="da-reg"><input type="checkbox" name="registration" checked> Includes the one-time ${doorMoney(reg)} registration (first carnival). They win <b>The Fix Is In</b>.</label>`}
+      </div>
+      <input class="door-input" name="note" placeholder="Note (optional): performer, plus-one of…" maxlength="140" autocomplete="off">
+      <div class="da-btns"><button class="composer-submit" type="submit">Let them in</button><button class="raven-offer-no" type="button" data-cancel>Cancel</button></div>`;
+    after.after(sheet);
+    const state = { via: who.crew ? 'crew' : 'door', method: null };
+    const sync = () => {
+      sheet.querySelectorAll('[data-seg="via"] [data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === state.via));
+      sheet.querySelectorAll('[data-seg="method"] [data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === state.method));
+      sheet.querySelector('.da-pay').hidden = state.via !== 'door';
+    };
+    sync();
+    sheet.addEventListener('click', e => {
+      const b = e.target.closest('[data-v]');
+      if (b) { state[b.closest('[data-seg]').dataset.seg] = b.dataset.v; sync(); }
+      if (e.target.closest('[data-cancel]')) closeAdmit();
+    });
+    sheet.querySelector('[name=amount]')?.focus();
+    sheet.addEventListener('submit', async e => {
+      e.preventDefault();
+      const amount = Math.round(Number(sheet.amount.value || 0) * 100);
+      if (state.via === 'door' && amount > 0 && !state.method) { flash('bad', 'Cash or card?'); return; }
+      const registration = !!sheet.registration?.checked;
+      if (state.via === 'door' && registration && amount < reg) { flash('bad', `The registration alone is ${doorMoney(reg)}. Untick it, or take at least that.`); return; }
+      const btn = sheet.querySelector('[type=submit]'); btn.disabled = true;
+      try {
+        const r = await apiFetch(`/api/events/${eventId}/door/admit`, { method: 'POST', body: {
+          user_id: who.user_id, name: who.name, email: who.email, phone: who.phone, city: who.city, heard: who.heard,
+          via: state.via, amount_cents: state.via === 'door' ? amount : 0, method: state.method, registration, note: sheet.note.value,
+        } });
+        closeAdmit();
+        if (who.fresh) $('#doorNew').reset();
+        if (lane === 'find') { $('#doorSearch').value = ''; $('#doorResults').innerHTML = ''; }
+        flash(r.ok ? 'keep' : false, said(r) + (r.claim ? `
+          <div class="door-claim"><div class="ticket-qr">${qrSvg(r.claim)}</div>
+            <p><b>Have them scan this with their phone</b> to claim their Dressing Room and set a password. Works for 30 days.</p>
+            <button class="raven-offer-no" data-claim-done>Done</button></div>` : ''));
+        if (r.ok && !r.claim) setTimeout(() => result.classList.remove('show'), 6000);
+        refresh();
+      } catch (err) { flash('bad', `✗ ${escapeHtml(err.message)}`); btn.disabled = false; }
+    });
+  }
+  result.addEventListener('click', e => { if (e.target.closest('[data-claim-done]')) result.classList.remove('show'); });
+
+  // Undo a mistake.
+  $('#doorRecent').addEventListener('click', async e => {
+    const b = e.target.closest('[data-undo]');
+    if (!b) return;
+    b.disabled = true;
+    try { await apiFetch(`/api/events/${eventId}/door/entries/${b.dataset.undo}`, { method: 'DELETE' }); refresh(); }
+    catch (err) { flashToast(err.message); b.disabled = false; }
+  });
+
+  // The camera: the browser's own QR reader where there is one, jsQR on iPhones.
+  const video = $('#scanVideo'), hint = $('#camHint');
+  if (!navigator.mediaDevices?.getUserMedia) { hint.textContent = 'No camera here. Type the code below.'; return; }
+  let detect;
+  if ('BarcodeDetector' in window) {
+    const det = new BarcodeDetector({ formats: ['qr_code'] });
+    detect = async () => (await det.detect(video))[0]?.rawValue;
+  } else {
+    try {
+      if (!window.jsQR) await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+    } catch (e) { hint.textContent = 'Couldn’t load the scanner. Type the code below.'; return; }
+    const canvas = $('#scanCanvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+    detect = async () => {
+      const w = video.videoWidth, h = video.videoHeight;
+      if (!w) return null;
+      const s = Math.min(1, 640 / w);
+      canvas.width = w * s; canvas.height = h * s;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return window.jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' })?.data;
+    };
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = stream; video.hidden = false; hint.textContent = 'Point it at a ticket or guest pass.';
+    await video.play();
+    let last = '', lastAt = 0, busy = false;
+    const tick = async () => {
+      if (!document.body.contains(video)) { stream.getTracks().forEach(t => t.stop()); return; }
+      if (!busy && lane === 'scan') {
+        busy = true;
+        try {
+          const code = await detect();
+          if (code && (code !== last || Date.now() - lastAt > 4000)) { last = code; lastAt = Date.now(); await scan(code.trim()); }
+        } catch (e) { /* frame not ready */ }
+        busy = false;
+      }
+      setTimeout(tick, 150);
+    };
+    tick();
+  } catch (e) { hint.textContent = 'Camera’s off. Allow it in the browser, or type the code below.'; }
+}
+
+// The night's report: who came, how they got in, what came in at the door.
+async function renderDoorReport(mainView, eventId) {
+  mainView.innerHTML = '<h2>The night’s report</h2><div class="placeholder-note">Counting heads…</div>';
+  let r;
+  try { r = await apiFetch(`/api/events/${eventId}/door/report`); } catch (err) { mainView.innerHTML = `<h2>The night’s report</h2><div class="placeholder-note">${escapeHtml(err.message)}</div>`; return; }
+  const t = r.totals, live = r.entries.filter(e => !e.voided_at);
+  const door = t.cash + t.card;
+  const hour = h => new Date(h).toLocaleTimeString([], { hour: 'numeric' });
+  const peak = Math.max(1, ...r.hours.map(h => h.n));
+  mainView.innerHTML = `
+    <div class="door-report">
+      <div class="door-kicker">🚪 The night’s report</div>
+      <h2>${escapeHtml(r.event.title)}</h2>
+      <div class="post-meta">${formatEventDate(r.event.starts_at)}${r.event.location ? ' · ' + escapeHtml(r.event.location) : ''}</div>
+      <div class="dr-tiles">
+        <div><b>${t.inside}</b><span>came through the door${r.event.capacity ? ` (of ${r.event.capacity})` : ''}</span></div>
+        <div><b>${t.first_time}</b><span>first-timers</span></div>
+        <div><b>${doorMoney(door)}</b><span>at the door (${doorMoney(t.cash)} cash · ${doorMoney(t.card)} card)</span></div>
+        <div><b>${r.advance.n}</b><span>advance tickets (${doorMoney(r.advance.cents)})</span></div>
+      </div>
+      <h3>How they got in</h3>
+      <div class="dr-vias">${Object.entries(DOOR_VIA).map(([k, v]) => `<span>${v} <b>${t.by_via[k] || 0}</b></span>`).join('')}</div>
+      ${t.registrations ? `<p class="post-meta">${t.registrations} paid the one-time registration (${doorMoney(t.registration)}), included in the door total.</p>` : ''}
+      ${r.hours.length ? `<h3>When they came</h3><div class="dr-hours">${r.hours.map(h => `<div><i style="height:${Math.round((h.n / peak) * 100)}%"></i><span>${hour(h.hour)}</span><b>${h.n}</b></div>`).join('')}</div>` : ''}
+      <div class="post-actions"><button class="composer-submit" data-csv>⬇ Download the list (CSV)</button><button class="action-btn" data-impact>Start an Impact Log entry</button><a class="action-btn" href="#/checkin/${eventId}">← Back to the door</a></div>
+      <h3>Everyone (${live.length})</h3>
+      <div class="door-recent">${r.entries.map(e => `
+        <div class="door-entry ${e.voided_at ? 'voided' : ''}"><div><b>${escapeHtml(e.name)}</b>${e.first_time ? ' <span class="door-first">first time</span>' : ''}
+          <div class="post-meta">${DOOR_VIA[e.via] || e.via}${e.amount_cents ? ` · ${doorMoney(e.amount_cents)} ${e.method || ''}` : ''}${e.city ? ` · ${escapeHtml(e.city)}` : ''} · ${new Date(sqlTime(e.created_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${e.by_name ? ` · by ${escapeHtml(e.by_name)}` : ''}${e.note ? ` · ${escapeHtml(e.note)}` : ''}${e.voided_at ? ' · undone' : ''}</div></div></div>`).join('') || '<div class="placeholder-note">Nobody came through the door.</div>'}</div>
+    </div>`;
+  mainView.querySelector('[data-csv]').addEventListener('click', () => {
+    const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = [['time', 'name', 'how', 'paid', 'method', 'registration', 'first_time', 'city', 'email', 'note', 'door_crew', 'undone']]
+      .concat(r.entries.map(e => [e.created_at, e.name, e.via, (e.amount_cents / 100).toFixed(2), e.method, (e.registration_cents / 100).toFixed(2), e.first_time ? 'yes' : '', e.city, e.user_email, e.note, e.by_name, e.voided_at ? 'yes' : '']));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([rows.map(x => x.map(cell).join(',')).join('\n')], { type: 'text/csv' }));
+    a.download = `${r.event.title.replace(/[^\w]+/g, '-').toLowerCase()}-door.csv`;
+    a.click();
+  });
+  mainView.querySelector('[data-impact]').addEventListener('click', async () => {
+    await apiFetch('/api/impact-logs', { method: 'POST', body: {
+      event_date: r.event.starts_at.slice(0, 10), event_name: r.event.title,
+      notes: `Door: ${t.inside} came in${r.event.capacity ? ` (capacity ${r.event.capacity})` : ''}, ${t.first_time} first-timers. In by: ${Object.entries(t.by_via).map(([k, n]) => `${k} ${n}`).join(', ')}. Door take ${doorMoney(door)} (${doorMoney(t.cash)} cash, ${doorMoney(t.card)} card); ${r.advance.n} advance tickets.`,
+    } });
+    flashToast('Impact Log entry started. Add travel, materials and waste there.');
+  });
+}
+
+// Claiming an account made at the door (#/claim/<token>, from the door QR).
+async function renderClaimScreen(token, errorMsg = '') {
+  let info = null;
+  try { info = await apiFetch(`/api/auth/claim?peek=1`, { method: 'POST', body: { token } }); } catch (err) { errorMsg = errorMsg || err.message; }
+  app.innerHTML = `
+    <div class="auth-screen"><div class="auth-panel">
+      <img class="auth-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
+      <h1>${info ? `Welcome, ${escapeHtml(info.display_name.split(' ')[0])}!` : 'Claim your Dressing Room'}</h1>
+      ${info ? `<p class="auth-sub">You came through the door, so you’re in the Carnival Society. Set a password to claim your own Dressing Room.</p>
+      <form class="auth-form" id="claimForm">
+        ${info.needs_email ? '<div class="auth-field"><label for="claimEmail">Your email</label><input type="email" id="claimEmail" required autocomplete="email"></div>' : ''}
+        <div class="auth-field"><label for="claimPassword">Pick a password (6+ characters)</label><input type="password" id="claimPassword" minlength="6" required autocomplete="new-password"></div>
+        <p class="auth-error">${escapeHtml(errorMsg)}</p>
+        <button type="submit" class="auth-submit">Claim my room</button>
+      </form>` : `<p class="auth-error">${escapeHtml(errorMsg)}</p><a class="auth-submit" href="#/">Sign in</a>`}
+    </div></div>`;
+  document.getElementById('claimForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const { user } = await apiFetch('/api/auth/claim', { method: 'POST', body: { token, password: document.getElementById('claimPassword').value, email: document.getElementById('claimEmail')?.value } });
+      session = true; profile = user;
+      await loadAppData();
+      history.replaceState(null, '', '#/');
+      render();
+    } catch (err) { renderClaimScreen(token, err.message); }
+  });
 }
 
 boot();

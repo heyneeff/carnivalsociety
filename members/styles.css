@@ -2102,3 +2102,73 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .gift-card { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .gift-pass .ticket-qr { width: min(150px, 22vh); }
 .gift-art { max-height: min(140px, 16vh); }
+
+/* ── The door (2026-10-14): one screen for the night, phone-first ── */
+.door, .door-report { max-width: 640px; margin: 0 auto; }
+.door-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.door-head h2, .door-report h2 { margin: 2px 0 0; }
+.door-kicker { font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold-bright); }
+.door-head-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.door-count { margin: 14px 0; padding: 14px 16px; border-radius: 14px; background: var(--surface-2, rgba(255,255,255,0.05)); border: 1px solid rgba(200,160,90,0.35); }
+.dc-big { display: flex; align-items: baseline; gap: 8px; }
+.dc-big b { font-family: 'Playfair Display', serif; font-size: 44px; line-height: 1; color: var(--cream); }
+.dc-big span { color: var(--cream-soft); font-size: 15px; }
+.dc-bar { height: 8px; margin: 10px 0 6px; border-radius: 99px; background: rgba(255,255,255,0.1); overflow: hidden; }
+.dc-bar i { display: block; height: 100%; background: var(--gold); border-radius: 99px; transition: width 0.4s; }
+.dc-bar.full i { background: #E08A8A; }
+.dc-row { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 14px; color: var(--cream-soft); }
+.door-settings { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+.door-settings[hidden] { display: none; }
+.door-settings label { display: grid; gap: 4px; font-size: 13px; color: var(--cream-soft); }
+.door-settings input { width: 130px; font-size: 16px; padding: 8px; border-radius: 8px; }
+.door-lanes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+.door-lanes button { min-height: 48px; border-radius: 12px; border: 1px solid rgba(200,160,90,0.4); background: transparent; color: var(--cream-soft); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.door-lanes button[aria-selected="true"] { background: var(--burgundy-red, #9B3036); color: var(--cream); border-color: transparent; }
+.door-lane[hidden] { display: none; }
+.door-cam { position: relative; border-radius: 14px; overflow: hidden; background: #000; min-height: 80px; display: grid; place-items: center; }
+.door-cam video { width: 100%; max-height: 52vh; object-fit: cover; display: block; }
+.door-cam-hint { position: absolute; bottom: 8px; left: 0; right: 0; margin: 0; text-align: center; font-size: 13px; color: #fff; text-shadow: 0 1px 3px #000; }
+.door-code { display: flex; gap: 8px; margin-top: 10px; }
+.door-code input, .door-input { flex: 1; min-width: 0; width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border-radius: 10px; }
+.door-new { display: grid; gap: 8px; }
+.door-results { display: grid; gap: 8px; margin-top: 10px; }
+.door-member, .door-entry { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(255,255,255,0.05)); }
+.door-member .composer-submit { white-space: nowrap; }
+.door-entry.voided { opacity: 0.45; text-decoration: line-through; }
+.door-first { display: inline-block; padding: 1px 7px; border-radius: 99px; background: var(--gold); color: #231712; font-size: 11px; font-weight: 800; text-decoration: none; }
+.door-admit { display: grid; gap: 10px; margin: 8px 0; padding: 14px; border-radius: 14px; background: #fff7e2; color: #231712; border: 3px solid #231712; box-shadow: 5px 5px 0 #9B3036; }
+.door-admit .post-meta { color: #6b4a2e; }
+.da-who { font-size: 16px; }
+.da-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.da-seg button { min-height: 46px; border-radius: 10px; border: 2px solid #231712; background: #fff; color: #231712; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+.da-seg button[aria-pressed="true"] { background: #9B3036; color: #F4E8D0; }
+.da-pay { display: grid; gap: 8px; }
+.da-pay[hidden] { display: none; }
+.da-amount { display: flex; align-items: center; gap: 6px; font-size: 22px; font-weight: 800; }
+.da-amount input { width: 120px; font-size: 22px; padding: 8px 10px; border: 2px solid #231712; border-radius: 10px; background: #fff; color: #231712; }
+.da-reg { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.35; }
+.da-reg input { width: 20px; height: 20px; margin: 0; flex: none; }
+.door-admit .door-input { border: 2px solid #231712; background: #fff; color: #231712; }
+.da-btns { display: flex; gap: 14px; align-items: center; }
+.da-btns .raven-offer-no { color: #6b4a2e; }
+.door-result { display: none; margin: 12px 0; padding: 14px 16px; border-radius: 14px; font-size: 16px; line-height: 1.4; }
+.door-result.show { display: block; }
+.door-result.ok { background: rgba(143,209,158,0.16); border: 2px solid #8FD19E; color: var(--cream); }
+.door-result.warn { background: rgba(224,176,96,0.16); border: 2px solid #E0B060; color: var(--cream); }
+.door-result.bad { background: rgba(224,138,138,0.16); border: 2px solid #E08A8A; color: var(--cream); }
+.door-claim { display: grid; justify-items: center; gap: 8px; margin-top: 12px; text-align: center; }
+.door-claim .ticket-qr { width: min(220px, 60vw); background: #fff; padding: 8px; border-radius: 10px; }
+.door-claim p { margin: 0; font-size: 14px; }
+.door-recent-h { margin: 22px 0 8px; font-size: 15px; color: var(--cream-soft); }
+.door-recent { display: grid; gap: 6px; }
+.jt-door { margin-top: 8px; display: inline-flex; }
+.dr-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 16px 0; }
+.dr-tiles div { padding: 14px; border-radius: 12px; background: var(--surface-2, rgba(255,255,255,0.05)); border: 1px solid rgba(200,160,90,0.3); }
+.dr-tiles b { display: block; font-family: 'Playfair Display', serif; font-size: 32px; color: var(--cream); }
+.dr-tiles span { font-size: 13px; color: var(--cream-soft); }
+.dr-vias { display: flex; flex-wrap: wrap; gap: 8px; }
+.dr-vias span { padding: 6px 12px; border-radius: 99px; background: var(--surface-2, rgba(255,255,255,0.05)); font-size: 14px; }
+.dr-hours { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin: 8px 0 16px; }
+.dr-hours div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; font-size: 11px; color: var(--cream-soft); }
+.dr-hours i { width: 100%; max-width: 40px; background: var(--gold); border-radius: 6px 6px 0 0; min-height: 3px; }
+.door-report .post-actions { margin: 10px 0 18px; flex-wrap: wrap; }
