@@ -2173,33 +2173,87 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .dr-hours i { width: 100%; max-width: 40px; background: var(--gold); border-radius: 6px 6px 0 0; min-height: 3px; }
 .door-report .post-actions { margin: 10px 0 18px; flex-wrap: wrap; }
 
-/* ── Getting in (2026-10-14): the public carnival page and the ticket ── */
-.getin { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; box-sizing: border-box; background: radial-gradient(ellipse at 50% 0%, rgba(155,48,54,0.55), transparent 60%), #1b0f0c; }
-.getin-card { width: min(440px, 100%); padding: 26px 22px 22px; border-radius: 22px; text-align: center; background: #fff7e2; color: #231712; border: 4px solid #231712; box-shadow: 8px 8px 0 #9B3036, 0 0 60px rgba(255,214,140,0.25); }
-.getin-logo { width: 150px; margin: 0 auto 6px; display: block; filter: brightness(0.25) sepia(1) saturate(3) hue-rotate(-20deg); }
-.getin-kicker { font-family: 'Rye', serif; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: #9B3036; }
-.getin h1 { font-family: 'Playfair Display', serif; font-weight: 800; font-size: clamp(28px, 8vw, 38px); line-height: 1.05; margin: 6px 0 8px; color: #5A1E24; }
-.getin-when { margin: 0 0 10px; font-weight: 700; line-height: 1.4; }
-.getin-desc { margin: 0 0 12px; font-size: 15px; line-height: 1.45; color: #4a3326; }
-.getin-price { display: grid; gap: 4px; margin: 14px 0; padding: 14px; border: 2px dashed #9B3036; border-radius: 14px; background: #fff1cf; }
-.getin-price b { font-family: 'Playfair Display', serif; font-size: 40px; line-height: 1; color: #9B3036; }
-.getin-price span { font-size: 16px; }
-.getin-price small { font-size: 13px; color: #6b4a2e; }
-.getin-form { display: grid; gap: 10px; text-align: left; }
-.getin-form label { display: grid; gap: 4px; font-size: 13px; font-weight: 700; color: #5A1E24; }
-.getin-form input { font: inherit; font-size: 17px; padding: 12px; border: 2px solid #231712; border-radius: 10px; background: #fff; color: #231712; }
-.getin .auth-submit { display: block; width: 100%; box-sizing: border-box; text-align: center; text-decoration: none; min-height: 52px; font-size: 17px; }
-.getin-second { display: block; width: 100%; box-sizing: border-box; min-height: 48px; padding: 12px; border-radius: 10px; border: 2px solid #231712; background: #fff; color: #231712; font: inherit; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; margin-top: 8px; }
-.getin-fine { font-size: 13px; color: #6b4a2e; text-align: center; margin: 8px 0 0; line-height: 1.4; }
-.getin .auth-error { color: #9B3036; margin: 0; min-height: 0; }
-.getin-qr { width: min(240px, 70vw); margin: 10px auto 4px; padding: 10px; background: #fff; border: 2px solid #231712; border-radius: 12px; }
-.getin-qr svg { display: block; width: 100%; height: auto; }
-.getin-code { font-size: 13px; color: #6b4a2e; }
-.getin-status { margin: 12px 0 4px; padding: 10px 12px; border-radius: 10px; font-weight: 700; }
-.getin-status.paid, .getin-status.in { background: #e3f4e6; color: #1f5a2e; }
-.getin-status.owe { background: #fff1cf; color: #5A1E24; border: 2px dashed #9B3036; }
-.getin-ticket .auth-submit { margin-top: 14px; }
+/* ── Getting in (2026-10-14, design pass): the public carnival page and the
+   ticket. A poster card under a striped awning; the logo hangs on a sign
+   that sways; marquee bulbs twinkle; the price is a real ticket stub. ── */
+.getin { --gi-red: #9B3036; --gi-deep: #5A1E24; --gi-ink: #231712; --gi-cream: #fff7e2; --gi-paper: #fff1cf; --gi-gold: #DFBE7D;
+  min-height: 100dvh; display: grid; place-items: start center; padding: 28px 16px 40px; box-sizing: border-box;
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(255,200,120,0.18), transparent 55%),
+    repeating-conic-gradient(from 0deg at 50% 12%, rgba(155,48,54,0.32) 0deg 9deg, transparent 9deg 18deg),
+    #1b0f0c; }
+.getin-card { position: relative; width: min(440px, 100%); background: var(--gi-cream); color: var(--gi-ink); border: 4px solid var(--gi-ink); border-radius: 22px; box-shadow: 8px 8px 0 var(--gi-red), 0 0 80px rgba(255,214,140,0.22); overflow: hidden; }
+/* awning, sign, bulbs */
+.gi-marquee { position: relative; padding: 0 16px 14px; text-align: center; background: linear-gradient(180deg, #3a1216, var(--gi-deep)); border-bottom: 4px solid var(--gi-ink); }
+.gi-awning { height: 34px; margin: 0 -16px; background: repeating-linear-gradient(90deg, var(--gi-red) 0 28px, #f4e8d0 28px 56px);
+  -webkit-mask: radial-gradient(circle at 14px 100%, transparent 13px, #000 14px) 0 0 / 28px 100% repeat-x;
+          mask: radial-gradient(circle at 14px 100%, transparent 13px, #000 14px) 0 0 / 28px 100% repeat-x;
+  box-shadow: inset 0 -6px 8px rgba(0,0,0,0.2); }
+.gi-sign { position: relative; width: min(230px, 64%); margin: 2px auto 0; padding-top: 22px; transform-origin: 50% 0; animation: gi-sway 4.2s ease-in-out infinite; }
+.gi-rope { position: absolute; top: 0; width: 2px; height: 30px; background: linear-gradient(var(--gi-gold), #8F6E34); }
+.gi-rope.l { left: 22%; transform: rotate(8deg); transform-origin: top; }
+.gi-rope.r { right: 22%; transform: rotate(-8deg); transform-origin: top; }
+.gi-board { position: relative; padding: 12px 16px 10px; border-radius: 12px; background: radial-gradient(ellipse at 50% 30%, #4a181d, #2a0c0f); border: 3px solid var(--gi-gold); box-shadow: 0 10px 18px rgba(0,0,0,0.45), inset 0 0 0 3px #2a0c0f, inset 0 0 0 4px rgba(223,190,125,0.4); }
+.gi-board img { display: block; width: 100%; height: auto; filter: drop-shadow(0 0 8px rgba(255,214,140,0.35)); }
+@keyframes gi-sway { 0%, 100% { transform: rotate(-2.6deg); } 50% { transform: rotate(2.6deg); } }
+.gi-bulbs { display: flex; justify-content: space-between; margin: 14px 4px 8px; }
+.gi-bulbs i { width: 9px; height: 9px; border-radius: 50%; background: #ffe2a0; box-shadow: 0 0 8px 2px rgba(255,214,140,0.8); animation: gi-twinkle 2.2s ease-in-out infinite; }
+@keyframes gi-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; box-shadow: 0 0 2px rgba(255,214,140,0.4); } }
+.gi-kicker { font-family: 'Rye', serif; font-size: 13px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gi-gold); }
+/* the poster */
+.gi-body { padding: 20px 20px 22px; text-align: center; }
+.getin h1 { font-family: 'Playfair Display', serif; font-weight: 800; font-size: clamp(30px, 9vw, 40px); line-height: 1.02; margin: 0 0 12px; color: var(--gi-deep); text-wrap: balance; }
+.gi-date { display: inline-flex; align-items: stretch; border: 2px solid var(--gi-ink); border-radius: 10px; overflow: hidden; background: #fff; box-shadow: 3px 3px 0 var(--gi-ink); }
+.gi-date span { display: grid; place-items: center; padding: 6px 12px; font-family: 'Rye', serif; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.gi-date span + span { border-left: 2px dashed var(--gi-ink); }
+.gi-date .gi-day { background: var(--gi-red); color: #f4e8d0; font-size: 26px; line-height: 1; padding: 6px 14px; }
+.gi-day small { display: block; font-size: 11px; letter-spacing: 0.14em; }
+.gi-where { margin: 12px 0 0; font-weight: 700; }
+.gi-desc { margin: 12px 0 0; font-size: 15px; line-height: 1.5; color: #4a3326; text-align: left; }
+.gi-note { margin: 18px 0 0; padding: 14px; border: 2px dashed var(--gi-red); border-radius: 12px; background: var(--gi-paper); }
+/* the price, as a ticket */
+.gi-ticket { position: relative; display: flex; margin: 20px 0 6px; text-align: left; filter: drop-shadow(3px 3px 0 var(--gi-ink)); }
+.gi-stub, .gi-face { position: relative; background: var(--gi-red); color: #f4e8d0; }
+.gi-stub { flex: none; width: 46px; display: grid; place-items: center; border-radius: 10px 0 0 10px;
+  -webkit-mask: radial-gradient(circle at 100% 0, transparent 8px, #000 9px) top / 100% 51% no-repeat, radial-gradient(circle at 100% 100%, transparent 8px, #000 9px) bottom / 100% 51% no-repeat;
+          mask: radial-gradient(circle at 100% 0, transparent 8px, #000 9px) top / 100% 51% no-repeat, radial-gradient(circle at 100% 100%, transparent 8px, #000 9px) bottom / 100% 51% no-repeat; }
+.gi-stub span { writing-mode: vertical-rl; transform: rotate(180deg); font-family: 'Rye', serif; font-size: 13px; letter-spacing: 0.2em; }
+.gi-face { flex: 1; display: grid; gap: 2px; padding: 14px 16px 14px 18px; border-radius: 0 10px 10px 0; background: var(--gi-paper); color: var(--gi-ink); border-left: 3px dashed var(--gi-red);
+  -webkit-mask: radial-gradient(circle at 0 0, transparent 8px, #000 9px) top / 100% 51% no-repeat, radial-gradient(circle at 0 100%, transparent 8px, #000 9px) bottom / 100% 51% no-repeat;
+          mask: radial-gradient(circle at 0 0, transparent 8px, #000 9px) top / 100% 51% no-repeat, radial-gradient(circle at 0 100%, transparent 8px, #000 9px) bottom / 100% 51% no-repeat; }
+.gi-price { font-family: 'Playfair Display', serif; font-size: 44px; line-height: 1; color: var(--gi-red); }
+.gi-face span { font-size: 16px; line-height: 1.35; }
+.gi-face em { font-style: normal; font-size: 13px; font-weight: 700; color: var(--gi-deep); }
+.gi-reg { margin: 10px 0 0; }
+/* the form */
+.gi-form { display: grid; gap: 12px; margin-top: 18px; text-align: left; }
+.gi-form label { display: grid; gap: 5px; font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gi-deep); }
+.gi-form input { font: inherit; font-family: 'Libre Franklin', sans-serif; font-size: 17px; letter-spacing: 0; text-transform: none; padding: 13px 14px; border: 2px solid var(--gi-ink); border-radius: 12px; background: #fff; color: var(--gi-ink); box-shadow: inset 2px 2px 0 rgba(35,23,18,0.08); }
+.gi-form input:focus { outline: 3px solid var(--gi-gold); outline-offset: 1px; }
+.gi-btn { display: block; width: 100%; box-sizing: border-box; min-height: 54px; padding: 14px; border: 3px solid var(--gi-ink); border-radius: 14px; background: var(--gi-red); color: #fff7e2; font-family: 'Rye', serif; font-size: 16px; letter-spacing: 0.06em; text-align: center; text-decoration: none; cursor: pointer; box-shadow: 4px 4px 0 var(--gi-ink); transition: transform 0.08s, box-shadow 0.08s; margin-top: 4px; }
+.gi-btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--gi-ink); }
+.gi-btn:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--gi-ink); }
+.gi-btn:disabled { opacity: 0.7; cursor: wait; }
+.gi-btn-2 { background: #fff; color: var(--gi-ink); }
+.gi-error { margin: 0; padding: 10px 12px; border-radius: 10px; background: #fbe3e3; color: var(--gi-red); font-weight: 700; }
+.gi-fine { font-size: 13px; color: #6b4a2e; text-align: center; margin: 10px 0 0; line-height: 1.45; }
+.gi-link { background: none; border: none; padding: 0; color: var(--gi-red); font: inherit; text-decoration: underline; cursor: pointer; }
+/* the ticket page: a perforated tear between the poster and the stub */
+.gi-tear { position: relative; height: 0; border-top: 3px dashed rgba(35,23,18,0.45); margin: 0 20px; }
+.gi-tear::before, .gi-tear::after { content: ''; position: absolute; top: -17px; width: 32px; height: 32px; border-radius: 50%; background: #2a1310; border: 4px solid var(--gi-ink); box-sizing: border-box; }
+.gi-tear::before { left: -36px; }
+.gi-tear::after { right: -36px; }
+.gi-stubside { background: var(--gi-paper); }
+.gi-qr { width: min(240px, 68vw); margin: 4px auto 6px; padding: 12px; background: #fff; border: 3px solid var(--gi-ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--gi-red); }
+.gi-qr svg { display: block; width: 100%; height: auto; }
+.gi-code { font-size: 13px; letter-spacing: 0.08em; color: #6b4a2e; }
+.gi-status { margin: 14px 0 4px; padding: 12px 14px; border-radius: 12px; font-weight: 700; line-height: 1.4; }
+.gi-status small { display: block; font-weight: 400; font-size: 13px; margin-top: 2px; }
+.gi-status.paid, .gi-status.in { background: #e3f4e6; color: #1f5a2e; border: 2px solid #8FD19E; }
+.gi-status.owe { background: #fff; color: var(--gi-deep); border: 2px dashed var(--gi-red); }
+.gi-stubside .gi-btn { margin-top: 14px; }
 .get-in-btn { display: inline-flex; margin: 10px 0 4px; text-decoration: none; }
+@media (prefers-reduced-motion: reduce) { .gi-sign, .gi-bulbs i { animation: none; } }
 /* door additions */
 .door-give { margin-top: 8px; font-size: 18px; }
 .da-total { font-size: 16px; }

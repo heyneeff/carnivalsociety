@@ -7616,44 +7616,71 @@ async function renderClaimScreen(token, errorMsg = '') {
 // ── Getting in (2026-10-14): a carnival's public page, no sign-up first.
 // Name + email → "Save my spot" (pay at the door), or pay now once Stripe
 // is switched on. The email puts you in the system.
+// The striped awning, marquee bulbs, and the logo hanging on a swaying sign.
+function getinMarquee(kicker) {
+  return `
+    <header class="gi-marquee">
+      <div class="gi-awning" aria-hidden="true"></div>
+      <div class="gi-sign"><span class="gi-rope l" aria-hidden="true"></span><span class="gi-rope r" aria-hidden="true"></span>
+        <div class="gi-board"><img src="assets/logo-wordmark.png" alt="Carnival Society International"></div></div>
+      <div class="gi-bulbs" aria-hidden="true">${Array.from({ length: 11 }, (_, i) => `<i style="animation-delay:${(i * 0.37) % 2.2}s"></i>`).join('')}</div>
+      <div class="gi-kicker">${kicker}</div>
+    </header>`;
+}
+// SAT · OCT 31 · 7 PM, as three stamped stubs.
+function getinDate(iso) {
+  const d = new Date(sqlTime(iso));
+  return `<div class="gi-date" aria-label="${escapeHtml(d.toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}">
+    <span>${d.toLocaleDateString([], { weekday: 'short' })}</span>
+    <span class="gi-day"><small>${d.toLocaleDateString([], { month: 'short' })}</small>${d.getDate()}</span>
+    <span>${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(':00', '')}</span>
+  </div>`;
+}
 async function renderGetIn(idOrSlug, errorMsg = '') {
-  app.innerHTML = '<div class="getin"><div class="getin-card"><p class="post-meta">Unrolling the poster…</p></div></div>';
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Step right up!')}<div class="gi-body"><p class="gi-fine">Unrolling the poster…</p></div></div></div>`;
   let d;
   try { d = await apiFetch(`/api/public/events/${encodeURIComponent(idOrSlug)}`); }
-  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card"><h1>Hmm.</h1><p>${escapeHtml(err.message)}</p><a class="auth-submit" href="#/">Carnival Society</a></div></div>`; return; }
+  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Hmm.')}<div class="gi-body"><p>${escapeHtml(err.message)}</p><a class="gi-btn" href="#/">Carnival Society</a></div></div></div>`; return; }
   const ev = d.event, reg = d.registration_cents;
-  const when = new Date(sqlTime(ev.starts_at));
   const priced = ev.door_cents != null;
   const free = priced && ev.door_cents === 0;
+  const payNow = d.payments_enabled && !free;
   app.innerHTML = `
     <div class="getin">
       <div class="getin-card">
-        <img class="getin-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
-        <div class="getin-kicker">Step right up!</div>
-        <h1>${escapeHtml(ev.title)}</h1>
-        <p class="getin-when">${when.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${ev.location ? `<br>${escapeHtml(ev.location)}` : ''}</p>
-        ${ev.description ? `<p class="getin-desc">${escapeHtml(ev.description)}</p>` : ''}
-        ${!d.open ? '<div class="getin-price"><b>This one’s over.</b><span>Thanks to everyone who came!</span></div>'
-        : !priced ? '<div class="getin-price"><b>Tickets open soon.</b><span>Check back, or ask a Ringleader.</span></div>'
-        : `<div class="getin-price">
-            <b>${free ? 'Free' : doorMoney(ev.door_cents)}</b><span>entry${ev.entry_tickets ? `, with <strong>${ev.entry_tickets} carnival tickets</strong> to spend inside 🎟️` : ''}</span>
-            ${free ? '' : `<small>First carnival with us? +${doorMoney(reg)} one-time registration, and you win <i>The Fix Is In</i>.</small>`}
-            ${d.spots_left != null ? `<small>${d.spots_left ? `${d.spots_left} spots left` : 'Full! Come to the door and we’ll see.'}</small>` : ''}
-          </div>
-          <form class="getin-form" id="getinForm">
-            <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
-            <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
-            <p class="auth-error">${escapeHtml(errorMsg)}</p>
-            ${d.payments_enabled && !free ? '<button class="auth-submit" type="submit" data-pay="1">Pay now · Apple Pay or card</button>' : ''}
-            <button class="${d.payments_enabled && !free ? 'getin-second' : 'auth-submit'}" type="submit" data-pay="0">${free ? 'Get my ticket' : 'Save my spot · pay at the door'}</button>
-            <p class="getin-fine">No password needed. Your ticket is a QR code you show at the door, and it’s waiting for you on the next screen.</p>
-          </form>`}
+        ${getinMarquee('Step right up!')}
+        <div class="gi-body">
+          <h1>${escapeHtml(ev.title)}</h1>
+          ${getinDate(ev.starts_at)}
+          ${ev.location ? `<p class="gi-where">📍 ${escapeHtml(ev.location)}</p>` : ''}
+          ${ev.description ? `<p class="gi-desc">${escapeHtml(ev.description)}</p>` : ''}
+          ${!d.open ? '<div class="gi-note"><b>This one’s over.</b> Thanks to everyone who came!</div>'
+          : !priced ? '<div class="gi-note"><b>Tickets open soon.</b> Check back, or ask a Ringleader.</div>'
+          : `<div class="gi-ticket">
+              <div class="gi-stub"><span>ADMIT ONE</span></div>
+              <div class="gi-face">
+                <b class="gi-price">${free ? 'Free' : doorMoney(ev.door_cents)}</b>
+                <span>entry${ev.entry_tickets ? ` + <strong>${ev.entry_tickets} carnival tickets</strong> to spend inside` : ''}</span>
+                ${d.spots_left != null ? `<em>${d.spots_left ? `${d.spots_left} spots left` : 'Full! Come by the door and we’ll see.'}</em>` : ''}
+              </div>
+            </div>
+            ${free ? '' : `<p class="gi-fine gi-reg">First carnival with us? Add a one-time ${doorMoney(reg)} registration, and you win <i>The Fix Is In</i>.</p>`}
+            <form class="gi-form" id="getinForm">
+              <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
+              <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
+              ${errorMsg ? `<p class="gi-error" role="alert">${escapeHtml(errorMsg)}</p>` : ''}
+              ${payNow ? '<button class="gi-btn" type="submit" data-pay="1">Pay now · Apple Pay or card</button>' : ''}
+              <button class="${payNow ? 'gi-btn gi-btn-2' : 'gi-btn'}" type="submit" data-pay="0">${free ? 'Get my ticket' : 'Save my spot · pay at the door'}</button>
+              <p class="gi-fine">No password, no sign-up. Your ticket is a QR code you show at the door, waiting on the next screen.</p>
+            </form>`}
+        </div>
       </div>
     </div>`;
   document.getElementById('getinForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target, pay = e.submitter?.dataset.pay === '1';
     f.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    if (e.submitter) e.submitter.textContent = pay ? 'Off to pay…' : 'Punching your ticket…';
     try {
       const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay } });
       if (r.url) { window.location.href = r.url; return; }
@@ -7665,31 +7692,36 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
 async function renderTicketPage(code, claim, tries = 0) {
   let t;
   try { ({ ticket: t } = await apiFetch(`/api/public/tickets/${code}`)); }
-  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card"><h1>Hmm.</h1><p>${escapeHtml(err.message)}</p></div></div>`; return; }
+  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Hmm.')}<div class="gi-body"><p>${escapeHtml(err.message)}</p></div></div></div>`; return; }
   // Back from Stripe a moment before its webhook lands: wait for it.
   if (t.status === 'pending' && tries < 8) {
-    app.innerHTML = '<div class="getin"><div class="getin-card"><p>Punching your ticket…</p></div></div>';
+    app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('One moment!')}<div class="gi-body"><p class="gi-fine">Punching your ticket…</p></div></div></div>`;
     setTimeout(() => renderTicketPage(code, claim, tries + 1), 1500);
     return;
   }
-  const when = new Date(sqlTime(t.starts_at));
-  const status = t.checked_in ? '<div class="getin-status in">✓ You’re in. Have fun!</div>'
-    : t.status === 'paid' ? '<div class="getin-status paid">✓ Paid. Show this at the door.</div>'
-    : t.status === 'reserved' ? `<div class="getin-status owe">Spot saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<br><small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time registration (your first carnival)</small>` : ''}</div>`
-    : '<div class="getin-status owe">Payment didn’t go through. Try again, or pay at the door.</div>';
+  const status = t.checked_in ? '<div class="gi-status in">✓ You’re in. Have fun!</div>'
+    : t.status === 'paid' ? '<div class="gi-status paid">✓ Paid. Show this at the door.</div>'
+    : t.status === 'reserved' ? `<div class="gi-status owe">Spot saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time registration (your first carnival)</small>` : ''}</div>`
+    : '<div class="gi-status owe">Payment didn’t go through. Try again, or pay at the door.</div>';
   app.innerHTML = `
     <div class="getin">
-      <div class="getin-card getin-ticket">
-        <div class="getin-kicker">Admit one · ${escapeHtml(t.name)}</div>
-        <h1>${escapeHtml(t.title)}</h1>
-        <p class="getin-when">${when.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${t.location ? `<br>${escapeHtml(t.location)}` : ''}</p>
-        <div class="getin-qr">${qrSvg(t.code)}</div>
-        <code class="getin-code">${escapeHtml(t.code)}</code>
-        ${status}
-        ${t.entry_tickets ? `<p class="getin-fine">Comes with ${t.entry_tickets} carnival tickets 🎟️, handed to you at the door.</p>` : ''}
-        <p class="getin-fine">Screenshot this, or keep the page. ${navigator.share ? '<button class="raven-offer-no" data-share>Send it to myself</button>' : ''}</p>
-        ${claim ? `<a class="auth-submit" href="#/claim/${claim}">Claim your Dressing Room →</a><p class="getin-fine">You’re in the Carnival Society now. Set a password to see your room, the crew and what’s coming up.</p>`
-          : session ? '<a class="getin-second" href="#/dressing-room">Back to my Dressing Room</a>' : ''}
+      <div class="getin-card">
+        ${getinMarquee(`Admit one · ${escapeHtml(t.name)}`)}
+        <div class="gi-body">
+          <h1>${escapeHtml(t.title)}</h1>
+          ${getinDate(t.starts_at)}
+          ${t.location ? `<p class="gi-where">📍 ${escapeHtml(t.location)}</p>` : ''}
+        </div>
+        <div class="gi-tear" aria-hidden="true"></div>
+        <div class="gi-body gi-stubside">
+          <div class="gi-qr">${qrSvg(t.code)}</div>
+          <code class="gi-code">${escapeHtml(t.code)}</code>
+          ${status}
+          ${t.entry_tickets ? `<p class="gi-fine">Comes with <b>${t.entry_tickets} carnival tickets</b> 🎟️, handed to you at the door.</p>` : ''}
+          <p class="gi-fine">Screenshot this, or keep the page.${navigator.share ? ' <button class="gi-link" data-share>Send it to myself</button>' : ''}</p>
+          ${claim ? `<a class="gi-btn" href="#/claim/${claim}">Claim your Dressing Room →</a><p class="gi-fine">You’re in the Carnival Society now. Set a password to see your room, the crew and what’s coming up.</p>`
+            : session ? '<a class="gi-btn gi-btn-2" href="#/dressing-room">Back to my Dressing Room</a>' : ''}
+        </div>
       </div>
     </div>`;
   app.querySelector('[data-share]')?.addEventListener('click', () => navigator.share({ title: `My ticket: ${t.title}`, url: location.href }).catch(() => {}));
