@@ -471,9 +471,9 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/events" && method === "GET") {
     const archived = url.searchParams.get("scope") === "archived";
     const { results } = await env.DB.prepare(
-      archived ? `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug, pu.display_name AS partner_name FROM events
+      archived ? `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug, pu.display_name AS partner_name, pu.avatar_url AS partner_logo FROM events
            LEFT JOIN chapters ON chapters.id = events.chapter_id LEFT JOIN users pu ON pu.id = events.partner_id
-           WHERE COALESCE(events.ends_at, events.starts_at) < datetime('now') ORDER BY events.starts_at DESC` : `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug, pu.display_name AS partner_name FROM events
+           WHERE COALESCE(events.ends_at, events.starts_at) < datetime('now') ORDER BY events.starts_at DESC` : `SELECT events.*, chapters.name AS c_name, chapters.slug AS c_slug, pu.display_name AS partner_name, pu.avatar_url AS partner_logo FROM events
            LEFT JOIN chapters ON chapters.id = events.chapter_id LEFT JOIN users pu ON pu.id = events.partner_id
            WHERE COALESCE(events.ends_at, events.starts_at) >= datetime('now') ORDER BY events.starts_at ASC`
     ).all();
@@ -1872,6 +1872,9 @@ function shapeEvent(row) {
     door_cents: row.door_cents ?? null,
     partner_id: row.partner_id ?? null,
     partner_name: row.partner_name ?? null,
+    partner_logo: row.partner_logo ?? null,
+    tagline: row.tagline ?? null,
+    lineup: row.lineup ?? null,
     photos_url: row.photos_url ?? null,
     entry_tickets: row.entry_tickets ?? null,
     slug: row.slug ?? null,
@@ -2263,7 +2266,7 @@ async function roomGifts(env, ownerId, { wrappedOnly = false } = {}) {
 // system: a new account (with a claim link), or the one you already have.
 // Entry is the event's door price plus the one-time registration the first
 // time, and comes with entry_tickets paper carnival tickets.
-const EVENT_COLS = "id, title, description, location, starts_at, ends_at, capacity, door_cents, entry_tickets, ticket_cents, slug, partner_id, photos_url, (SELECT display_name FROM users WHERE id = events.partner_id) AS partner_name";
+const EVENT_COLS = "id, title, description, location, starts_at, ends_at, capacity, door_cents, entry_tickets, ticket_cents, slug, partner_id, photos_url, tagline, lineup, (SELECT display_name FROM users WHERE id = events.partner_id) AS partner_name";
 // SQLite and ISO times both, read as UTC.
 const whenMs = (t) => Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(t) ? t : String(t).replace(" ", "T") + "Z");
 async function findEvent(env, idOrSlug) {
@@ -2304,8 +2307,8 @@ async function publicRoutes(request, env, url) {
     const ev = await findEvent(env, evMatch[1]);
     if (!ev) return err(404, "No such carnival.");
     const taken = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE event_id = ? AND status IN ('paid', 'reserved')").bind(ev.id).first();
-    const host = ev.partner_id ? await env.DB.prepare("SELECT display_name, partner_slug FROM users WHERE id = ?").bind(ev.partner_id).first() : null;
-    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug }, registration_cents: reg, payments_enabled: !!env.STRIPE_SECRET_KEY,
+    const host = ev.partner_id ? await env.DB.prepare("SELECT display_name, partner_slug, avatar_url FROM users WHERE id = ?").bind(ev.partner_id).first() : null;
+    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug, logo: host.avatar_url },  registration_cents: reg, payments_enabled: !!env.STRIPE_SECRET_KEY,
       spots_left: ev.capacity ? Math.max(0, ev.capacity - taken.n) : null, open: whenMs(ev.ends_at || ev.starts_at) > Date.now() - 6 * 3600e3 });
   }
   const getMatch = pathname.match(/^\/api\/public\/events\/([^/]+)\/get$/);
@@ -2335,7 +2338,7 @@ async function publicRoutes(request, env, url) {
     let session;
     try {
       session = await stripeCheckout(env, checkoutParams(env, {
-        user, name: `${ev.title}: entry + ${ev.entry_tickets || 0} carnival tickets${first ? " + one-time registration" : ""}`, amountCents: owe,
+        user, name: `${ev.title}: entry + ${ev.entry_tickets || 0} free carnival tickets${first ? " + one-time $5 membership (first carnival only)" : ""}`, amountCents: owe,
         metadata: { kind: "ticket", user_id: user.id, ticket_id: id, registration: first ? String(reg) : "0" },
         successPath: `/#/ticket/${code}${claim ? "/" + claim : ""}`,
       }));
@@ -2350,13 +2353,13 @@ async function publicRoutes(request, env, url) {
   // A partner's join page.
   const pMatch = pathname.match(/^\/api\/public\/partners\/([a-z0-9-]{2,40})(\/join)?$/);
   if (pMatch) {
-    const pt = await env.DB.prepare("SELECT id, display_name, partner_slug, partner_blurb, partner_link FROM users WHERE partner_slug = ? AND is_partner = 1").bind(pMatch[1]).first();
+    const pt = await env.DB.prepare("SELECT id, display_name, partner_slug, partner_blurb, partner_link, avatar_url FROM users WHERE partner_slug = ? AND is_partner = 1").bind(pMatch[1]).first();
     if (!pt) return err(404, "No partner by that name.");
     if (!pMatch[2] && method === "GET") {
       const { results: events } = await env.DB.prepare(
         `SELECT id, title, starts_at, location, door_cents, entry_tickets, slug FROM events WHERE partner_id = ? AND COALESCE(ends_at, starts_at) >= datetime('now') ORDER BY starts_at LIMIT 6`
       ).bind(pt.id).all();
-      return json({ partner: { name: pt.display_name, slug: pt.partner_slug, blurb: pt.partner_blurb, link: pt.partner_link }, friends: await friendCount(env, pt.id), events });
+      return json({ partner: { name: pt.display_name, slug: pt.partner_slug, blurb: pt.partner_blurb, link: pt.partner_link, logo: pt.avatar_url }, friends: await friendCount(env, pt.id), events });
     }
     if (pMatch[2] && method === "POST") {
       if (await rateLimited(env, request, "signup")) return err(429, "Too many tries. Wait a minute and try again.");
@@ -2589,7 +2592,9 @@ async function doorRoutes(request, env, url, user) {
       partner = b.partner_id || null;
       if (partner && !await env.DB.prepare("SELECT 1 FROM users WHERE id = ? AND is_partner = 1").bind(partner).first()) return err(400, "That isn't a partner yet. Mark them as one in the Directory.");
     }
-    await env.DB.prepare("UPDATE events SET capacity = ?, door_cents = ?, entry_tickets = ?, ticket_cents = ?, slug = ?, partner_id = ? WHERE id = ?").bind(cap, price, give, each, slug, partner, eventId).run();
+    const tagline = b.tagline === undefined ? ev.tagline : (String(b.tagline || "").trim().slice(0, 60) || null);
+    const lineup = b.lineup === undefined ? ev.lineup : (String(b.lineup || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12).join(", ").slice(0, 300) || null);
+    await env.DB.prepare("UPDATE events SET capacity = ?, door_cents = ?, entry_tickets = ?, ticket_cents = ?, slug = ?, partner_id = ?, tagline = ?, lineup = ? WHERE id = ?").bind(cap, price, give, each, slug, partner, tagline, lineup, eventId).run();
     if (partner && partner !== ev.partner_id) {
       const { results: inside } = await env.DB.prepare("SELECT DISTINCT user_id FROM door_entries WHERE event_id = ? AND user_id IS NOT NULL AND voided_at IS NULL").bind(eventId).all();
       for (const r of inside) await befriendPartner(env, partner, r.user_id, eventId);
@@ -2676,6 +2681,24 @@ async function doorRoutes(request, env, url, user) {
     return json({ ok: true, id: entryId, display_name: target.display_name, first_time: !!first, new_account: isNew, claim, promoted, tickets_given: give });
   }
 
+  // A 50¢ test charge (Stripe's minimum) through the real checkout + webhook,
+  // so the Ringleader can prove payments work without buying a $20 entry.
+  if (part === "testpay" && method === "POST") {
+    if (!isModerator(user)) return err(403, "Ringleaders only.");
+    if (!env.STRIPE_SECRET_KEY) return err(503, "Stripe isn't connected yet.");
+    const tierId = await entryTier(env, ev);
+    await env.DB.prepare("DELETE FROM tickets WHERE event_id = ? AND user_id = ? AND status = 'pending'").bind(eventId, user.id).run();
+    const id = crypto.randomUUID(), code = ticketCode();
+    await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, 'pending', 50, ?)").bind(id, eventId, tierId, user.id, code).run();
+    try {
+      const session = await stripeCheckout(env, checkoutParams(env, { user, name: `TEST: ${ev.title} (50¢ payment check)`, amountCents: 50, metadata: { kind: "ticket", user_id: user.id, ticket_id: id, registration: "0", test: "1" }, successPath: `/#/ticket/${code}` }));
+      await env.DB.prepare("UPDATE tickets SET stripe_session_id = ? WHERE id = ?").bind(session.id, id).run();
+      return json({ url: session.url, code });
+    } catch (e) {
+      await env.DB.prepare("DELETE FROM tickets WHERE id = ?").bind(id).run();
+      return err(502, "Stripe said no: " + e.message);
+    }
+  }
   // Extra carnival tickets, at the door or the ticket booth.
   if (part === "sell" && method === "POST") {
     const b = await body(request);

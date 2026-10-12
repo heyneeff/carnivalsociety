@@ -2321,3 +2321,119 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .wl-number b { font-family: 'Playfair Display', serif; font-size: 54px; line-height: 1; color: var(--gi-red); }
 .wl-number small { font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #6b4a2e; }
 .wl-actions { margin: 10px 0 14px; flex-wrap: wrap; }
+
+/* ── Get in / ticket / join / waiting room, front-page edition (2026-10-17).
+   Matches carnivalsociety.org: cream paper with a soft burgundy glow and
+   grain, the gold wordmark over the spiral, Playfair + Cormorant Garamond,
+   letter-spaced italic labels between thin rules, ringed buttons. ── */
+.getin { --gi-red: #9B3036; --gi-deep: #5A1E24; --gi-ink: #231712; --gi-soft: #5A4238; --gi-gold: #C8A05A; --gi-gold-deep: #8F6E34; --gi-cream: #F4E8D0; --gi-card: #FBF3DC; --gi-paper: #FBF3DC;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 12%, rgba(155,48,54,0.09) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 50% 98%, rgba(143,110,52,0.07) 0%, transparent 70%),
+    var(--gi-cream);
+  color: var(--gi-ink); font-family: 'Cormorant Garamond', serif; font-size: 17px; }
+.getin::after { content: ''; position: fixed; inset: 0; pointer-events: none; opacity: 0.08; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.getin-card { position: relative; z-index: 1; background: var(--gi-card); border: none; border-radius: 4px; overflow: visible;
+  box-shadow: 0 24px 50px rgba(90,30,36,0.12), 0 0 0 1px rgba(200,160,90,0.45); }
+/* the crest */
+.gi-marquee { position: relative; padding: 34px 16px 18px; background: none; border: none; text-align: center; overflow: hidden; border-radius: 4px 4px 0 0; }
+.gi-awning, .gi-bulbs, .gi-rope, .gi-board { display: none; }
+.gi-spiral { position: absolute; left: 50%; top: 138px; width: 270px; height: 270px; margin: -135px 0 0 -135px; opacity: 0.9; }
+.gi-spiral svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.gs-rotor { transform-origin: 0 0; animation: gi-spin 180s linear infinite; }
+.gs-halo { transform-origin: 0 0; animation: gi-spin 320s linear infinite reverse; }
+@keyframes gi-spin { to { transform: rotate(360deg); } }
+.gi-orn { display: none; }
+.gi-marquee { padding-top: 62px; padding-bottom: 20px; }
+.gi-marquee .gi-kicker { margin-top: 62px; }
+.gi-date span { display: block; }
+.gi-day small { display: inline; }
+.gi-orn { position: absolute; color: var(--gi-red); opacity: 0.7; font-size: 16px; line-height: 1; }
+.gi-orn.o1 { left: 12%; top: 26%; } .gi-orn.o2 { left: 18%; top: 72%; font-size: 12px; } .gi-orn.o3 { right: 12%; top: 34%; } .gi-orn.o4 { right: 17%; top: 76%; font-size: 12px; }
+.gi-sign { position: relative; width: min(250px, 68%); margin: 0 auto; padding: 0; transform-origin: 50% 8%; animation: gi-sway 5s ease-in-out infinite; }
+.gi-sign img { display: block; width: 100%; height: auto; filter: drop-shadow(0 6px 18px rgba(90,30,36,0.25)); }
+@keyframes gi-sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+.gi-kicker { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-top: 14px;
+  font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 0.82rem; letter-spacing: 0.32em; text-transform: uppercase; color: var(--gi-gold-deep); }
+.gi-kicker::before, .gi-kicker::after { content: ''; width: 38px; height: 1px; background: currentColor; opacity: 0.5; }
+/* the poster */
+.gi-body { padding: 8px 24px 28px; }
+.getin h1 { font-family: 'Playfair Display', serif; font-weight: 700; font-size: clamp(2rem, 8vw, 2.7rem); line-height: 1.08; letter-spacing: -0.01em; color: var(--gi-red); margin: 4px 0 14px; }
+.gi-date { display: flex; justify-content: center; gap: 0; border: none; border-radius: 0; background: none; box-shadow: none; }
+.gi-date span { padding: 2px 12px; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 1rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gi-gold-deep); }
+.gi-date span + span { border-left: 1px solid rgba(200,160,90,0.6); }
+.gi-date .gi-day { background: none; color: var(--gi-gold-deep); font-size: 1rem; line-height: inherit; padding: 2px 12px; }
+.gi-day small { display: inline; font-size: inherit; letter-spacing: inherit; margin-right: 0.3em; }
+.gi-where { margin: 10px 0 0; font-weight: 500; font-style: italic; font-size: 1.05rem; color: var(--gi-soft); }
+.gi-desc { font-size: 1.08rem; font-weight: 500; line-height: 1.45; color: var(--gi-soft); }
+.gi-with { margin: 18px 0 0; font-style: italic; font-size: 0.92rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gi-gold-deep); display: grid; justify-items: center; gap: 6px; }
+.gi-with b { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; letter-spacing: 0.02em; text-transform: none; color: var(--gi-red); font-size: 1.2rem; }
+.gi-plogo { display: block; width: min(190px, 60%); height: auto; }
+.gi-plogo-big { width: min(300px, 82%); margin: 6px auto 12px; }
+/* what's inside */
+.gi-lineup { margin: 22px 0 4px; padding: 16px 10px 14px; border-top: 1px solid rgba(200,160,90,0.5); border-bottom: 1px solid rgba(200,160,90,0.5); }
+.gl-head { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 400; font-size: 1.55rem; color: var(--gi-gold-deep); margin-bottom: 6px; }
+.gl-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 0; font-style: italic; font-weight: 600; font-size: 1.12rem; color: var(--gi-red); }
+.gl-acts span + span::before { content: '✳'; margin: 0 10px; font-style: normal; font-size: 0.75em; color: var(--gi-gold); vertical-align: 0.1em; }
+/* the price, as a fine ticket */
+.gi-ticket { margin: 22px 0 6px; filter: none; }
+.gi-stub { background: var(--gi-red); color: var(--gi-cream); width: 42px; border-radius: 3px 0 0 3px; }
+.gi-stub span { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 0.8rem; letter-spacing: 0.28em; }
+.gi-face { background: #fff8e6; border-left: 2px dashed rgba(155,48,54,0.55); border-radius: 0 3px 3px 0; padding: 16px 18px; box-shadow: inset 0 0 0 1px rgba(200,160,90,0.45); }
+.gi-price { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 2.6rem; color: var(--gi-red); }
+.gi-face span { font-size: 1.08rem; font-weight: 500; color: var(--gi-soft); }
+.gi-face strong { color: var(--gi-ink); font-weight: 700; }
+.gi-face em { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 0.95rem; letter-spacing: 0.08em; color: var(--gi-gold-deep); }
+/* the receipt: the one-time $5, impossible to miss */
+.gi-receipt { margin: 16px 0 4px; padding: 14px 16px 12px; text-align: left; background: #fff8e6; box-shadow: 0 0 0 1px rgba(200,160,90,0.5); border-radius: 3px; }
+.gr-row { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; font-size: 1.1rem; }
+.gr-row span { flex: 1; display: flex; flex-direction: column; }
+.gr-row span::after { content: none; }
+.gr-row b { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 1.2rem; color: var(--gi-ink); }
+.gr-mem { margin: 2px -8px; padding: 10px 8px; background: rgba(200,160,90,0.18); border-radius: 3px; border-left: 3px solid var(--gi-gold); }
+.gr-mem strong { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; color: var(--gi-red); font-size: 1.12rem; }
+.gr-mem small { font-style: italic; font-size: 0.95rem; color: var(--gi-soft); }
+.gr-mem b { color: var(--gi-red); font-size: 1.35rem; }
+.gr-total { border-top: 1px solid rgba(200,160,90,0.6); margin-top: 6px; padding-top: 10px; }
+.gr-total span { font-style: italic; font-weight: 600; letter-spacing: 0.04em; }
+.gr-total b { color: var(--gi-red); font-size: 1.45rem; }
+.gi-receipt p { margin: 6px 0 0; text-align: center; font-style: italic; font-size: 0.98rem; color: var(--gi-gold-deep); }
+/* the form */
+.gi-form { gap: 14px; margin-top: 22px; }
+.gi-form label { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 0.82rem; letter-spacing: 0.24em; color: var(--gi-gold-deep); }
+.gi-form input { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 500; padding: 12px 14px; border: 1px solid rgba(155,48,54,0.45); border-radius: 3px; background: #fffaf0; box-shadow: none; }
+.gi-form input:focus { outline: 2px solid var(--gi-gold); outline-offset: 1px; border-color: var(--gi-red); }
+.gi-btn { min-height: 54px; margin-top: 8px; border: 1px solid var(--gi-red); border-radius: 2px; background: var(--gi-red); color: var(--gi-cream);
+  font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 600; font-size: 1.12rem; letter-spacing: 0.16em; text-transform: uppercase;
+  box-shadow: 0 0 0 3px var(--gi-card), 0 0 0 4px var(--gi-red); transition: background 0.3s, letter-spacing 0.4s, box-shadow 0.3s; }
+.gi-btn:hover { transform: none; background: var(--gi-deep); letter-spacing: 0.2em; box-shadow: 0 0 0 3px var(--gi-card), 0 0 0 4px var(--gi-red), 0 0 0 7px rgba(155,48,54,0.25); }
+.gi-btn:active { transform: none; box-shadow: 0 0 0 3px var(--gi-card), 0 0 0 4px var(--gi-red); }
+.gi-btn-2 { background: transparent; color: var(--gi-red); }
+.gi-btn-2:hover { background: var(--gi-red); color: var(--gi-cream); }
+.gi-fine { font-style: italic; font-size: 0.98rem; color: var(--gi-soft); }
+.gi-link { color: var(--gi-red); font-style: italic; }
+.gi-error { background: rgba(155,48,54,0.08); color: var(--gi-red); border-radius: 3px; font-style: italic; }
+.gi-join { font-family: 'Cormorant Garamond', serif !important; font-size: 1.05rem !important; font-style: italic; border: 1px dashed rgba(155,48,54,0.45); background: #fff8e6; border-radius: 3px; }
+/* the ticket page */
+.gi-tear { border-top: 2px dashed rgba(155,48,54,0.35); }
+.gi-tear::before, .gi-tear::after { background: var(--gi-cream); border: 1px solid rgba(200,160,90,0.45); }
+.gi-stubside { background: #fff8e6; border-radius: 0 0 4px 4px; }
+.gi-qr { border: 1px solid rgba(200,160,90,0.6); border-radius: 3px; box-shadow: 0 0 0 4px #fff, 0 0 0 5px rgba(155,48,54,0.35); }
+.gi-code { letter-spacing: 0.14em; }
+.gi-status { border-radius: 3px; font-family: 'Cormorant Garamond', serif; font-size: 1.12rem; font-weight: 600; }
+.gi-status.owe { background: #fff; border: 1px dashed rgba(155,48,54,0.55); }
+.gi-status small { font-size: 0.98rem; font-style: italic; }
+/* lists of events, join + waiting pages */
+.gi-x { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 0.82rem; letter-spacing: 0.3em; color: var(--gi-gold-deep); }
+.gi-h3 { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500; font-size: 0.85rem; letter-spacing: 0.3em; color: var(--gi-gold-deep); display: flex; align-items: center; justify-content: center; gap: 0.75rem; }
+.gi-h3::before, .gi-h3::after { content: ''; width: 38px; height: 1px; background: currentColor; opacity: 0.5; }
+.gi-event { border: none; border-radius: 3px; background: #fff8e6; box-shadow: 0 0 0 1px rgba(200,160,90,0.5); }
+.gi-event:hover { box-shadow: 0 0 0 1px var(--gi-red); }
+.gi-event span { font-family: 'Cormorant Garamond', serif; font-style: italic; letter-spacing: 0.08em; border-radius: 2px; }
+.gi-event b { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; }
+.gi-event em { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 1rem; }
+.gi-count b { font-family: 'Playfair Display', serif; }
+.wl-number { border: none; border-radius: 3px; background: #fff8e6; box-shadow: 0 0 0 1px rgba(200,160,90,0.55), 0 12px 24px rgba(90,30,36,0.08); }
+.wl-number small { font-family: 'Cormorant Garamond', serif; font-style: italic; letter-spacing: 0.26em; color: var(--gi-gold-deep); }
+@media (prefers-reduced-motion: reduce) { .gs-rotor, .gs-halo { animation: none; } }

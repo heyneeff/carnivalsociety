@@ -1149,10 +1149,11 @@ async function renderEventsView(mainView, onlyEventId = null) {
     <div class="post-card" style="cursor:default;">
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
-      ${e.partner_name ? `<div class="presented-with">Presented with <b>${escapeHtml(e.partner_name)}</b></div>` : ''}
+      ${e.partner_name ? `<div class="presented-with">Presented with ${e.partner_logo ? `<img src="${escapeHtml(e.partner_logo)}" alt="${escapeHtml(e.partner_name)}">` : `<b>${escapeHtml(e.partner_name)}</b>`}</div>` : ''}
+      ${e.tagline || e.lineup ? lineupHtml(e) : ''}
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       ${e.photos_url ? `<a class="action-btn photos-btn" href="${escapeHtml(e.photos_url)}" target="_blank" rel="noopener">📸 See the photos</a>` : ''}
-      ${e.door_cents != null ? `<a class="composer-submit get-in-btn" href="#/get/${e.slug || e.id}">🎟️ Get in · ${e.door_cents ? doorMoney(e.door_cents) : 'free'}${e.entry_tickets ? ` with ${e.entry_tickets} carnival tickets` : ''}</a>` : ''}
+      ${e.door_cents != null ? `<a class="composer-submit get-in-btn" href="#/get/${e.slug || e.id}">🎟️ Get in · ${e.door_cents ? doorMoney(e.door_cents) : 'free'}${e.entry_tickets ? ` with ${e.entry_tickets} free carnival tickets` : ''}</a>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       <div class="run-board" data-run-for="${e.id}" data-starts="${e.starts_at}" data-ends="${e.ends_at || ''}"></div>
@@ -7289,8 +7290,11 @@ async function renderCheckinView(mainView, eventId) {
         <label>Extra tickets, $ each <input type="number" name="each" min="0" step="0.25" inputmode="decimal" value="${ev.ticket_cents != null ? ev.ticket_cents / 100 : ''}" placeholder="1"></label>
         <label>How many fit <input type="number" name="capacity" min="0" inputmode="numeric" value="${ev.capacity ?? ''}" placeholder="No limit"></label>
         ${d.partners?.length ? `<label>Presented with <select name="partner"><option value="">Just us</option>${d.partners.map(p => `<option value="${p.id}" ${p.id === ev.partner_id ? 'selected' : ''}>${escapeHtml(p.display_name)}</option>`).join('')}</select></label>` : ''}
+        <label class="ds-wide">Headline <input name="tagline" value="${escapeHtml(ev.tagline || '')}" placeholder="Halloween Carnival" maxlength="60" autocomplete="off"></label>
+        <label class="ds-wide">What’s inside <input name="lineup" value="${escapeHtml(ev.lineup || '')}" placeholder="Burlesque, FreakShow, Games, Contests" autocomplete="off"></label>
         <label class="ds-wide">Public link: ${location.origin}/t/<input name="slug" value="${escapeHtml(ev.slug || '')}" placeholder="kooks" autocomplete="off" autocapitalize="off"></label>
         <button class="composer-submit" type="submit">Save</button>
+        <button class="action-btn" type="button" data-testpay>💳 Test a 50¢ payment</button>
         <div class="ds-link" id="doorLink"></div>
       </form>
       <div class="door-lanes" role="tablist">
@@ -7377,13 +7381,19 @@ async function renderCheckinView(mainView, eventId) {
     if (lane === 'new') $('#doorNew [name=name]').focus();
   }));
   $('[data-door-settings]')?.addEventListener('click', () => { $('#doorSettings').hidden = !$('#doorSettings').hidden; });
+  // Prove Stripe works for 50¢: the same checkout and webhook as a real ticket.
+  $('[data-testpay]')?.addEventListener('click', async e => {
+    e.target.disabled = true;
+    try { const r = await apiFetch(`/api/events/${eventId}/door/testpay`, { method: 'POST' }); window.location.href = r.url; }
+    catch (err) { flashToast(err.message); e.target.disabled = false; }
+  });
   $('#doorSettings').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target;
     const capacity = f.capacity.value === '' ? null : Number(f.capacity.value), door_cents = f.price.value === '' ? null : Math.round(Number(f.price.value) * 100);
     const entry_tickets = f.give.value === '' ? 0 : Number(f.give.value), ticket_cents = f.each.value === '' ? null : Math.round(Number(f.each.value) * 100);
     try {
-      const r = await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents, entry_tickets, ticket_cents, slug: f.slug.value, ...(f.partner ? { partner_id: f.partner.value || null } : {}) } });
+      const r = await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents, entry_tickets, ticket_cents, slug: f.slug.value, tagline: f.tagline.value, lineup: f.lineup.value, ...(f.partner ? { partner_id: f.partner.value || null } : {}) } });
       if (f.partner) ev.partner_id = f.partner.value || null;
       Object.assign(ev, { capacity, door_cents, entry_tickets, ticket_cents });
       d.link = r.link; drawLink(); drawCount(d.totals); flashToast('Door settings saved.');
@@ -7498,7 +7508,7 @@ async function renderCheckinView(mainView, eventId) {
           <button type="button" data-v="cash" aria-pressed="false">💵 Cash</button>
           <button type="button" data-v="card" aria-pressed="false">💳 Card (Square)</button>
         </div>
-        ${who.hasFix ? '' : `<label class="da-reg"><input type="checkbox" name="registration" checked> + ${doorMoney(reg)} one-time registration (their first carnival). They win <b>The Fix Is In</b>.</label>`}
+        ${who.hasFix ? '' : `<label class="da-reg"><input type="checkbox" name="registration" checked> + ${doorMoney(reg)} one-time membership (their first carnival). They win <b>The Fix Is In</b>.</label>`}
         <div class="da-total" data-total></div>
       </div>
       <input class="door-input" name="note" placeholder="Note (optional): performer, plus-one of…" maxlength="140" autocomplete="off">
@@ -7620,7 +7630,7 @@ async function renderDoorReport(mainView, eventId) {
       </div>
       <h3>How they got in</h3>
       <div class="dr-vias">${Object.entries(DOOR_VIA).map(([k, v]) => `<span>${v} <b>${t.by_via[k] || 0}</b></span>`).join('')}</div>
-      ${t.registrations ? `<p class="post-meta">${t.registrations} paid the one-time registration (${doorMoney(t.registration)}), included in the door total.</p>` : ''}
+      ${t.registrations ? `<p class="post-meta">${t.registrations} paid the one-time membership (${doorMoney(t.registration)}), included in the door total.</p>` : ''}
       ${r.hours.length ? `<h3>When they came</h3><div class="dr-hours">${r.hours.map(h => `<div><i style="height:${Math.round((h.n / peak) * 100)}%"></i><span>${hour(h.hour)}</span><b>${h.n}</b></div>`).join('')}</div>` : ''}
       <div class="post-actions"><button class="composer-submit" data-csv>⬇ Download the list (CSV)</button><button class="action-btn" data-impact>Start an Impact Log entry</button><a class="action-btn" href="#/checkin/${eventId}">← Back to the door</a></div>
       <h3>Everyone (${live.length})</h3>
@@ -7677,18 +7687,48 @@ async function renderClaimScreen(token, errorMsg = '') {
 // ── Getting in (2026-10-14): a carnival's public page, no sign-up first.
 // Name + email → "Save my spot" (pay at the door), or pay now once Stripe
 // is switched on. The email puts you in the system.
-// The striped awning, marquee bulbs, and the logo hanging on a swaying sign.
+// The crest, as on carnivalsociety.org: the gold wordmark over the burgundy
+// spiral (the front page's own six curved blades), a ring of dots and stars
+// turning the other way, and the wordmark swaying gently.
+let spiralSvgCache = '';
+function frontSpiral() {
+  if (spiralSvgCache) return spiralSvgCache;
+  const N = 6, maxR = 188, twist = 2.1, armW = (2 * Math.PI / N) * 0.55, steps = 60;
+  const f2 = n => n.toFixed(1);
+  let blades = '';
+  for (let k = 0; k < N; k++) {
+    const phi = k * (2 * Math.PI / N); let d = '';
+    for (let i = 0; i <= steps; i++) { const f = i / steps, r = f * maxR, t = phi + twist * f; d += (i ? 'L' : 'M') + f2(r * Math.cos(t)) + ' ' + f2(r * Math.sin(t)); }
+    for (let i = steps; i >= 0; i--) { const f = i / steps, r = f * maxR, t = phi + armW * f + twist * f; d += 'L' + f2(r * Math.cos(t)) + ' ' + f2(r * Math.sin(t)); }
+    blades += `<path d="${d}Z"/>`;
+  }
+  let halo = '';
+  for (let k = 0; k < 24; k++) {
+    const phi = k * (2 * Math.PI / 24), x = f2(218 * Math.cos(phi)), y = f2(218 * Math.sin(phi));
+    halo += k % 2 ? `<g transform="translate(${x} ${y})"><path d="M0 -6V6M-5.2 -3 5.2 3M-5.2 3 5.2 -3"/></g>` : `<circle cx="${x}" cy="${y}" r="2.8"/>`;
+  }
+  return (spiralSvgCache = `<svg viewBox="-240 -240 480 480" aria-hidden="true"><g class="gs-halo" fill="#9B3036" stroke="#9B3036" stroke-width="1.1">${halo}</g><g class="gs-rotor" fill="#9B3036">${blades}<circle r="3.5"/></g></svg>`);
+}
 function getinMarquee(kicker) {
   return `
     <header class="gi-marquee">
-      <div class="gi-awning" aria-hidden="true"></div>
-      <div class="gi-sign"><span class="gi-rope l" aria-hidden="true"></span><span class="gi-rope r" aria-hidden="true"></span>
-        <div class="gi-board"><img src="assets/logo-wordmark.png" alt="Carnival Society International"></div></div>
-      <div class="gi-bulbs" aria-hidden="true">${Array.from({ length: 11 }, (_, i) => `<i style="animation-delay:${(i * 0.37) % 2.2}s"></i>`).join('')}</div>
+      <div class="gi-spiral" aria-hidden="true">${frontSpiral()}</div>
+      <div class="gi-sign"><img src="assets/logo-wordmark.png" alt="Carnival Society International"></div>
       <div class="gi-kicker">${kicker}</div>
     </header>`;
 }
 // SAT · OCT 31 · 7 PM, as three stamped stubs.
+// Who's co-hosting: their logo if they have one, else their name.
+function partnerBadge(p) {
+  if (!p) return '';
+  return `<div class="gi-with">Presented with ${p.logo ? `<img class="gi-plogo" src="${escapeHtml(p.logo)}" alt="${escapeHtml(p.name)}">` : `<b>${escapeHtml(p.name)}</b>`}</div>`;
+}
+// What you're paying for: "Halloween Carnival" over Burlesque · FreakShow · …
+function lineupHtml(ev) {
+  const acts = (ev.lineup || '').split(',').map(x => x.trim()).filter(Boolean);
+  if (!ev.tagline && !acts.length) return '';
+  return `<div class="gi-lineup">${ev.tagline ? `<div class="gl-head">${escapeHtml(ev.tagline)}</div>` : ''}${acts.length ? `<div class="gl-acts">${acts.map(a => `<span>${escapeHtml(a)}</span>`).join('')}</div>` : ''}</div>`;
+}
 function getinDate(iso) {
   const d = new Date(sqlTime(iso));
   return `<div class="gi-date" aria-label="${escapeHtml(d.toLocaleString([], { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}">
@@ -7714,7 +7754,8 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
           <h1>${escapeHtml(ev.title)}</h1>
           ${getinDate(ev.starts_at)}
           ${ev.location ? `<p class="gi-where">📍 ${escapeHtml(ev.location)}</p>` : ''}
-          ${d.partner ? `<p class="gi-with">Presented with <b>${escapeHtml(d.partner.name)}</b></p>` : ''}
+          ${partnerBadge(d.partner)}
+          ${lineupHtml(ev)}
           ${ev.description ? `<p class="gi-desc">${escapeHtml(ev.description)}</p>` : ''}
           ${!d.open ? '<div class="gi-note"><b>This one’s over.</b> Thanks to everyone who came!</div>'
           : !priced ? '<div class="gi-note"><b>Tickets open soon.</b> Check back, or ask a Ringleader.</div>'
@@ -7722,11 +7763,16 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
               <div class="gi-stub"><span>ADMIT ONE</span></div>
               <div class="gi-face">
                 <b class="gi-price">${free ? 'Free' : doorMoney(ev.door_cents)}</b>
-                <span>entry${ev.entry_tickets ? ` + <strong>${ev.entry_tickets} carnival tickets</strong> to spend inside` : ''}</span>
+                <span>entry${ev.entry_tickets ? `, with <strong>${ev.entry_tickets} free carnival tickets</strong> for games and experiences` : ''}</span>
                 ${d.spots_left != null ? `<em>${d.spots_left ? `${d.spots_left} spots left` : 'Full! Come by the door and we’ll see.'}</em>` : ''}
               </div>
             </div>
-            ${free ? '' : `<p class="gi-fine gi-reg">First carnival with us? Add a one-time ${doorMoney(reg)} registration, and you win <i>The Fix Is In</i>.</p>`}
+            ${free ? '' : `<div class="gi-receipt" aria-label="What you pay">
+              <div class="gr-row"><span>Entry</span><b>${doorMoney(ev.door_cents)}</b></div>
+              <div class="gr-row gr-mem"><span><strong>One-time membership</strong><small>your first carnival only · you win <i>The Fix Is In</i> 💰</small></span><b>+${doorMoney(reg)}</b></div>
+              <div class="gr-row gr-total"><span>Your first night</span><b>${doorMoney(ev.door_cents + reg)}</b></div>
+              <p>After that, it’s ${doorMoney(ev.door_cents)} every time.</p>
+            </div>`}
             <form class="gi-form" id="getinForm">
               <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
               <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
@@ -7764,7 +7810,7 @@ async function renderTicketPage(code, claim, tries = 0) {
   }
   const status = t.checked_in ? '<div class="gi-status in">✓ You’re in. Have fun!</div>'
     : t.status === 'paid' ? '<div class="gi-status paid">✓ Paid. Show this at the door.</div>'
-    : t.status === 'reserved' ? `<div class="gi-status owe">Spot saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time registration (your first carnival)</small>` : ''}</div>`
+    : t.status === 'reserved' ? `<div class="gi-status owe">Spot saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time membership (your first carnival only)</small>` : ''}</div>`
     : '<div class="gi-status owe">Payment didn’t go through. Try again, or pay at the door.</div>';
   app.innerHTML = `
     <div class="getin">
@@ -7780,7 +7826,7 @@ async function renderTicketPage(code, claim, tries = 0) {
           <div class="gi-qr">${qrSvg(t.code)}</div>
           <code class="gi-code">${escapeHtml(t.code)}</code>
           ${status}
-          ${t.entry_tickets ? `<p class="gi-fine">Comes with <b>${t.entry_tickets} carnival tickets</b> 🎟️, handed to you at the door.</p>` : ''}
+          ${t.entry_tickets ? `<p class="gi-fine">Comes with <b>${t.entry_tickets} free carnival tickets</b> 🎟️ for games and experiences, handed to you at the door.</p>` : ''}
           <p class="gi-fine">Screenshot this, or keep the page.${navigator.share ? ' <button class="gi-link" data-share>Send it to myself</button>' : ''}</p>
           ${claim ? `<a class="gi-btn" href="#/claim/${claim}">Claim your Dressing Room →</a><p class="gi-fine">You’re in the Carnival Society now. Set a password to see your room, the crew and what’s coming up.</p>`
             : session ? '<a class="gi-btn gi-btn-2" href="#/dressing-room">Back to my Dressing Room</a>' : ''}
@@ -7886,7 +7932,7 @@ async function renderJoinPage(slug, errorMsg = '', joined = null) {
         ${getinMarquee('Join the troupe')}
         <div class="gi-body">
           <div class="gi-x">Carnival Society <span>×</span></div>
-          <h1>${escapeHtml(pt.name)}</h1>
+          ${pt.logo ? `<img class="gi-plogo gi-plogo-big" src="${escapeHtml(pt.logo)}" alt="${escapeHtml(pt.name)}">` : `<h1>${escapeHtml(pt.name)}</h1>`}
           ${pt.blurb ? `<p class="gi-desc gi-center">${escapeHtml(pt.blurb)}</p>` : ''}
           ${pt.link ? `<p><a class="gi-link" href="${escapeHtml(pt.link)}" target="_blank" rel="noopener">${escapeHtml(pt.link.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</a></p>` : ''}
           ${d.friends >= 5 ? `<p class="gi-count"><b>${d.friends}</b> friends and counting</p>` : ''}
