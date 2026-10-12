@@ -2063,3 +2063,4 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 /* the holler megaphone that rolls in */
 .holler-cone { position: absolute; z-index: 6; pointer-events: none; }
 .holler-cone img { width: 100%; aspect-ratio: 347 / 181; display: block; }
+.intro-step { white-space: nowrap; }

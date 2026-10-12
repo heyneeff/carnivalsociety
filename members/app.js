@@ -370,6 +370,8 @@ async function renderOnboarding() {
     const { user } = await apiFetch('/api/me', { method: 'PATCH', body: { ...body, onboarded: true } });
     profile = user;
     await loadAppData();
+    // Land in the Dressing Room (a shared event link keeps its event).
+    if (!location.hash || /^#\/(join)?$/.test(location.hash)) location.hash = '#/dressing-room';
     render();
   };
   document.getElementById('obFinishBtn').addEventListener('click', () => finish({
@@ -922,7 +924,7 @@ async function renderMemberPicker() {
   const allMembers = members || [];
 
   picker.innerHTML = `
-    <h3 style="font-family:'Playfair Display',serif;font-style:italic;color:var(--gold-bright);margin-bottom:0.75rem;">Message someone</h3>
+    <h3 style="font-family:'Playfair Display',serif;font-style:italic;color:var(--gold-bright);margin-bottom:0.75rem;">Write to someone</h3>
     <div class="member-filters">
       <input type="text" id="memberSearch" placeholder="Search by name…">
       <select id="memberChapterFilter">
@@ -990,7 +992,7 @@ async function renderDMThreadView(mainView, convId) {
 
   mainView.innerHTML = `
     <a class="thread-back" href="#/dm">&larr; All your letters</a>
-    <h2>${escapeHtml(other?.display_name || 'Direct Message')}</h2>
+    <h2>${escapeHtml(other?.display_name || 'A letter')}</h2>
     <div class="dm-thread" id="dmThread">${(messages || []).map(dmBubbleHtml).join('')}</div>
     <form class="composer" id="dmComposer">
       <textarea id="dmBody" placeholder="Write your letter…" required aria-label="Your letter"></textarea>
@@ -1883,7 +1885,7 @@ function renderMemberRows() {
     !!m.is_organization === wantOrg &&
     (!q || m.display_name.toLowerCase().includes(q) || (m.city || '').toLowerCase().includes(q) || (m.home_chapter?.name || '').toLowerCase().includes(q) || (m.skills || '').toLowerCase().includes(q))
   );
-  const sorted = [...filtered].sort(DIRECTORY_SORTS[directorySortKey].cmp);
+  const sorted = [...filtered].sort((DIRECTORY_SORTS[directorySortKey] || DIRECTORY_SORTS.name).cmp);
 
   list.innerHTML = sorted.map(m => {
     const hasRealEmail = m.email && !m.email.endsWith('@crew.local');
@@ -1935,7 +1937,7 @@ function renderMemberRows() {
         </label>
         <input type="text" class="admin-dues-amount" data-field="dues_amount" placeholder="Amount" value="${escapeHtml(m.dues_amount || '')}">
         <input type="date" class="admin-dues-date" data-field="dues_date" value="${escapeHtml(m.dues_date || '')}">
-        <button class="gm-btn admin-passport-btn" data-passport="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Passport</button>
+        <button class="gm-btn admin-passport-btn" data-passport="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Badges</button>
         <button class="gm-btn admin-edit-btn" data-edit="${m.id}" style="background:var(--surface-2);color:var(--gold-bright);">Edit</button>
       </div>
     </div>
@@ -2087,7 +2089,7 @@ function renderVenueRows() {
   const filtered = directoryVenuesCache.filter(v =>
     !q || v.name.toLowerCase().includes(q) || (v.city || '').toLowerCase().includes(q)
   );
-  const sorted = [...filtered].sort(VENUE_SORTS[directorySortKey].cmp);
+  const sorted = [...filtered].sort((VENUE_SORTS[directorySortKey] || VENUE_SORTS.name).cmp);
 
   list.innerHTML = sorted.map(v => {
     const metaRows = [
@@ -2298,7 +2300,7 @@ function renderImpactRows() {
   const filtered = directoryImpactCache.filter(l =>
     !q || l.event_name.toLowerCase().includes(q) || (l.venue_name || '').toLowerCase().includes(q)
   );
-  const sorted = [...filtered].sort(IMPACT_SORTS[directorySortKey].cmp);
+  const sorted = [...filtered].sort((IMPACT_SORTS[directorySortKey] || IMPACT_SORTS.date).cmp);
 
   list.innerHTML = sorted.map(l => {
     const metaRows = [
@@ -5747,7 +5749,7 @@ document.addEventListener('keydown', e => {
 
 // ── The blast composer (Ringleaders) ──
 async function renderBlastView(mainView) {
-  if (!profile.is_ringleader) { mainView.innerHTML = '<h2>Ringleaders only</h2>'; return; }
+  if (!profile.is_ringleader) { location.hash = '#/dressing-room'; return; }
   const { events } = await apiFetch('/api/events');
   const chapterOpts = chapters.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   const eventOpts = (events || []).map(e => `<option value="${e.id}">${escapeHtml(e.title)} · ${escapeHtml(formatEventDate(e.starts_at))}</option>`).join('');
@@ -6102,7 +6104,7 @@ const ORACLES = { mercury: 'https://mercury-oracle.vercel.app/', field: 'https:/
 const ROOM_ASSETS = { megaphone_floor: 347 / 181, trunk_closed: 338 / 329, trunk_open: 322 / 393, costume_ringmaster: 156 / 327, costume_teal: 143 / 382, costume_clown: 138 / 386, costume_purple: 165 / 348, costume_pink: 178 / 418, raven_perched: 151 / 287, raven_squawk: 208 / 297, flyer_circus: 147 / 239, flyer_volunteer: 122 / 212, flyer_carnival: 127 / 219, book_lectern: 188 / 282, book_open: 232 / 228, passport_closed: 145 / 212, passport_open: 191 / 181, perch_empty: 116 / 217, hatbox_closed: 185 / 160, hatbox_open: 222 / 279, popcorn: 132 / 189, potion: 76 / 161, coat_rack: 127 / 347, vanity: 283 / 271, rug: 315 / 205 };
 const ROOM_ANIMS = { '': 'Still', sway: 'Sway (hangs from top)', flutter: 'Flutter', float: 'Float', breathe: 'Breathe', hop: 'Hop', shimmer: 'Shimmer', wobble: 'Wobble' };
 const ROOM_ROLES = {
-  decor: 'Just decoration', mirror: 'Mirror → My Profile', trunk: 'Trunk → Passport & Prizes', costume: 'Costume → Profile / acts',
+  decor: 'Just decoration', mirror: 'Mirror → My Profile', trunk: 'Trunk → Badges', costume: 'Costume → Profile / acts',
   flyer: 'Flyer → an upcoming event', raven: 'Raven → volunteer requests', book: 'Big Book → the forum', drawer: 'Drawer → Letters',
   exit: 'Exit → Courtyard', hatbox: 'Hat box → Ringleader tools (only you see it)', potion: 'Secret → Mercury Oracle', stars: 'Secret → Field Oracle',
   popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
@@ -6746,7 +6748,7 @@ async function renderRoom(mainView, ownerId = null) {
     const max = vp.scrollWidth - vp.clientWidth;
     if (max <= 0) return;
     vp.scrollLeft = request || letters.unread ? max : max / 2;
-    if (!wantTrunk && !letters.unread && !newFlyer) say('⟷ Swipe to look around · tap ✦ to see what you can touch');
+    if (!wantTrunk && !letters.unread && !newFlyer && introDone) say('⟷ Swipe to look around · tap ✦ to see what you can touch');
   });
   // Arrived via Badges: let the room settle, then spill the trunk.
   if (wantTrunk) setTimeout(() => roomHooks.openTrunk?.(), 350);
@@ -6844,7 +6846,7 @@ async function openPassportModal(userId) {
     const p = await apiFetch(`/api/members/${userId}/passport`);
     overlay.innerHTML = `
       <div class="admin-edit-modal">
-        <div class="admin-edit-modal-header"><h3>${escapeHtml(p.user.display_name)}'s Passport</h3><button data-close>&times;</button></div>
+        <div class="admin-edit-modal-header"><h3>${escapeHtml(p.user.display_name)}'s Badges</h3><button data-close>&times;</button></div>
         <div class="admin-edit-modal-body">
           <div class="passport-progress">${escapeHtml(p.user.is_ringleader ? 'Ringleader' : rankLabel(p.user.rank))} · ${p.counts.total} stamps, ${p.counts.roustabouts} Roustabout</div>
           ${flash ? `<div class="stamp-flash">${flash}</div>` : ''}
