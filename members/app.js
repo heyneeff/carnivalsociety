@@ -5737,7 +5737,8 @@ document.addEventListener('keydown', e => {
   const top = tops[tops.length - 1];
   if (top) {
     e.preventDefault();
-    if (top.classList.contains('prize-pop')) top.querySelector('[data-later]').click();
+    if (top.classList.contains('gift-pop') || top.classList.contains('surprise-pop')) top.remove();
+    else if (top.classList.contains('prize-pop')) top.querySelector('[data-later]').click();
     else if (top.classList.contains('intro-tour')) top.querySelector('[data-skip]').click();
     else if (top.classList.contains('unfold')) top.querySelector('.unfold-close').click();
     else if (!top.classList.contains('blast-overlay')) top.click();
@@ -6123,6 +6124,86 @@ const ROOM_ITEMS = {
 };
 // A few drawer items come already doing something (still changeable in Arrange).
 const ITEM_ROLES = { 'items/mercury_deck': 'potion', 'items/crystal_ball': 'potion' };
+// Surprises (2026-10-13): a wrapped parcel the Ringleader leaves in a room.
+const GIFT_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="8" y="27" width="48" height="31" rx="3" fill="#9B3036" stroke="#231712" stroke-width="2.5"/><circle cx="17" cy="38" r="2.4" fill="#F4E8D0"/><circle cx="47" cy="47" r="2.4" fill="#F4E8D0"/><circle cx="18" cy="51" r="2" fill="#F4E8D0"/><circle cx="45" cy="35" r="2" fill="#F4E8D0"/><rect x="5" y="19" width="54" height="10" rx="3" fill="#B8424A" stroke="#231712" stroke-width="2.5"/><rect x="28" y="19" width="8" height="39" fill="#DFBE7D" stroke="#231712" stroke-width="2"/><path d="M32 19c-5-11-19-11-17-3 1 5 11 4 17 3zm0 0c5-11 19-11 17-3-1 5-11 4-17 3z" fill="#DFBE7D" stroke="#231712" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+const giftFrom = g => g.from_name ? `Ringleader ${g.from_name.split(' ')[0]}` : 'the Ringleader';
+const giftName = g => g.kind === 'pass' ? 'Admit One guest pass' : g.img.replace(/^items\//, '').replace(/_/g, ' ');
+// The gift card: the thing, the note, and for a guest pass the code to scan.
+function showGift(g, { fresh = false } = {}) {
+  const confetti = fresh ? Array.from({ length: 60 }, (_, i) =>
+    `<span class="confetti" style="--x:${Math.random() * 100}vw;--d:${(Math.random() * 1.6 + 2.2).toFixed(2)}s;--delay:${(Math.random() * 0.9).toFixed(2)}s;--c:${['#C8A05A', '#9B3036', '#4E8C82', '#C77B8A', '#DFBE7D', '#FFE2A0'][i % 6]}"></span>`).join('') : '';
+  const where = g.event_title ? `at ${escapeHtml(g.event_title)}` : 'at any carnival';
+  const pass = g.kind === 'pass' ? (g.redeemed_at
+    ? `<div class="gift-pass used"><b>PUNCHED</b><span>Your guest came${g.redeemed_title ? ` to ${escapeHtml(g.redeemed_title)}` : ''} on ${new Date(sqlTime(g.redeemed_at)).toLocaleDateString()}. Huzzah!</span></div>`
+    : `<div class="gift-pass"><b>ADMIT ONE · GUEST</b><span>Bring a friend ${where}. Show this at the door.</span>${g.code ? `<div class="ticket-qr">${qrSvg(g.code)}</div><code>${escapeHtml(g.code)}</code>` : ''}</div>`) : '';
+  const o = document.createElement('div');
+  o.className = 'prize-pop gift-pop';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', `A gift from ${giftFrom(g)}`);
+  o.innerHTML = `${confetti}
+    <div class="prize-card gift-card">
+      <div class="prize-kicker">${fresh ? 'A surprise for you!' : `A gift from ${escapeHtml(giftFrom(g))}`}</div>
+      <img class="gift-art" src="${ROOM}${g.img}.png" alt="">
+      <h2>${escapeHtml(giftName(g))}</h2>
+      ${g.note ? `<p class="gift-note">“${escapeHtml(g.note)}”<span>${escapeHtml(giftFrom(g))}</span></p>` : `<p class="prize-where">from ${escapeHtml(giftFrom(g))}</p>`}
+      ${pass}
+      <div class="prize-btns"><button class="composer-submit" data-close>${fresh ? 'Put it in my room' : 'Lovely'}</button>${g.kind === 'pass' && !g.redeemed_at ? '<a class="raven-offer-no" href="#/tickets" data-close>With my tickets</a>' : ''}</div>
+    </div>`;
+  document.body.appendChild(o);
+  if (fresh) try { const rig = megaphone(); if (rig) { playBoing(rig); setTimeout(() => rig.close(), 1500); } } catch (e) { /* no sound, no matter */ }
+  o.addEventListener('click', e => { if (e.target === o || e.target.closest('[data-close]')) o.remove(); });
+  o.querySelector('[data-close]').focus();
+}
+// The Ringleader's surprise sheet, opened while visiting someone's room.
+async function openSurprise(ownerId, ownerName, wrapped, done) {
+  const { events } = await apiFetch('/api/events').catch(() => ({ events: [] }));
+  const o = document.createElement('div');
+  o.className = 'prize-pop surprise-pop';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', `Leave a surprise for ${ownerName}`);
+  const all = Object.values(ROOM_ITEMS).flat().filter(n => n !== 'ticket_admit');
+  o.innerHTML = `
+    <form class="prize-card surprise-card">
+      <div class="prize-kicker">🎁 A surprise for ${escapeHtml(ownerName)}</div>
+      <div class="surprise-pick">
+        <button type="button" class="surprise-thing" data-img="pass" title="Admit One guest pass"><img src="${ROOM}items/ticket_admit.png" alt=""><span>Guest pass</span></button>
+        ${all.map(n => `<button type="button" class="surprise-thing" data-img="items/${n}" title="${escapeHtml(n.replace(/_/g, ' '))}"><img src="${ROOM}items/${n}.png" alt="" loading="lazy"></button>`).join('')}
+      </div>
+      <div class="surprise-chosen"></div>
+      <label class="surprise-event">Good for <select name="event"><option value="">Any carnival</option>${(events || []).map(e => `<option value="${e.id}">${escapeHtml(e.title)}</option>`).join('')}</select></label>
+      <textarea name="note" maxlength="200" rows="3" placeholder="A little note… (for the night you held the ladder)"></textarea>
+      <div class="prize-btns"><button class="composer-submit" type="submit">Wrap it up</button><button class="raven-offer-no" type="button" data-close>Never mind</button></div>
+      ${wrapped.length ? `<div class="surprise-waiting"><b>Still wrapped in this room</b>${wrapped.map(g => `<div><img src="${ROOM}${g.img}.png" alt=""> ${escapeHtml(giftName(g))}<button type="button" class="raven-offer-no" data-take="${g.id}">Take it back</button></div>`).join('')}</div>` : ''}
+    </form>`;
+  document.body.appendChild(o);
+  const form = o.querySelector('form');
+  let pick = 'pass';
+  const chosen = () => {
+    o.querySelectorAll('.surprise-thing').forEach(b => b.classList.toggle('picked', b.dataset.img === pick));
+    o.querySelector('.surprise-event').hidden = pick !== 'pass';
+    o.querySelector('.surprise-chosen').textContent = pick === 'pass' ? 'Admit One: they can bring a guest, scanned once at the door.' : pick.replace(/^items\//, '').replace(/_/g, ' ');
+  };
+  chosen();
+  o.addEventListener('click', async e => {
+    if (e.target === o || e.target.closest('[data-close]')) { o.remove(); return; }
+    const t = e.target.closest('.surprise-thing');
+    if (t) { pick = t.dataset.img; chosen(); return; }
+    const take = e.target.closest('[data-take]');
+    if (take) {
+      take.disabled = true;
+      try { await apiFetch(`/api/gifts/${take.dataset.take}`, { method: 'DELETE' }); take.parentElement.remove(); flashToast('Taken back. They never knew.'); done(); }
+      catch (err) { flashToast(err.message); take.disabled = false; }
+    }
+  });
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      await apiFetch(`/api/rooms/${ownerId}/gifts`, { method: 'POST', body: { pass: pick === 'pass', img: pick === 'pass' ? null : pick, event_id: pick === 'pass' ? form.event.value || null : null, note: form.note.value } });
+      o.remove(); flashToast(`🎁 Wrapped and left in ${ownerName}’s room. Omen will tell them.`); done();
+    } catch (err) { flashToast(err.message); btn.disabled = false; }
+  });
+}
 const ROOM_CATS = ['sunny_sit', 'sunny_play', 'sunny_sleep', 'daisy_lie', 'daisy_drum', 'daisy_ball'];
 // Every themed room shares a shape: window left, vanity right, rug in front.
 const DRESSING_DEFAULT = [
@@ -6187,6 +6268,9 @@ async function renderRoom(mainView, ownerId = null) {
   const saved = Array.isArray(room.items) ? room.items : defaultRoom(theme);
   let items = JSON.parse(JSON.stringify(saved));
   const notes = room.notes || [];
+  const gifts = room.gifts || [];
+  const wrapped = () => gifts.filter(g => !g.opened_at);
+  const giftOf = it => it.gift && gifts.find(g => g.id === it.gift);
   const ownerName = room.owner?.display_name || 'Someone';
   // The barker's megaphone lies on the floor in every room (saved layouts
   // from before it existed get one; Arrange can move it like anything else).
@@ -6196,6 +6280,7 @@ async function renderRoom(mainView, ownerId = null) {
   // What a role means right now: hover verb, destination (null = reacts in place).
   const behave = it => {
     if (visiting) return it.role === 'mirror' ? [`Leave a note on ${ownerName}’s mirror`, null] : [null, null];
+    if (it.role === 'decor' && giftOf(it)) return [`${giftOf(it).kind === 'pass' ? 'Your guest pass' : 'A gift'} from ${giftFrom(giftOf(it))}`, null];
     switch (it.role) {
       case 'mirror': return ['Look in the Mirror', '#/profile'];
       case 'trunk': return [newStamp ? 'Open the Trunk (something new!)' : 'Open the Steamer Trunk', '#/badges'];
@@ -6206,6 +6291,7 @@ async function renderRoom(mainView, ownerId = null) {
           const f = letters.from[0];
           return [`Hear Omen (a letter from ${f.display_name}!)`, letters.from.length === 1 ? `#/dm/${f.conversation_id}` : '#/dm'];
         }
+        if (wrapped().length) return ['Hear Omen (a surprise is waiting!)', null];
         const nf = items.find(f => f.role === 'flyer' && visible(f) && fresh(f));
         if (shakeAsk) return ['Hear Omen (someone wants to shake hands!)', `#/event/${shakeAsk.id}`];
         if (nf) return [`Hear Omen (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
@@ -6232,7 +6318,7 @@ async function renderRoom(mainView, ownerId = null) {
     // The raven really squawks: two frames (beak shut / beak open) flipped in
     // bursts — frantic for a letter, now-and-then for a volunteer call.
     let frames = null;
-    if (!roomEditing && it.role === 'raven' && img === 'raven_perched' && squawk()) { frames = letters.unread || items.some(f => f.role === 'flyer' && fresh(f)) ? 'frantic' : 'calm'; anim = 'hop'; }
+    if (!roomEditing && it.role === 'raven' && img === 'raven_perched' && squawk()) { frames = letters.unread || wrapped().length || items.some(f => f.role === 'flyer' && fresh(f)) ? 'frantic' : 'calm'; anim = 'hop'; }
     if (!roomEditing && it.role === 'trunk' && newStamp && img === 'trunk_closed') {
       img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
     }
@@ -6244,6 +6330,7 @@ async function renderRoom(mainView, ownerId = null) {
   const short = (t, n = 26) => t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
   const squawk = () => {
     if (visiting) return null;
+    if (wrapped().length) return `A surprise from ${short(giftFrom(wrapped()[0]), 20)}!`;
     if (letters.unread && letters.from[0]) return letters.unread === 1 ? `A letter from ${short(letters.from[0].display_name, 18)}!` : `${letters.unread} new letters!`;
     if (shakeAsk) return `A crewmate wants to shake hands! (${short(shakeAsk.title, 20)})`;
     const nf = items.find(it => it.role === 'flyer' && visible(it) && fresh(it));
@@ -6348,6 +6435,10 @@ async function renderRoom(mainView, ownerId = null) {
         out += `<button class="room-note" data-note="${n.id}" style="left:${l}%;top:${t}%;--tilt:${((k * 47) % 11) - 5}deg" aria-label="Note from ${escapeHtml(n.display_name)}: ${escapeHtml(n.body)}"><b>${escapeHtml(n.display_name.split(' ')[0])}</b>${escapeHtml(n.body.length > 28 ? n.body.slice(0, 27) + '…' : n.body)}</button>`;
       });
     }
+    // Wrapped surprises sit on the rug until they're opened.
+    wrapped().forEach((g, k) => {
+      out += `<button class="room-gift" data-gift="${g.id}" style="left:${26 + (k % 4) * 7.5}%;top:${88 - Math.floor(k / 4) * 7}%" aria-label="${visiting ? 'A wrapped surprise' : `A surprise from ${escapeHtml(giftFrom(g))}: unwrap it`}">${GIFT_SVG}</button>`;
+    });
     const raven = items.find(i => i.role === 'raven'), trunk = items.find(i => i.role === 'trunk');
     const said = raven && squawk();
     if (said) out += `<div class="room-squawk said ${letters.unread ? 'letter' : ''}" style="left:${raven.l + raven.w * 0.55}%;top:${raven.t - 1.5}%" aria-hidden="true"><b>SQUAWK!</b> ${escapeHtml(said)}</div>`;
@@ -6385,7 +6476,10 @@ async function renderRoom(mainView, ownerId = null) {
       }
       el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
     },
-    raven: () => say('Croak. Nothing to squawk about right now. It’s keeping watch.'),
+    raven: () => {
+      const w = wrapped()[0], parcel = w && host.querySelector(`[data-gift="${w.id}"]`);
+      if (parcel) unwrap(w, parcel); else say('Croak. Nothing to squawk about right now. It’s keeping watch.');
+    },
     megaphone: () => {
       const last = lastHoller();
       if (last) showBlast(last, { replay: true });
@@ -6404,10 +6498,13 @@ async function renderRoom(mainView, ownerId = null) {
     if (roomEditing) return;
     const note = e.target.closest('[data-note]');
     if (note) { const n = notes.find(x => String(x.id) === note.dataset.note); if (n) say(`📝 “${n.body}” — ${n.display_name}`); return; }
+    const parcel = e.target.closest('[data-gift]');
+    if (parcel) { if (visiting) say(`Still wrapped. ${ownerName} hasn’t found it yet.`); else unwrap(gifts.find(g => g.id === parcel.dataset.gift), parcel); return; }
     if (visiting) { if (e.target.closest('[data-role="mirror"]')) leaveNote(); return; }
     const el = e.target.closest('[data-item]');
     if (!el) return;
     const it = items.find(i => i.id === el.dataset.item);
+    if (it.role === 'decor' && giftOf(it)) { showGift(giftOf(it)); return; }
     if (it.role === 'trunk') { openTrunk(el, it); return; }
     const [, href] = behave(it);
     if (href) go(el, it, href); else quiet[it.role]?.(el);
@@ -6562,6 +6659,33 @@ async function renderRoom(mainView, ownerId = null) {
     const el = host.querySelector('[data-role="trunk"]'), it = items.find(i => i.role === 'trunk');
     if (el && it) openTrunk(el, it);
   };
+  // Unwrapping: the parcel bursts, the thing lands in the room for good.
+  let unwrapping = false;
+  async function unwrap(g, parcel) {
+    if (!g || unwrapping || roomEditing) return;
+    unwrapping = true;
+    parcel.classList.add('opening');
+    try {
+      const r = await apiFetch(`/api/gifts/${g.id}/open`, { method: 'POST' });
+      // Each new gift lands beside the last one, along the front of the rug.
+      const placed = saved.filter(i => i.gift).length;
+      Object.assign(g, r.gift);
+      room.unlocked = r.unlocked;
+      const it = { id: 'g' + g.id.slice(0, 7), role: ITEM_ROLES[g.img] || 'decor', img: g.img, l: 20 + (placed % 6) * 7, t: 80 - Math.floor(placed / 6) * 6, w: 8, z: 6, gift: g.id };
+      saved.push(JSON.parse(JSON.stringify(it)));
+      items.push(it);
+      await apiFetch('/api/me/room', { method: 'PUT', body: { theme: savedTheme, items: saved } }).catch(() => {});
+      setTimeout(() => { draw(); showGift(g, { fresh: true }); }, 420);
+    } catch (err) { parcel.classList.remove('opening'); say(err.message); }
+    unwrapping = false;
+  }
+  if (visiting && profile.is_ringleader && ownerId !== profile.id) {
+    const plaque = mainView.querySelector('.room-visit-plaque');
+    const b = document.createElement('button');
+    b.className = 'room-plaque-btn'; b.textContent = '🎁 Leave a surprise';
+    b.addEventListener('click', () => openSurprise(ownerId, ownerName, wrapped(), () => { roomStage = null; render(); }));
+    plaque.insertBefore(b, plaque.querySelector('a'));
+  }
   function leaveNote() {
     openForumNote({
       heading: `A note for ${ownerName}’s mirror`, withTitle: false, cta: 'Stick it on the mirror', placeholder: 'Huzzah! Great working with you…',
@@ -7018,7 +7142,7 @@ async function renderTicketPanel(eventId) {
 
 async function renderMyTicketsView(mainView) {
   mainView.innerHTML = `<h2>My Tickets</h2><div class="placeholder-note">Loading…</div>`;
-  const { tickets } = await apiFetch('/api/me/tickets');
+  const { tickets, passes = [] } = await apiFetch('/api/me/tickets');
   const joinCta = !isInnerMember() ? courtyardPathCta("You're in the courtyard. Tickets are for inner members.") : '';
   const list = tickets.length ? tickets.map(t => `
     <div class="post-card" style="cursor:default;">
@@ -7026,8 +7150,14 @@ async function renderMyTicketsView(mainView) {
       <div class="post-meta">${formatEventDate(t.starts_at)}${t.location ? ' · ' + escapeHtml(t.location) : ''} · ${escapeHtml(t.tier_name)}</div>
       <div class="ticket-qr">${qrSvg(t.code)}</div>
       <div class="post-meta">${t.checked_in_at ? 'Checked in' : 'Show this code at the door'} · <code>${escapeHtml(t.code)}</code></div>
-    </div>`).join('') : '<div class="placeholder-note">No tickets yet.</div>';
-  mainView.innerHTML = `<h2>My Tickets</h2>${joinCta}<div class="post-list">${list}</div>`;
+    </div>`).join('') : passes.length ? '' : '<div class="placeholder-note">No tickets yet.</div>';
+  const guest = passes.map(g => `
+    <div class="post-card" style="cursor:default;">
+      <div class="post-title">🎟️ Admit One: a guest pass</div>
+      <div class="post-meta">From ${escapeHtml(giftFrom(g))} · good ${g.event_title ? 'at ' + escapeHtml(g.event_title) : 'at any carnival'}${g.note ? ` · “${escapeHtml(g.note)}”` : ''}</div>
+      ${g.redeemed_at ? `<div class="post-meta">Punched${g.redeemed_title ? ' at ' + escapeHtml(g.redeemed_title) : ''}. Your guest came!</div>` : `<div class="ticket-qr">${qrSvg(g.code)}</div><div class="post-meta">Show this at the door for your guest · <code>${escapeHtml(g.code)}</code></div>`}
+    </div>`).join('');
+  mainView.innerHTML = `<h2>My Tickets</h2>${joinCta}<div class="post-list">${guest}${list}</div>`;
   const join = mainView.querySelector('[data-join]');
   if (join) join.addEventListener('click', () => startMembershipCheckout(join));
 }

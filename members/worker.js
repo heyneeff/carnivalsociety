@@ -2106,7 +2106,10 @@ async function roomUnlocks(env, userId) {
   const { results } = await env.DB.prepare("SELECT DISTINCT kind FROM stamps WHERE user_id = ?").bind(userId).all();
   const kinds = new Set(results.map((r) => r.kind));
   const met = (await env.DB.prepare("SELECT COUNT(*) AS n FROM handshakes WHERE (user_a = ? OR user_b = ?) AND met_at IS NOT NULL").bind(userId, userId).first()).n;
-  return Object.entries(ROOM_SPECIALS).filter(([, r]) => (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
+  // A special you were given as a surprise is yours, earned or not.
+  const { results: gifts } = await env.DB.prepare("SELECT DISTINCT img FROM room_gifts WHERE room_user_id = ? AND opened_at IS NOT NULL").bind(userId).all();
+  const given = new Set(gifts.map((g) => g.img));
+  return Object.entries(ROOM_SPECIALS).filter(([k, r]) => given.has(k) || (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
 }
 function cleanRoomItems(raw, { ringleader, unlocked }) {
   if (raw === null) return null;
@@ -2124,6 +2127,7 @@ function cleanRoomItems(raw, { ringleader, unlocked }) {
       l: num(it.l, -10, 105, 40), t: num(it.t, -10, 105, 40), w: num(it.w, 1, 80, 10), ...(it.h != null ? { h: num(it.h, 1, 80, 10) } : {}),
       ...(it.rot ? { rot: num(it.rot, -45, 45, 0) } : {}), ...(it.flip ? { flip: true } : {}), ...(it.z ? { z: Math.round(num(it.z, -50, 50, 0)) } : {}),
       ...(ROOM_ANIM.includes(it.anim) && it.anim ? { anim: it.anim } : {}), ...(role === "flyer" ? { n: Math.round(num(it.n, 0, 5, 0)) } : {}),
+      ...(typeof it.gift === "string" && /^[a-f0-9]{8,32}$/.test(it.gift) ? { gift: it.gift } : {}),
     };
   });
 }
@@ -2142,12 +2146,23 @@ async function roomFor(env, ownerId) {
   ).bind(ownerId).all();
   return { owner: { ...owner, is_ringleader: !!owner.is_ringleader }, theme, items, notes };
 }
+// The surprises in a room. The owner sees all of theirs (to unwrap, and to
+// reread the notes); a Ringleader visiting sees the ones still wrapped.
+async function roomGifts(env, ownerId, { wrappedOnly = false } = {}) {
+  const { results } = await env.DB.prepare(
+    `SELECT g.id, g.kind, g.img, g.note, g.code, g.event_id, g.created_at, g.opened_at, g.redeemed_at,
+            u.display_name AS from_name, e.title AS event_title, r.title AS redeemed_title
+     FROM room_gifts g LEFT JOIN users u ON u.id = g.from_id LEFT JOIN events e ON e.id = g.event_id LEFT JOIN events r ON r.id = g.redeemed_event_id
+     WHERE g.room_user_id = ? ${wrappedOnly ? "AND g.opened_at IS NULL" : ""} ORDER BY g.created_at`
+  ).bind(ownerId).all();
+  return results.map((g) => (g.opened_at ? g : { ...g, code: null }));
+}
 async function roomRoutes(request, env, url, user) {
   const { pathname } = url;
   const method = request.method;
   if (pathname === "/api/me/room" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
-    return json({ ...(await roomFor(env, user.id)), unlocked: await roomUnlocks(env, user.id), specials: ROOM_SPECIALS });
+    return json({ ...(await roomFor(env, user.id)), gifts: await roomGifts(env, user.id), unlocked: await roomUnlocks(env, user.id), specials: ROOM_SPECIALS });
   }
   if (pathname === "/api/me/room" && method === "PUT") {
     if (!user) return err(401, "Sign in required.");
@@ -2164,7 +2179,47 @@ async function roomRoutes(request, env, url, user) {
   if (roomMatch && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const room = await roomFor(env, roomMatch[1]);
-    return room ? json(room) : err(404, "No such room.");
+    if (!room) return err(404, "No such room.");
+    return json(isModerator(user) ? { ...room, gifts: await roomGifts(env, roomMatch[1], { wrappedOnly: true }) } : room);
+  }
+  // Surprises: a Ringleader wraps something up in someone's room.
+  const giftMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/gifts$/);
+  if (giftMatch && method === "POST") {
+    if (!isModerator(user)) return err(403, "Only the Ringleader leaves surprises.");
+    const owner = giftMatch[1];
+    if (owner === user.id) return err(400, "That's your own room!");
+    const who = await env.DB.prepare("SELECT display_name FROM users WHERE id = ?").bind(owner).first();
+    if (!who) return err(404, "No such room.");
+    const b = await body(request);
+    const pass = !!b.pass;
+    const img = pass ? "items/ticket_admit" : String(b.img || "");
+    if (!/^items\/[a-z_]{2,30}$/.test(img)) return err(400, "Pick something to give.");
+    const note = (b.note || "").trim().slice(0, 200) || null;
+    let eventId = null;
+    if (pass && b.event_id) {
+      const ev = await env.DB.prepare("SELECT id FROM events WHERE id = ?").bind(b.event_id).first();
+      if (!ev) return err(400, "No such carnival.");
+      eventId = ev.id;
+    }
+    const id = bytesToHex(crypto.getRandomValues(new Uint8Array(12)));
+    await env.DB.prepare("INSERT INTO room_gifts (id, room_user_id, from_id, kind, img, note, code, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(id, owner, user.id, pass ? "pass" : "item", img, note, pass ? ticketCode() : null, eventId).run();
+    await notifyUser(env, owner, { kind: "letter", title: `🎁 ${user.display_name} left a surprise in your Dressing Room`, body: "It's wrapped and waiting. Go see!", url: "#/dressing-room" }, "notify_letters");
+    return json({ ok: true, id });
+  }
+  const giftOne = pathname.match(/^\/api\/gifts\/([a-f0-9]+)(\/open)?$/);
+  if (giftOne && method === "POST" && giftOne[2]) {
+    if (!user) return err(401, "Sign in required.");
+    const g = await env.DB.prepare("SELECT id FROM room_gifts WHERE id = ? AND room_user_id = ?").bind(giftOne[1], user.id).first();
+    if (!g) return err(404, "That surprise isn't yours to open.");
+    await env.DB.prepare("UPDATE room_gifts SET opened_at = COALESCE(opened_at, datetime('now')) WHERE id = ?").bind(g.id).run();
+    const gifts = await roomGifts(env, user.id);
+    return json({ gift: gifts.find((x) => x.id === g.id), unlocked: await roomUnlocks(env, user.id) });
+  }
+  if (giftOne && method === "DELETE" && !giftOne[2]) {
+    if (!isModerator(user)) return err(403, "Only the Ringleader takes surprises back.");
+    const res = await env.DB.prepare("DELETE FROM room_gifts WHERE id = ? AND opened_at IS NULL").bind(giftOne[1]).run();
+    return res.meta.changes ? json({ ok: true }) : err(400, "Already unwrapped. It's theirs now!");
   }
   const noteMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/notes$/);
   if (noteMatch && method === "POST") {
@@ -2821,7 +2876,8 @@ async function ticketRoutes(request, env, url) {
        FROM tickets JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id JOIN events ON events.id = tickets.event_id
        WHERE tickets.user_id = ? AND tickets.status = 'paid' ORDER BY events.starts_at`
     ).bind(user.id).all();
-    return json({ tickets: results });
+    const passes = (await roomGifts(env, user.id)).filter((g) => g.kind === "pass" && g.opened_at);
+    return json({ tickets: results, passes });
   }
 
   const checkinMatch = pathname.match(/^\/api\/events\/([^/]+)\/checkin$/);
@@ -2834,7 +2890,19 @@ async function ticketRoutes(request, env, url) {
        JOIN users ON users.id = tickets.user_id JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id
        WHERE tickets.code = ? AND tickets.event_id = ?`
     ).bind(code || "", checkinMatch[1]).first();
-    if (!t || t.status !== "paid") return err(404, "No valid ticket for that code.");
+    if (!t) {
+      // Not a ticket? Maybe a guest pass the Ringleader gave someone.
+      const g = await env.DB.prepare(
+        `SELECT g.id, g.event_id, g.redeemed_at, u.display_name, e.title AS event_title FROM room_gifts g
+         JOIN users u ON u.id = g.room_user_id LEFT JOIN events e ON e.id = g.event_id WHERE g.code = ? AND g.kind = 'pass'`
+      ).bind(code || "").first();
+      if (!g) return err(404, "No valid ticket for that code.");
+      if (g.event_id && g.event_id !== checkinMatch[1]) return err(400, `That guest pass is for ${g.event_title}.`);
+      if (g.redeemed_at) return json({ ok: false, already: true, display_name: `${g.display_name}'s guest`, checked_in_at: g.redeemed_at });
+      await env.DB.prepare("UPDATE room_gifts SET redeemed_at = datetime('now'), redeemed_event_id = ?, opened_at = COALESCE(opened_at, datetime('now')) WHERE id = ?").bind(checkinMatch[1], g.id).run();
+      return json({ ok: true, display_name: `${g.display_name}'s guest`, tier_name: "Guest pass (Admit One)", guest: true });
+    }
+    if (t.status !== "paid") return err(404, "No valid ticket for that code.");
     if (t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: t.checked_in_at });
     await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
     const { promoted } = await grantStamp(env, { userId: t.user_id, kind: "ticket", eventId: t.event_id, grantedBy: user.id });
@@ -2847,6 +2915,7 @@ function courtyardAllowed(method, pathname) {
   if (method === "GET" && (pathname === "/api/chapters" || pathname === "/api/events" || pathname === "/api/me/tickets" || pathname === "/api/me/volunteering" || pathname === "/api/me/passport" || pathname === "/api/me/troupe" || pathname === "/api/room-layout" || pathname === "/api/me/news" || pathname === "/api/jobs" || pathname === "/api/me/jobs" || pathname === "/api/me/album" || pathname === "/api/me/crews" || pathname === "/api/me/room" || pathname === "/api/materials" || pathname === "/api/run")) return true;
   if ((method === "POST" || method === "DELETE") && /^\/api\/materials\/[^/]+\/pledge$/.test(pathname)) return true;
   if (method === "PUT" && pathname === "/api/me/room") return true;
+  if (method === "POST" && /^\/api\/gifts\/[a-f0-9]+\/open$/.test(pathname)) return true;
   if (method === "GET" && /^\/api\/rooms\/[^/]+$/.test(pathname)) return true;
   if ((method === "POST" && /^\/api\/rooms\/[^/]+\/notes$/.test(pathname)) || (method === "DELETE" && /^\/api\/rooms\/[^/]+\/notes\/\d+$/.test(pathname))) return true;
   if (method === "GET" && /^\/api\/events\/[^/]+\/table$/.test(pathname)) return true;
