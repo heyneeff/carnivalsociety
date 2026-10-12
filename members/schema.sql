@@ -593,3 +593,24 @@ CREATE UNIQUE INDEX idx_door_entries_once ON door_entries(event_id, user_id) WHE
 -- Door settings per event: how many fit, and the walk-up price.
 ALTER TABLE events ADD COLUMN capacity INTEGER;
 ALTER TABLE events ADD COLUMN door_cents INTEGER;
+-- Entry comes with paper carnival tickets to spend inside (entry_tickets),
+-- and more are sold at ticket_cents each. slug = the short public link
+-- (/t/<slug>) where anyone can save a spot or buy entry.
+ALTER TABLE events ADD COLUMN entry_tickets INTEGER;
+ALTER TABLE events ADD COLUMN ticket_cents INTEGER;
+ALTER TABLE events ADD COLUMN slug TEXT;
+CREATE UNIQUE INDEX idx_events_slug ON events(slug) WHERE slug IS NOT NULL;
+ALTER TABLE door_entries ADD COLUMN tickets_given INTEGER NOT NULL DEFAULT 0;
+-- Extra carnival tickets sold at the door or the ticket booth.
+CREATE TABLE door_sales (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  qty INTEGER NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  method TEXT NOT NULL,              -- cash | card
+  by_user TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  voided_at TEXT
+);
+CREATE INDEX idx_door_sales_event ON door_sales(event_id, created_at);
+-- tickets.status gains 'reserved': a saved spot, paid at the door.

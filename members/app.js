@@ -143,6 +143,11 @@ function render() {
   if (resetMatch) { renderResetScreen(resetMatch[1]); return; }
   const claimMatch = window.location.hash.match(/^#\/claim\/([0-9a-f]+)$/);
   if (claimMatch) { renderClaimScreen(claimMatch[1]); return; }
+  // Anyone, signed in or not: a carnival's "Get in" page, and a ticket.
+  const getMatch = window.location.hash.match(/^#\/get\/([a-z0-9-]+)$/);
+  if (getMatch) { dropForumWing(); renderGetIn(getMatch[1]); return; }
+  const ticketMatch = window.location.hash.match(/^#\/ticket\/([0-9a-f]{20})(?:\/([0-9a-f]+))?$/);
+  if (ticketMatch) { dropForumWing(); renderTicketPage(ticketMatch[1], ticketMatch[2]); return; }
   if (!session || !profile) { session = false; profile = null; dropForumWing(); renderAuthScreen(defaultAuthMode()); return; }
   if (!profile.onboarded) { dropForumWing(); renderOnboarding(); return; }
   renderShell();
@@ -1113,6 +1118,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
+      ${e.door_cents != null ? `<a class="composer-submit get-in-btn" href="#/get/${e.slug || e.id}">🎟️ Get in · ${e.door_cents ? doorMoney(e.door_cents) : 'free'}${e.entry_tickets ? ` with ${e.entry_tickets} carnival tickets` : ''}</a>` : ''}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       <div class="run-board" data-run-for="${e.id}" data-starts="${e.starts_at}" data-ends="${e.ends_at || ''}"></div>
@@ -5309,7 +5315,8 @@ function badgeIcon(kind, size = 28) {
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
 }
 
-function sqlTime(t) { return Date.parse(String(t).replace(' ', 'T') + 'Z'); }
+// SQLite times ("2026-10-12 18:02:36") and ISO times with a zone, both as UTC.
+function sqlTime(t) { const v = String(t).replace(' ', 'T'); return Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(v) ? v : v + 'Z'); }
 
 // ── The raven on your phone: installable app + web push. The push carries
 // nothing; sw.js fetches what's waiting and squawks it. iPhones only allow
@@ -7153,7 +7160,7 @@ async function renderMyTicketsView(mainView) {
       <div class="post-title">${escapeHtml(t.title)}</div>
       <div class="post-meta">${formatEventDate(t.starts_at)}${t.location ? ' · ' + escapeHtml(t.location) : ''} · ${escapeHtml(t.tier_name)}</div>
       <div class="ticket-qr">${qrSvg(t.code)}</div>
-      <div class="post-meta">${t.checked_in_at ? 'Checked in' : 'Show this code at the door'} · <code>${escapeHtml(t.code)}</code></div>
+      <div class="post-meta">${t.checked_in_at ? 'Checked in' : t.status === 'reserved' ? 'Spot saved: pay at the door, then show this code' : 'Show this code at the door'} · <code>${escapeHtml(t.code)}</code></div>
     </div>`).join('') : passes.length ? '' : '<div class="placeholder-note">No tickets yet.</div>';
   const guest = passes.map(g => `
     <div class="post-card" style="cursor:default;">
@@ -7219,14 +7226,19 @@ async function renderCheckinView(mainView, eventId) {
       </div>
       <div class="door-count" id="doorCount" aria-live="polite"></div>
       <form class="door-settings" id="doorSettings" hidden>
+        <label>Entry $ <input type="number" name="price" min="0" step="1" inputmode="decimal" value="${ev.door_cents != null ? ev.door_cents / 100 : ''}" placeholder="15"></label>
+        <label>Carnival tickets with entry <input type="number" name="give" min="0" max="100" inputmode="numeric" value="${ev.entry_tickets ?? ''}" placeholder="5"></label>
+        <label>Extra tickets, $ each <input type="number" name="each" min="0" step="0.25" inputmode="decimal" value="${ev.ticket_cents != null ? ev.ticket_cents / 100 : ''}" placeholder="1"></label>
         <label>How many fit <input type="number" name="capacity" min="0" inputmode="numeric" value="${ev.capacity ?? ''}" placeholder="No limit"></label>
-        <label>Door price $ <input type="number" name="price" min="0" step="1" inputmode="decimal" value="${ev.door_cents != null ? ev.door_cents / 100 : ''}" placeholder="Pay what you can"></label>
+        <label class="ds-wide">Public link: ${location.origin}/t/<input name="slug" value="${escapeHtml(ev.slug || '')}" placeholder="kooks" autocomplete="off" autocapitalize="off"></label>
         <button class="composer-submit" type="submit">Save</button>
+        <div class="ds-link" id="doorLink"></div>
       </form>
       <div class="door-lanes" role="tablist">
         <button role="tab" data-lane="scan" aria-selected="true">📷 Scan</button>
         <button role="tab" data-lane="find" aria-selected="false">🔎 Find a member</button>
         <button role="tab" data-lane="new" aria-selected="false">✨ New face</button>
+        <button role="tab" data-lane="sell" aria-selected="false">🎟️ Sell tickets</button>
       </div>
       <div class="door-lane" data-for="scan">
         <div class="door-cam"><video id="scanVideo" playsinline muted hidden></video><canvas id="scanCanvas" hidden></canvas><p class="door-cam-hint" id="camHint">Starting the camera…</p></div>
@@ -7244,6 +7256,13 @@ async function renderCheckinView(mainView, eventId) {
         <input class="door-input" name="heard" placeholder="How’d they hear about us? (optional)" autocomplete="off">
         <button class="composer-submit" type="submit">Next: how they’re getting in →</button>
       </form>
+      <form class="door-lane door-sell" data-for="sell" id="doorSell" hidden>
+        <div class="ds-qty"><button type="button" data-q="-1" aria-label="One fewer">−</button><input name="qty" type="number" min="1" max="500" value="5" inputmode="numeric" aria-label="How many tickets"><button type="button" data-q="1" aria-label="One more">+</button></div>
+        <div class="ds-quick">${[5, 10, 20].map(n => `<button type="button" data-set="${n}">${n}</button>`).join('')}</div>
+        <div class="ds-total" id="sellTotal"></div>
+        <div class="da-seg"><button type="submit" data-m="cash">💵 Cash</button><button type="submit" data-m="card">💳 Card (Square)</button></div>
+        <div class="door-recent" id="doorSales"></div>
+      </form>
       <div class="door-result" id="doorResult" aria-live="assertive"></div>
       <h3 class="door-recent-h">Just came in</h3>
       <div class="door-recent" id="doorRecent"></div>
@@ -7257,7 +7276,7 @@ async function renderCheckinView(mainView, eventId) {
     $('#doorCount').innerHTML = `
       <div class="dc-big"><b>${t.inside}</b><span>inside${cap ? ` of ${cap}` : ''}</span></div>
       ${cap ? `<div class="dc-bar ${pct >= 90 ? 'full' : ''}"><i style="width:${pct}%"></i></div>` : ''}
-      <div class="dc-row"><span>✨ ${t.first_time} first-timer${t.first_time === 1 ? '' : 's'}</span><span>💵 ${doorMoney(t.cash)} cash</span><span>💳 ${doorMoney(t.card)} card</span></div>`;
+      <div class="dc-row"><span>✨ ${t.first_time} first-timer${t.first_time === 1 ? '' : 's'}</span><span>💵 ${doorMoney(t.cash)} cash</span><span>💳 ${doorMoney(t.card)} card</span><span>🎟️ ${t.tickets_given + t.tickets_sold} carnival tickets out</span></div>`;
   }
   function drawRecent(entries) {
     $('#doorRecent').innerHTML = entries.length ? entries.map(e => `
@@ -7268,9 +7287,15 @@ async function renderCheckinView(mainView, eventId) {
       </div>`).join('') : '<div class="placeholder-note">Nobody yet. Doors open soon!</div>';
   }
   async function refresh() {
-    try { d = await apiFetch(`/api/events/${eventId}/door`); drawCount(d.totals); drawRecent(d.entries); } catch (e) { /* keep what's on screen */ }
+    try { d = await apiFetch(`/api/events/${eventId}/door`); drawCount(d.totals); drawRecent(d.entries); drawSales(d.sales || []); } catch (e) { /* keep what's on screen */ }
   }
-  drawCount(d.totals); drawRecent(d.entries);
+  // The public link, with a QR to print on the flyer.
+  function drawLink() {
+    const el = $('#doorLink');
+    el.innerHTML = d.link ? `<div class="ticket-qr">${qrSvg(d.link)}</div><div><b>Anyone can get in here:</b><br><a href="${d.link}" target="_blank" rel="noopener">${escapeHtml(d.link)}</a><br><span class="post-meta">Print the QR on flyers, or share the link.</span></div>` : '';
+  }
+  drawLink();
+  drawCount(d.totals); drawRecent(d.entries); drawSales(d.sales || []);
   const poll = setInterval(() => { if (!document.body.contains(mainView.querySelector('.door'))) clearInterval(poll); else refresh(); }, 15000);
 
   const flash = (ok, html) => {
@@ -7280,7 +7305,7 @@ async function renderCheckinView(mainView, eventId) {
     try { navigator.vibrate?.(ok === true ? 60 : [80, 60, 80]); } catch (e) { /* no buzz */ }
   };
   const said = r => r.ok
-    ? `<b>✓ ${escapeHtml(r.display_name)}</b>${r.tier_name ? ` · ${escapeHtml(r.tier_name)}` : ''}${r.first_time ? ' · <span class="door-first">first time! Welcome them in</span>' : ''}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}`
+    ? `<b>✓ ${escapeHtml(r.display_name)}</b>${r.tier_name ? ` · ${escapeHtml(r.tier_name)}` : ''}${r.first_time ? ' · <span class="door-first">first time! Welcome them in</span>' : ''}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}${r.tickets_given ? `<div class="door-give">🎟️ Hand them <b>${r.tickets_given}</b> carnival tickets</div>` : ''}`
     : `<b>Already in:</b> ${escapeHtml(r.display_name)} (since ${new Date(sqlTime(r.checked_in_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})`;
 
   // Lanes.
@@ -7297,13 +7322,60 @@ async function renderCheckinView(mainView, eventId) {
     e.preventDefault();
     const f = e.target;
     const capacity = f.capacity.value === '' ? null : Number(f.capacity.value), door_cents = f.price.value === '' ? null : Math.round(Number(f.price.value) * 100);
-    await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents } });
-    ev.capacity = capacity; ev.door_cents = door_cents; f.hidden = true; drawCount(d.totals); flashToast('Door settings saved.');
+    const entry_tickets = f.give.value === '' ? 0 : Number(f.give.value), ticket_cents = f.each.value === '' ? null : Math.round(Number(f.each.value) * 100);
+    try {
+      const r = await apiFetch(`/api/events/${eventId}/door`, { method: 'PATCH', body: { capacity, door_cents, entry_tickets, ticket_cents, slug: f.slug.value } });
+      Object.assign(ev, { capacity, door_cents, entry_tickets, ticket_cents });
+      d.link = r.link; drawLink(); drawCount(d.totals); flashToast('Door settings saved.');
+    } catch (err) { flashToast(err.message); }
+  });
+
+  // Sell extra carnival tickets.
+  const sell = $('#doorSell');
+  const each = () => ev.ticket_cents ?? 100;
+  const sellTotal = () => { const q = Math.max(0, Math.round(Number(sell.qty.value) || 0)); $('#sellTotal').textContent = `${q} ticket${q === 1 ? '' : 's'} · take ${doorMoney(q * each())}`; };
+  sellTotal();
+  sell.addEventListener('input', sellTotal);
+  // Enter in the box shouldn't guess cash: make them tap a method.
+  sell.qty.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+  sell.addEventListener('click', e => {
+    const q = e.target.closest('[data-q]'), set = e.target.closest('[data-set]');
+    if (q) { sell.qty.value = Math.max(1, (Number(sell.qty.value) || 0) + Number(q.dataset.q)); sellTotal(); }
+    if (set) { sell.qty.value = set.dataset.set; sellTotal(); }
+  });
+  sell.addEventListener('submit', async e => {
+    e.preventDefault();
+    const method = e.submitter?.dataset.m;
+    if (!method) return;
+    try {
+      const r = await apiFetch(`/api/events/${eventId}/door/sell`, { method: 'POST', body: { qty: Number(sell.qty.value), method } });
+      flash(true, `<b>✓ Sold ${r.qty} carnival tickets</b> · ${doorMoney(r.amount_cents)} ${method}. Tear them off the roll!`);
+      sell.qty.value = 5; sellTotal(); refresh();
+    } catch (err) { flash('bad', `✗ ${escapeHtml(err.message)}`); }
+  });
+  function drawSales(sales) {
+    $('#doorSales').innerHTML = sales.length ? '<div class="post-meta">Recent sales</div>' + sales.map(x => `
+      <div class="door-entry ${x.voided_at ? 'voided' : ''}"><div><b>${x.qty} tickets</b><div class="post-meta">${doorMoney(x.amount_cents)} ${x.method} · ${new Date(sqlTime(x.created_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${x.by_name ? ` · by ${escapeHtml(x.by_name.split(' ')[0])}` : ''}</div></div>
+      ${x.voided_at ? '<span class="post-meta">undone</span>' : `<button type="button" class="raven-offer-no" data-unsell="${x.id}">Undo</button>`}</div>`).join('') : '';
+  }
+  $('#doorSales').addEventListener('click', async e => {
+    const b = e.target.closest('[data-unsell]');
+    if (!b) return;
+    b.disabled = true;
+    try { await apiFetch(`/api/events/${eventId}/door/sales/${b.dataset.unsell}`, { method: 'DELETE' }); refresh(); } catch (err) { flashToast(err.message); b.disabled = false; }
   });
 
   // Scan: tickets and guest passes.
   async function scan(code) {
-    try { const r = await apiFetch(`/api/events/${eventId}/door/scan`, { method: 'POST', body: { code } }); flash(r.ok, said(r)); refresh(); }
+    try {
+      const r = await apiFetch(`/api/events/${eventId}/door/scan`, { method: 'POST', body: { code } });
+      if (r.owes) {
+        flash(false, `<b>${escapeHtml(r.display_name)}</b> saved a spot. Take their entry below.`);
+        openAdmit({ user_id: r.user_id, name: r.display_name, hasFix: r.has_fix, ticket_id: r.ticket_id, entry: r.entry_cents }, result);
+        return;
+      }
+      flash(r.ok, said(r)); refresh();
+    }
     catch (err) { flash('bad', `✗ ${escapeHtml(err.message)}`); }
   }
   $('#checkinForm').addEventListener('submit', e => {
@@ -7349,7 +7421,7 @@ async function renderCheckinView(mainView, eventId) {
   function openAdmit(who, after) {
     closeAdmit();
     const reg = d.registration_cents;
-    const price = ev.door_cents;
+    const price = who.entry ?? ev.door_cents;
     sheet = document.createElement('form');
     sheet.className = 'door-admit';
     sheet.innerHTML = `
@@ -7365,7 +7437,8 @@ async function renderCheckinView(mainView, eventId) {
           <button type="button" data-v="cash" aria-pressed="false">💵 Cash</button>
           <button type="button" data-v="card" aria-pressed="false">💳 Card (Square)</button>
         </div>
-        ${who.hasFix ? '' : `<label class="da-reg"><input type="checkbox" name="registration" checked> Includes the one-time ${doorMoney(reg)} registration (first carnival). They win <b>The Fix Is In</b>.</label>`}
+        ${who.hasFix ? '' : `<label class="da-reg"><input type="checkbox" name="registration" checked> + ${doorMoney(reg)} one-time registration (their first carnival). They win <b>The Fix Is In</b>.</label>`}
+        <div class="da-total" data-total></div>
       </div>
       <input class="door-input" name="note" placeholder="Note (optional): performer, plus-one of…" maxlength="140" autocomplete="off">
       <div class="da-btns"><button class="composer-submit" type="submit">Let them in</button><button class="raven-offer-no" type="button" data-cancel>Cancel</button></div>`;
@@ -7375,7 +7448,10 @@ async function renderCheckinView(mainView, eventId) {
       sheet.querySelectorAll('[data-seg="via"] [data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === state.via));
       sheet.querySelectorAll('[data-seg="method"] [data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === state.method));
       sheet.querySelector('.da-pay').hidden = state.via !== 'door';
+      const amt = Math.round(Number(sheet.amount.value || 0) * 100) + (sheet.registration?.checked ? reg : 0);
+      sheet.querySelector('[data-total]').innerHTML = `Take <b>${doorMoney(amt)}</b>${ev.entry_tickets ? ` · hand them ${ev.entry_tickets} carnival tickets` : ''}`;
     };
+    sheet.addEventListener('input', sync);
     sync();
     sheet.addEventListener('click', e => {
       const b = e.target.closest('[data-v]');
@@ -7386,13 +7462,12 @@ async function renderCheckinView(mainView, eventId) {
     sheet.addEventListener('submit', async e => {
       e.preventDefault();
       const amount = Math.round(Number(sheet.amount.value || 0) * 100);
-      if (state.via === 'door' && amount > 0 && !state.method) { flash('bad', 'Cash or card?'); return; }
       const registration = !!sheet.registration?.checked;
-      if (state.via === 'door' && registration && amount < reg) { flash('bad', `The registration alone is ${doorMoney(reg)}. Untick it, or take at least that.`); return; }
+      if (state.via === 'door' && (amount > 0 || registration) && !state.method) { flash('bad', 'Cash or card?'); return; }
       const btn = sheet.querySelector('[type=submit]'); btn.disabled = true;
       try {
         const r = await apiFetch(`/api/events/${eventId}/door/admit`, { method: 'POST', body: {
-          user_id: who.user_id, name: who.name, email: who.email, phone: who.phone, city: who.city, heard: who.heard,
+          user_id: who.user_id, ticket_id: who.ticket_id, name: who.name, email: who.email, phone: who.phone, city: who.city, heard: who.heard,
           via: state.via, amount_cents: state.via === 'door' ? amount : 0, method: state.method, registration, note: sheet.note.value,
         } });
         closeAdmit();
@@ -7477,8 +7552,10 @@ async function renderDoorReport(mainView, eventId) {
       <div class="dr-tiles">
         <div><b>${t.inside}</b><span>came through the door${r.event.capacity ? ` (of ${r.event.capacity})` : ''}</span></div>
         <div><b>${t.first_time}</b><span>first-timers</span></div>
-        <div><b>${doorMoney(door)}</b><span>at the door (${doorMoney(t.cash)} cash · ${doorMoney(t.card)} card)</span></div>
-        <div><b>${r.advance.n}</b><span>advance tickets (${doorMoney(r.advance.cents)})</span></div>
+        <div><b>${doorMoney(door)}</b><span>taken at the door (${doorMoney(t.cash)} cash · ${doorMoney(t.card)} card), entry and tickets</span></div>
+        <div><b>${r.advance.n}</b><span>paid ahead online (${doorMoney(r.advance.cents)})</span></div>
+        <div><b>${r.saved.came}/${r.saved.n}</b><span>saved a spot and came</span></div>
+        <div><b>${t.tickets_given + t.tickets_sold}</b><span>carnival tickets out (${t.tickets_given} with entry, ${t.tickets_sold} sold for ${doorMoney(t.ticket_sales)})</span></div>
       </div>
       <h3>How they got in</h3>
       <div class="dr-vias">${Object.entries(DOOR_VIA).map(([k, v]) => `<span>${v} <b>${t.by_via[k] || 0}</b></span>`).join('')}</div>
@@ -7502,7 +7579,7 @@ async function renderDoorReport(mainView, eventId) {
   mainView.querySelector('[data-impact]').addEventListener('click', async () => {
     await apiFetch('/api/impact-logs', { method: 'POST', body: {
       event_date: r.event.starts_at.slice(0, 10), event_name: r.event.title,
-      notes: `Door: ${t.inside} came in${r.event.capacity ? ` (capacity ${r.event.capacity})` : ''}, ${t.first_time} first-timers. In by: ${Object.entries(t.by_via).map(([k, n]) => `${k} ${n}`).join(', ')}. Door take ${doorMoney(door)} (${doorMoney(t.cash)} cash, ${doorMoney(t.card)} card); ${r.advance.n} advance tickets.`,
+      notes: `Door: ${t.inside} came in${r.event.capacity ? ` (capacity ${r.event.capacity})` : ''}, ${t.first_time} first-timers. In by: ${Object.entries(t.by_via).map(([k, n]) => `${k} ${n}`).join(', ')}. Door take ${doorMoney(door)} (${doorMoney(t.cash)} cash, ${doorMoney(t.card)} card), incl. ${t.tickets_sold} extra carnival tickets (${doorMoney(t.ticket_sales)}). ${r.advance.n} paid ahead online; ${r.saved.came} of ${r.saved.n} saved spots came. ${t.tickets_given + t.tickets_sold} carnival tickets out.`,
     } });
     flashToast('Impact Log entry started. Add travel, materials and waste there.');
   });
@@ -7534,6 +7611,88 @@ async function renderClaimScreen(token, errorMsg = '') {
       render();
     } catch (err) { renderClaimScreen(token, err.message); }
   });
+}
+
+// ── Getting in (2026-10-14): a carnival's public page, no sign-up first.
+// Name + email → "Save my spot" (pay at the door), or pay now once Stripe
+// is switched on. The email puts you in the system.
+async function renderGetIn(idOrSlug, errorMsg = '') {
+  app.innerHTML = '<div class="getin"><div class="getin-card"><p class="post-meta">Unrolling the poster…</p></div></div>';
+  let d;
+  try { d = await apiFetch(`/api/public/events/${encodeURIComponent(idOrSlug)}`); }
+  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card"><h1>Hmm.</h1><p>${escapeHtml(err.message)}</p><a class="auth-submit" href="#/">Carnival Society</a></div></div>`; return; }
+  const ev = d.event, reg = d.registration_cents;
+  const when = new Date(sqlTime(ev.starts_at));
+  const priced = ev.door_cents != null;
+  const free = priced && ev.door_cents === 0;
+  app.innerHTML = `
+    <div class="getin">
+      <div class="getin-card">
+        <img class="getin-logo" src="assets/logo-wordmark.png" alt="Carnival Society International">
+        <div class="getin-kicker">Step right up!</div>
+        <h1>${escapeHtml(ev.title)}</h1>
+        <p class="getin-when">${when.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${ev.location ? `<br>${escapeHtml(ev.location)}` : ''}</p>
+        ${ev.description ? `<p class="getin-desc">${escapeHtml(ev.description)}</p>` : ''}
+        ${!d.open ? '<div class="getin-price"><b>This one’s over.</b><span>Thanks to everyone who came!</span></div>'
+        : !priced ? '<div class="getin-price"><b>Tickets open soon.</b><span>Check back, or ask a Ringleader.</span></div>'
+        : `<div class="getin-price">
+            <b>${free ? 'Free' : doorMoney(ev.door_cents)}</b><span>entry${ev.entry_tickets ? `, with <strong>${ev.entry_tickets} carnival tickets</strong> to spend inside 🎟️` : ''}</span>
+            ${free ? '' : `<small>First carnival with us? +${doorMoney(reg)} one-time registration, and you win <i>The Fix Is In</i>.</small>`}
+            ${d.spots_left != null ? `<small>${d.spots_left ? `${d.spots_left} spots left` : 'Full! Come to the door and we’ll see.'}</small>` : ''}
+          </div>
+          <form class="getin-form" id="getinForm">
+            <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
+            <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
+            <p class="auth-error">${escapeHtml(errorMsg)}</p>
+            ${d.payments_enabled && !free ? '<button class="auth-submit" type="submit" data-pay="1">Pay now · Apple Pay or card</button>' : ''}
+            <button class="${d.payments_enabled && !free ? 'getin-second' : 'auth-submit'}" type="submit" data-pay="0">${free ? 'Get my ticket' : 'Save my spot · pay at the door'}</button>
+            <p class="getin-fine">No password needed. Your ticket is a QR code you show at the door, and it’s waiting for you on the next screen.</p>
+          </form>`}
+      </div>
+    </div>`;
+  document.getElementById('getinForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target, pay = e.submitter?.dataset.pay === '1';
+    f.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    try {
+      const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay } });
+      if (r.url) { window.location.href = r.url; return; }
+      location.hash = `#/ticket/${r.code}${r.claim ? '/' + r.claim : ''}`;
+    } catch (err) { renderGetIn(idOrSlug, err.message); }
+  });
+}
+// The ticket, as the buyer's phone shows it at the door.
+async function renderTicketPage(code, claim, tries = 0) {
+  let t;
+  try { ({ ticket: t } = await apiFetch(`/api/public/tickets/${code}`)); }
+  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card"><h1>Hmm.</h1><p>${escapeHtml(err.message)}</p></div></div>`; return; }
+  // Back from Stripe a moment before its webhook lands: wait for it.
+  if (t.status === 'pending' && tries < 8) {
+    app.innerHTML = '<div class="getin"><div class="getin-card"><p>Punching your ticket…</p></div></div>';
+    setTimeout(() => renderTicketPage(code, claim, tries + 1), 1500);
+    return;
+  }
+  const when = new Date(sqlTime(t.starts_at));
+  const status = t.checked_in ? '<div class="getin-status in">✓ You’re in. Have fun!</div>'
+    : t.status === 'paid' ? '<div class="getin-status paid">✓ Paid. Show this at the door.</div>'
+    : t.status === 'reserved' ? `<div class="getin-status owe">Spot saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<br><small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time registration (your first carnival)</small>` : ''}</div>`
+    : '<div class="getin-status owe">Payment didn’t go through. Try again, or pay at the door.</div>';
+  app.innerHTML = `
+    <div class="getin">
+      <div class="getin-card getin-ticket">
+        <div class="getin-kicker">Admit one · ${escapeHtml(t.name)}</div>
+        <h1>${escapeHtml(t.title)}</h1>
+        <p class="getin-when">${when.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })} · ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${t.location ? `<br>${escapeHtml(t.location)}` : ''}</p>
+        <div class="getin-qr">${qrSvg(t.code)}</div>
+        <code class="getin-code">${escapeHtml(t.code)}</code>
+        ${status}
+        ${t.entry_tickets ? `<p class="getin-fine">Comes with ${t.entry_tickets} carnival tickets 🎟️, handed to you at the door.</p>` : ''}
+        <p class="getin-fine">Screenshot this, or keep the page. ${navigator.share ? '<button class="raven-offer-no" data-share>Send it to myself</button>' : ''}</p>
+        ${claim ? `<a class="auth-submit" href="#/claim/${claim}">Claim your Dressing Room →</a><p class="getin-fine">You’re in the Carnival Society now. Set a password to see your room, the crew and what’s coming up.</p>`
+          : session ? '<a class="getin-second" href="#/dressing-room">Back to my Dressing Room</a>' : ''}
+      </div>
+    </div>`;
+  app.querySelector('[data-share]')?.addEventListener('click', () => navigator.share({ title: `My ticket: ${t.title}`, url: location.href }).catch(() => {}));
 }
 
 boot();
