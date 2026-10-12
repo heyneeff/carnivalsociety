@@ -6183,7 +6183,8 @@ const ROOM_ITEMS = {
 // A few drawer items come already doing something (still changeable in Arrange).
 const ITEM_ROLES = { 'items/mercury_deck': 'potion', 'items/crystal_ball': 'potion' };
 // Surprises (2026-10-13): a wrapped parcel the Ringleader leaves in a room.
-const GIFT_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="8" y="27" width="48" height="31" rx="3" fill="#9B3036" stroke="#231712" stroke-width="2.5"/><circle cx="17" cy="38" r="2.4" fill="#F4E8D0"/><circle cx="47" cy="47" r="2.4" fill="#F4E8D0"/><circle cx="18" cy="51" r="2" fill="#F4E8D0"/><circle cx="45" cy="35" r="2" fill="#F4E8D0"/><rect x="5" y="19" width="54" height="10" rx="3" fill="#B8424A" stroke="#231712" stroke-width="2.5"/><rect x="28" y="19" width="8" height="39" fill="#DFBE7D" stroke="#231712" stroke-width="2"/><path d="M32 19c-5-11-19-11-17-3 1 5 11 4 17 3zm0 0c5-11 19-11 17-3-1 5-11 4-17 3z" fill="#DFBE7D" stroke="#231712" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+// A surprise arrives in the striped hat box; unwrapping lifts the lid.
+const GIFT_BOX = `<img src="${ROOM}hatbox_closed.png" alt="" draggable="false">`;
 const giftFrom = g => g.from_name ? `Ringleader ${g.from_name.split(' ')[0]}` : 'the Ringleader';
 const giftName = g => g.kind === 'pass' ? 'Admit One guest pass' : g.img.replace(/^items\//, '').replace(/_/g, ' ');
 // The gift card: the thing, the note, and for a guest pass the code to scan.
@@ -6495,7 +6496,7 @@ async function renderRoom(mainView, ownerId = null) {
     }
     // Wrapped surprises sit on the rug until they're opened.
     wrapped().forEach((g, k) => {
-      out += `<button class="room-gift" data-gift="${g.id}" style="left:${26 + (k % 4) * 7.5}%;top:${88 - Math.floor(k / 4) * 7}%" aria-label="${visiting ? 'A wrapped surprise' : `A surprise from ${escapeHtml(giftFrom(g))}: unwrap it`}">${GIFT_SVG}</button>`;
+      out += `<button class="room-gift" data-gift="${g.id}" style="left:${26 + (k % 4) * 7.5}%;top:${88 - Math.floor(k / 4) * 7}%" aria-label="${visiting ? 'A wrapped surprise' : `A surprise from ${escapeHtml(giftFrom(g))}: open the hat box`}">${GIFT_BOX}</button>`;
     });
     const raven = items.find(i => i.role === 'raven'), trunk = items.find(i => i.role === 'trunk');
     const said = raven && squawk();
@@ -6722,6 +6723,9 @@ async function renderRoom(mainView, ownerId = null) {
   async function unwrap(g, parcel) {
     if (!g || unwrapping || roomEditing) return;
     unwrapping = true;
+    // The lid pops: the open hat box spills its feathers, then the gift card.
+    const box = parcel.querySelector('img');
+    if (box) box.src = `${ROOM}hatbox_open.png`;
     parcel.classList.add('opening');
     try {
       const r = await apiFetch(`/api/gifts/${g.id}/open`, { method: 'POST' });
@@ -6733,7 +6737,7 @@ async function renderRoom(mainView, ownerId = null) {
       saved.push(JSON.parse(JSON.stringify(it)));
       items.push(it);
       await apiFetch('/api/me/room', { method: 'PUT', body: { theme: savedTheme, items: saved } }).catch(() => {});
-      setTimeout(() => { draw(); showGift(g, { fresh: true }); }, 420);
+      setTimeout(() => { draw(); showGift(g, { fresh: true }); }, 1100);
     } catch (err) { parcel.classList.remove('opening'); say(err.message); }
     unwrapping = false;
   }
