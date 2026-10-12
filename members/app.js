@@ -86,6 +86,7 @@ async function boot() {
 }
 
 async function loadAppData() {
+  if (profile?.waitlisted_at && !profile.is_ringleader) return; // the waiting room needs nothing else
   if (!isInnerMember()) {
     // Server returns just the Courtyard board to courtyard accounts.
     const [{ chapters: chapterData }, { boards: boardData }, { event_ids }] = await Promise.all([
@@ -151,6 +152,7 @@ function render() {
   const ticketMatch = window.location.hash.match(/^#\/ticket\/([0-9a-f]{20})(?:\/([0-9a-f]+))?$/);
   if (ticketMatch) { dropForumWing(); renderTicketPage(ticketMatch[1], ticketMatch[2]); return; }
   if (!session || !profile) { session = false; profile = null; dropForumWing(); renderAuthScreen(defaultAuthMode()); return; }
+  if (profile.waitlisted_at && !profile.is_ringleader) { dropForumWing(); renderWaitlistScreen(); return; }
   if (!profile.onboarded) { dropForumWing(); renderOnboarding(); return; }
   renderShell();
   if (needsRankCelebration() && !document.querySelector('.rank-celebration')) renderRankCelebration();
@@ -1775,6 +1777,7 @@ const DIRECTORY_TABS = [
   ['individuals', 'Individuals'],
   ['organizations', 'Organizations'],
   ['venues', 'Venues'],
+  ['waitlist', 'Waitlist'],
 ];
 
 function switchDirectoryTab(mainView, tab) {
@@ -1785,6 +1788,7 @@ function switchDirectoryTab(mainView, tab) {
 }
 
 function renderDirectoryBody(mainView) {
+  if (directoryTab === 'waitlist') { renderWaitlistTab(mainView); return; }
   const isVenues = directoryTab === 'venues';
   const sorts = isVenues ? VENUE_SORTS : DIRECTORY_SORTS;
   const searchPlaceholder = isVenues ? 'Search name, city…' : 'Search name, city, chapter, skills…';
@@ -7904,6 +7908,75 @@ async function renderJoinPage(slug, errorMsg = '', joined = null) {
     const f = e.target; f.querySelector('button').disabled = true;
     try { const r = await apiFetch(`/api/public/partners/${encodeURIComponent(slug)}/join`, { method: 'POST', body: { name: f.name.value, email: f.email.value } }); renderJoinPage(slug, '', r); }
     catch (err) { renderJoinPage(slug, err.message); }
+  });
+}
+
+// ── The waitlist (2026-10-16) ─────────────────────────────────────────
+// New sign-ups wait here until the Ringleader lets them in by hand. They
+// can still get tickets; the room and everything behind it stay closed.
+async function renderWaitlistScreen() {
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('You’re on the list!')}<div class="gi-body"><p class="gi-fine">Finding your place in line…</p></div></div></div>`;
+  let d;
+  try { d = await apiFetch('/api/me/waitlist'); } catch (e) { d = { waiting: true, position: null, events: [], tickets: [] }; }
+  // Let in while they were looking: straight into the app.
+  if (!d.waiting) { profile.waitlisted_at = null; await loadAppData(); render(); return; }
+  const first = (profile.display_name || '').split(' ')[0];
+  const ticketFor = new Set(d.tickets.map(t => t.title));
+  app.innerHTML = `
+    <div class="getin">
+      <div class="getin-card">
+        ${getinMarquee('You’re on the list!')}
+        <div class="gi-body">
+          <h1>Hold tight, ${escapeHtml(first)}!</h1>
+          ${d.position ? `<div class="wl-number"><small>You’re</small><b>#${d.position}</b><small>in line</small></div>` : ''}
+          <p class="gi-desc gi-center">Carnival Society is opening its doors a few carnies at a time. The Ringleader lets new people in by hand, and you’ll get a nudge when it’s your turn.</p>
+          <p class="gi-desc gi-center"><b>You don’t have to wait to come to a carnival.</b> Grab a ticket below and we’ll see you there.</p>
+          ${d.tickets.length ? `<h3 class="gi-h3">Your tickets</h3><div class="gi-events">${d.tickets.map(t => `<a class="gi-event" href="#/ticket/${t.code}"><span>${new Date(sqlTime(t.starts_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><b>${escapeHtml(t.title)}</b><em>${t.status === 'paid' ? 'Show it →' : 'Spot saved →'}</em></a>`).join('')}</div>` : ''}
+          ${d.events.filter(e => !ticketFor.has(e.title)).length ? `<h3 class="gi-h3">Coming up</h3><div class="gi-events">${d.events.filter(e => !ticketFor.has(e.title)).map(e => `<a class="gi-event" href="#/get/${e.slug || e.id}"><span>${new Date(sqlTime(e.starts_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><b>${escapeHtml(e.title)}</b><em>Get in →</em></a>`).join('')}</div>` : ''}
+          <button class="gi-btn" id="wlNudge" type="button">🔔 Nudge me when I’m in</button>
+          <p class="gi-fine" id="wlNudgeNote"></p>
+          <p class="gi-fine"><button class="gi-link" id="wlSignOut" type="button">Sign out</button></p>
+        </div>
+      </div>
+    </div>`;
+  const note = document.getElementById('wlNudgeNote');
+  try { if (await ravenSubscribed()) { document.getElementById('wlNudge').hidden = true; note.textContent = 'Omen will nudge this phone when you’re in.'; } } catch (e) { /* not supported */ }
+  document.getElementById('wlNudge').addEventListener('click', async () => {
+    const r = await followRaven();
+    if (r === 'on') { document.getElementById('wlNudge').hidden = true; note.textContent = 'Done! Omen will nudge this phone when you’re in.'; }
+    else if (r === 'ios-install') showIosInstall();
+    else note.textContent = r === 'denied' ? 'Notifications are blocked in your browser settings. Check back here anytime.' : 'This browser can’t do notifications. Check back here anytime.';
+  });
+  document.getElementById('wlSignOut').addEventListener('click', async () => {
+    await apiFetch('/api/auth/signout', { method: 'POST' }).catch(() => {});
+    session = false; profile = null; history.replaceState(null, '', '#/'); render();
+  });
+}
+
+// The Ringleader's Waitlist tab in the Directory: let people in.
+async function renderWaitlistTab(mainView) {
+  mainView.innerHTML = `
+    <h2>Directory</h2>
+    <div class="crew-tabs">${DIRECTORY_TABS.map(([key, label]) => `<button class="crew-tab tab-btn ${directoryTab === key ? 'active' : ''}" data-tab="${key}">${label}</button>`).join('')}</div>
+    <div class="placeholder-note">Loading the line…</div>`;
+  mainView.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchDirectoryTab(mainView, b.dataset.tab)));
+  const { waiting } = await apiFetch('/api/waitlist');
+  mainView.querySelector('.placeholder-note').outerHTML = `<div id="wlBox">
+    <p class="admin-note">New sign-ups wait here until you let them in. They can still buy tickets. When you let someone in, they get a "You’re in!" nudge (if they turned on notifications) and land in their Dressing Room next time they open the app.</p>
+    ${waiting.length ? `<div class="post-actions wl-actions"><button class="composer-submit" data-next="10">Let in the next ${Math.min(10, waiting.length)}</button>${waiting.length > 10 ? `<button class="action-btn" data-next="${waiting.length}">Let everyone in (${waiting.length})</button>` : ''}</div>` : ''}
+    <div class="door-recent">${waiting.map((w, i) => `
+      <div class="door-entry"><div><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
+        <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}</div></div>
+        <button class="composer-submit" data-let="${w.id}">Let in</button></div>`).join('') || '<div class="placeholder-note">Nobody waiting. The line is clear!</div>'}</div></div>`;
+  mainView.querySelector('#wlBox').addEventListener('click', async e => {
+    const one = e.target.closest('[data-let]'), next = e.target.closest('[data-next]');
+    if (!one && !next) return;
+    e.target.disabled = true;
+    try {
+      const r = await apiFetch('/api/waitlist/admit', { method: 'POST', body: one ? { ids: [one.dataset.let] } : { next: Number(next.dataset.next) } });
+      flashToast(`🎪 Let ${r.admitted} ${r.admitted === 1 ? 'person' : 'people'} in. Huzzah!`);
+      renderWaitlistTab(mainView);
+    } catch (err) { flashToast(err.message); e.target.disabled = false; }
   });
 }
 

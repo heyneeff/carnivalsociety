@@ -204,7 +204,7 @@ async function api(request, env, url, ctx) {
     // ("Boulder, CO" → Boulder). Changeable later on My Profile.
     const chapterId = home_chapter_id || (await env.DB.prepare("SELECT id FROM chapters WHERE instr(lower(?), lower(name)) > 0 LIMIT 1").bind(city).first())?.id || null;
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?)`
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?, datetime('now'))`
     ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
@@ -368,6 +368,20 @@ async function api(request, env, url, ctx) {
   // Throttled to one write per user per hour — feeds drift/activity views.
   if (user && (!user.last_seen_at || Date.parse(user.last_seen_at.replace(" ", "T") + "Z") < Date.now() - 3600e3)) {
     ctx.waitUntil(env.DB.prepare("UPDATE users SET last_seen_at = datetime('now') WHERE id = ?").bind(user.id).run());
+  }
+  // The waitlist: until the Ringleader lets you in, you can buy tickets, see
+  // your place in line and turn on notifications; nothing else.
+  if (user && user.waitlisted_at && !user.is_ringleader && !waitlistAllowed(method, pathname)) return err(403, "You're on the waitlist. The Ringleader lets new carnies in by hand, a few at a time.");
+  if (pathname === "/api/me/waitlist" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const pos = user.waitlisted_at ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE waitlisted_at IS NOT NULL AND (waitlisted_at < ? OR (waitlisted_at = ? AND id <= ?))").bind(user.waitlisted_at, user.waitlisted_at, user.id).first()).n : 0;
+    const { results: events } = await env.DB.prepare(
+      `SELECT id, title, starts_at, location, door_cents, entry_tickets, slug FROM events WHERE COALESCE(ends_at, starts_at) >= datetime('now') AND door_cents IS NOT NULL ORDER BY starts_at LIMIT 4`
+    ).all();
+    const { results: tickets } = await env.DB.prepare(
+      "SELECT t.code, t.status, e.title, e.starts_at FROM tickets t JOIN events e ON e.id = t.event_id WHERE t.user_id = ? AND t.status IN ('paid', 'reserved') ORDER BY e.starts_at"
+    ).bind(user.id).all();
+    return json({ waiting: !!user.waitlisted_at, position: pos, events, tickets });
   }
   // Courtyard gate: free accounts reach public info, the Courtyard board
   // (read-only), volunteering, and the path to becoming an inner member.
@@ -1414,6 +1428,30 @@ async function api(request, env, url, ctx) {
     await env.DB.prepare("UPDATE users SET signups_seen_at = datetime('now') WHERE id = ?").bind(user.id).run();
     return json({ ok: true });
   }
+  if (pathname === "/api/waitlist" && method === "GET") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at,
+         (SELECT COUNT(*) FROM tickets t WHERE t.user_id = u.id AND t.status IN ('paid', 'reserved')) AS tickets,
+         (SELECT COUNT(*) FROM door_entries d WHERE d.user_id = u.id AND d.voided_at IS NULL) AS came
+       FROM users u WHERE u.waitlisted_at IS NOT NULL ORDER BY u.waitlisted_at, u.id`
+    ).all();
+    return json({ waiting: results.map((r) => ({ ...r, email: r.email.endsWith("@door.carnivalsociety.org") ? null : r.email })) });
+  }
+  if (pathname === "/api/waitlist/admit" && method === "POST") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    const b = await body(request);
+    let ids = Array.isArray(b.ids) ? b.ids.slice(0, 200).map(String) : [];
+    if (!ids.length && b.next) ids = (await env.DB.prepare("SELECT id FROM users WHERE waitlisted_at IS NOT NULL ORDER BY waitlisted_at, id LIMIT ?").bind(Math.min(200, Math.max(1, Math.round(Number(b.next)) || 1))).all()).results.map((r) => r.id);
+    let n = 0;
+    for (const id of ids) {
+      const res = await env.DB.prepare("UPDATE users SET waitlisted_at = NULL WHERE id = ? AND waitlisted_at IS NOT NULL").bind(id).run();
+      if (!res.meta.changes) continue;
+      n++;
+      await notifyUser(env, id, { kind: "rank", title: "🎪 You're in! Welcome to Carnival Society", body: "The Ringleader let you in. Your Dressing Room is ready.", url: "#/dressing-room" });
+    }
+    return json({ ok: true, admitted: n });
+  }
   const memberMatch = pathname.match(/^\/api\/members\/([^/]+)$/);
   if (memberMatch && method === "PATCH") {
     const authErr = requireAuth();
@@ -1865,6 +1903,7 @@ function shapeMember(row) {
     materials_to_donate: row.materials_to_donate || null,
     is_organization: !!row.is_organization,
     is_partner: !!row.is_partner,
+    waitlisted: !!row.waitlisted_at,
     tier: row.tier || "courtyard",
     last_seen_at: row.last_seen_at || null,
     created_at: row.created_at
@@ -1882,6 +1921,7 @@ function shapeMemberPublic(row) {
     is_ringleader: !!row.is_ringleader,
     is_organization: !!row.is_organization,
     is_partner: !!row.is_partner,
+    waitlisted: !!row.waitlisted_at,
     home_chapter_id: row.home_chapter_id,
     home_chapter: row.home_chapter_id ? { name: row.c_name } : null,
     city: row.city || null,
@@ -2248,7 +2288,7 @@ async function userByEmail(env, name, email, heard) {
   if (user) return { user, claim: null };
   const id = crypto.randomUUID();
   const { hash, salt } = await hashPassword(bytesToHex(crypto.getRandomValues(new Uint8Array(24))));
-  await env.DB.prepare("INSERT INTO users (id, email, password_hash, salt, display_name, rank, heard_about_us) VALUES (?, ?, ?, ?, ?, 'clown', ?)")
+  await env.DB.prepare("INSERT INTO users (id, email, password_hash, salt, display_name, rank, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, 'clown', ?, datetime('now'))")
     .bind(id, email, hash, salt, name, (heard || "").trim().slice(0, 120) || null).run();
   const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
   await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+60 days'))").bind(await sha256Hex(token), id).run();
@@ -2599,7 +2639,7 @@ async function doorRoutes(request, env, url, user) {
         const city = (b.city || "").trim().slice(0, 60) || null;
         const chapterId = city ? (await env.DB.prepare("SELECT id FROM chapters WHERE instr(lower(?), lower(name)) > 0 LIMIT 1").bind(city).first())?.id || null : null;
         await env.DB.prepare(
-          "INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, rank, heard_about_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?)"
+          "INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, rank, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, datetime('now'))"
         ).bind(id, email || `${id}@${DOOR_EMAIL_DOMAIN}`, hash, salt, name, chapterId, city, phone, (b.heard || "").trim().slice(0, 120) || null).run();
         target = { id, display_name: name };
         isNew = true;
@@ -3451,6 +3491,11 @@ function partnerAllowed(method, pathname) {
   if (pathname === "/api/blasts" || pathname === "/api/blasts/preview" || pathname === "/api/partner") return true;
   if (method === "POST" && /^\/api\/events\/[^/]+\/(jobs|needs|run)$/.test(pathname)) return true;
   if (method === "DELETE" && /^\/api\/(jobs|needs|run)\/[^/]+$/.test(pathname)) return true;
+  return false;
+}
+function waitlistAllowed(method, pathname) {
+  if (method === "GET" && (pathname === "/api/me/waitlist" || pathname === "/api/me/tickets" || pathname === "/api/me/notifications/pending")) return true;
+  if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
   return false;
 }
 function courtyardAllowed(method, pathname) {
