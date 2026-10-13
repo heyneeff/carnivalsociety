@@ -170,6 +170,58 @@ async function sendEmail(env, { to, subject, html, text }) {
   if (!res.ok) console.error("Resend", res.status, await res.text());
   return res.ok;
 }
+// One look for every email we send: cream paper, burgundy, gold, serif, like
+// the front page. body = inner HTML; button = [label, url] (optional).
+function emailFrame(env, { heading, body, button, footer }) {
+  const logo = siteUrl(env) + "/assets/logo-wordmark.png";
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#F4E8D0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4E8D0;padding:28px 12px;"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#FBF3DC;border:1px solid #DCC08A;border-radius:4px;">
+<tr><td align="center" style="padding:28px 24px 6px;"><img src="${logo}" width="190" alt="Carnival Society" style="display:block;width:190px;height:auto;border:0;"></td></tr>
+<tr><td align="center" style="padding:6px 28px 4px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:1.15;font-weight:bold;color:#9B3036;">${heading}</td></tr>
+<tr><td style="padding:10px 28px 6px;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.5;color:#3b2a22;">${body}</td></tr>
+${button ? `<tr><td align="center" style="padding:14px 28px 8px;"><a href="${button[1]}" style="display:inline-block;background:#9B3036;color:#F4E8D0;text-decoration:none;font-family:Georgia,serif;font-style:italic;font-size:17px;letter-spacing:2px;text-transform:uppercase;padding:15px 28px;border-radius:2px;">${button[0]}</a></td></tr>` : ""}
+<tr><td align="center" style="padding:14px 28px 26px;font-family:Georgia,serif;font-style:italic;font-size:14px;line-height:1.5;color:#8F6E34;">${footer || "Carnival Society · we build real carnivals together"}</td></tr>
+</table></td></tr></table></body></html>`;
+}
+// The ticket, by email: right after saving a spot (or a free ticket), and
+// again once Stripe confirms a payment. Always to the account's own email.
+async function sendTicketEmail(env, ticketId, { claim = null } = {}) {
+  if (!env.RESEND_API_KEY) return false;
+  const t = await env.DB.prepare(
+    `SELECT t.code, t.status, t.price_cents, t.user_id, u.email, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.tagline
+     FROM tickets t JOIN users u ON u.id = t.user_id JOIN events e ON e.id = t.event_id WHERE t.id = ?`
+  ).bind(ticketId).first();
+  if (!t || !t.email || t.email.endsWith("@door.carnivalsociety.org")) return false;
+  const esc = escapeEmailHtml, first = esc(t.display_name.split(" ")[0]);
+  const fix = !!await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(t.user_id).first();
+  const reg = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
+  const owe = t.status === "reserved" ? t.price_cents + (fix ? 0 : reg) : 0;
+  const $ = (c) => "$" + (c / 100).toFixed(c % 100 ? 2 : 0);
+  const link = `${siteUrl(env)}/#/ticket/${t.code}${claim ? "/" + claim : ""}`;
+  const when = eventWhen(t.starts_at);
+  const paid = t.status === "paid";
+  const body = `<p style="margin:0 0 12px;">Hi ${first}! ${paid ? "You're in." : "Your spot is saved."} Here's your ticket for <b>${esc(t.title)}</b>${t.tagline ? `, our ${esc(t.tagline)}` : ""}.</p>
+<p style="margin:0 0 12px;"><b>${esc(when)}</b>${t.location ? `<br>${esc(t.location)}` : ""}</p>
+${paid ? `<p style="margin:0 0 12px;">Show your QR code at the door. It's waiting behind the button below.</p>`
+  : `<p style="margin:0 0 12px;padding:12px 14px;background:#fff8e6;border:1px dashed #C8A05A;">Pay <b>${$(owe)}</b> at the door, cash or card${owe > t.price_cents ? `<br><span style="font-size:15px;color:#5A4238;">${$(t.price_cents)} entry + ${$(owe - t.price_cents)} one-time membership (your first carnival only)</span>` : ""}.</p>`}
+${t.entry_tickets ? `<p style="margin:0 0 12px;">Comes with <b>${t.entry_tickets} free carnival tickets</b> for games and experiences, handed to you at the door.</p>` : ""}
+<p style="margin:0;font-size:15px;color:#5A4238;">Your ticket code: <b style="letter-spacing:1px;">${t.code}</b>. Lost your phone? Just give your name at the door.</p>
+${claim ? `<p style="margin:14px 0 0;font-size:15px;color:#5A4238;">You're in the Carnival Society now too: the button also lets you claim your own Dressing Room.</p>` : ""}`;
+  return sendEmail(env, {
+    to: t.email,
+    subject: `🎟️ ${paid ? "Your ticket" : "Spot saved"}: ${t.title}`,
+    html: emailFrame(env, { heading: paid ? "You're in!" : "Your spot is saved!", body, button: ["Show my ticket", link] }),
+    text: `Hi ${t.display_name.split(" ")[0]}! ${paid ? "You're in" : "Your spot is saved"} for ${t.title}, ${when}${t.location ? ", " + t.location : ""}.\n${paid ? "" : `Pay ${$(owe)} at the door (cash or card).\n`}Your ticket (show the QR at the door): ${link}\nCode: ${t.code}. Lost your phone? Just give your name at the door.`,
+  });
+}
+// A fresh claim link for someone who has never signed in (60 days).
+async function claimLinkFor(env, userId) {
+  if (await env.DB.prepare("SELECT 1 FROM sessions WHERE user_id = ? LIMIT 1").bind(userId).first()) return null;
+  const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+  await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+60 days'))").bind(await sha256Hex(token), userId).run();
+  return token;
+}
 function escapeEmailHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
@@ -1449,6 +1501,13 @@ async function api(request, env, url, ctx) {
       if (!res.meta.changes) continue;
       n++;
       await notifyUser(env, id, { kind: "rank", title: "🎪 You're in! Welcome to Carnival Society", body: "The Ringleader let you in. Your Dressing Room is ready.", url: "#/dressing-room" });
+      const who = await env.DB.prepare("SELECT email, display_name FROM users WHERE id = ?").bind(id).first();
+      if (who && !who.email.endsWith("@door.carnivalsociety.org")) {
+        const claim = await claimLinkFor(env, id);
+        await sendEmail(env, { to: who.email, subject: "🎪 You're in! Welcome to Carnival Society",
+          html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in. Your Dressing Room is ready: decorate it, find a carnival, take a job, meet your crew.</p><p style="margin:0;">Everything you win in there, you earn out here, at real carnivals.</p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
+          text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}` });
+      }
     }
     return json({ ok: true, admitted: n });
   }
@@ -2326,7 +2385,15 @@ async function publicRoutes(request, env, url) {
     // "Also join <co-host>": friends now, not just once they're through the door.
     if (b.join_partner && ev.partner_id) await befriendPartner(env, ev.partner_id, user.id, ev.id);
     const have = await env.DB.prepare("SELECT code, status FROM tickets WHERE event_id = ? AND user_id = ? AND status IN ('paid', 'reserved') LIMIT 1").bind(ev.id, user.id).first();
-    if (have) return json({ code: have.code, already: true, claim });
+    // Already have one: with email on, it goes to the inbox (never shown to
+    // whoever typed the address); without email, as before.
+    if (have) {
+      if (env.RESEND_API_KEY) {
+        const t = await env.DB.prepare("SELECT id FROM tickets WHERE code = ?").bind(have.code).first();
+        if (await sendTicketEmail(env, t.id, { claim })) return json({ emailed: true, already: true });
+      }
+      return json({ code: have.code, already: true, claim });
+    }
     const first = !await hasFix(env, user.id);
     const owe = (ev.door_cents || 0) + (first ? reg : 0);
     const tierId = await entryTier(env, ev);
@@ -2334,7 +2401,12 @@ async function publicRoutes(request, env, url) {
     const pay = !!b.pay && !!env.STRIPE_SECRET_KEY && owe > 0;
     await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .bind(id, ev.id, tierId, user.id, pay ? "pending" : owe === 0 ? "paid" : "reserved", ev.door_cents || 0, code).run();
-    if (!pay) return json({ code, claim, reserved: owe > 0 });
+    if (!pay) {
+      const emailed = await sendTicketEmail(env, id, { claim });
+      // An existing account's ticket goes to its inbox, not the screen.
+      if (emailed && !claim) return json({ emailed: true, reserved: owe > 0 });
+      return json({ code, claim, reserved: owe > 0, emailed });
+    }
     let session;
     try {
       session = await stripeCheckout(env, checkoutParams(env, {
@@ -3422,6 +3494,7 @@ async function ticketRoutes(request, env, url) {
       await env.DB.prepare("UPDATE tickets SET status = 'paid' WHERE id = ?").bind(md.ticket_id).run();
       // Bought entry online for the first time: the registration was in it.
       if (Number(md.registration) > 0) await grantStamp(env, { userId, kind: "fix" });
+      await sendTicketEmail(env, md.ticket_id, { claim: await claimLinkFor(env, userId) });
     }
     return json({ ok: true });
   }

@@ -7793,9 +7793,20 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
     try {
       const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay, join_partner: !!f.join?.checked } });
       if (r.url) { window.location.href = r.url; return; }
+      // An existing account's ticket goes to its inbox, never the screen.
+      if (!r.code) { renderTicketSent(f.email.value, r.already); return; }
+      try { if (r.emailed) sessionStorage.setItem('cs-ticket-emailed', r.code); } catch (e) { /* fine */ }
       location.hash = `#/ticket/${r.code}${r.claim ? '/' + r.claim : ''}`;
     } catch (err) { renderGetIn(idOrSlug, err.message); }
   });
+}
+// "Check your email": the ticket went to the inbox for that address.
+function renderTicketSent(email, already) {
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee(already ? 'You’re already in!' : 'Spot saved!')}<div class="gi-body">
+    <h1>Check your email</h1>
+    <p class="gi-desc gi-center">${already ? 'You already have a ticket for this one.' : 'Your ticket is on its way.'} We sent it to <b>${escapeHtml(email)}</b>. It has your QR code for the door.</p>
+    <p class="gi-fine">Nothing there? Check spam, or just give your name at the door. We’ll find you.</p>
+  </div></div></div>`;
 }
 // The ticket, as the buyer's phone shows it at the door.
 async function renderTicketPage(code, claim, tries = 0) {
@@ -7827,7 +7838,7 @@ async function renderTicketPage(code, claim, tries = 0) {
           <code class="gi-code">${escapeHtml(t.code)}</code>
           ${status}
           ${t.entry_tickets ? `<p class="gi-fine">Comes with <b>${t.entry_tickets} free carnival tickets</b> 🎟️ for games and experiences, handed to you at the door.</p>` : ''}
-          <p class="gi-fine">Screenshot this, or keep the page.${navigator.share ? ' <button class="gi-link" data-share>Send it to myself</button>' : ''}</p>
+          <p class="gi-fine">${(() => { try { return sessionStorage.getItem('cs-ticket-emailed') === t.code; } catch (e) { return false; } })() ? '📧 We emailed this ticket to you too. ' : ''}Screenshot this, or keep the page.${navigator.share ? ' <button class="gi-link" data-share>Send it to myself</button>' : ''}</p>
           ${claim ? `<a class="gi-btn" href="#/claim/${claim}">Claim your Dressing Room →</a><p class="gi-fine">You’re in the Carnival Society now. Set a password to see your room, the crew and what’s coming up.</p>`
             : session ? '<a class="gi-btn gi-btn-2" href="#/dressing-room">Back to my Dressing Room</a>' : ''}
         </div>
