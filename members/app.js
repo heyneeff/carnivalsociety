@@ -350,18 +350,18 @@ function renderResetScreen(token, errorMsg = '') {
 // doorways, each opening onto a row of name plates. Tap a name plate and you
 // step into that person's Dressing Room. The mirror takes you home.
 const BACKSTAGE_DOORS = [
-  { key: 'friends', label: 'Friends', glyph: '☀', l: 28.3, t: 23, w: 9.6, h: 22, px: -40, py: 0, dir: 'up', blurb: 'People you’ve shaken hands with at a carnival.' },
-  { key: 'new', label: 'New arrivals', glyph: '☾', l: 42.3, t: 24, w: 8.4, h: 22, px: -25, py: 40, dir: 'up', blurb: 'Just arrived. Go say hello and leave a note on their mirror!' },
-  { key: 'all', label: 'Everyone', glyph: '★', l: 68.2, t: 20, w: 10.4, h: 36, px: -95, py: -60, dir: 'right', blurb: 'Every dressing room backstage.' },
-  { key: 'here', label: 'Here now', glyph: '🔥', l: 83.2, t: 11, w: 16.8, h: 53, px: -112, py: -80, dir: 'right', blurb: 'Around right now. Pop in!' },
+  { key: 'friends', label: 'Friends', glyph: '☀', l: 28.3, t: 23, w: 9.6, h: 22, sy: 34, blurb: 'People you’ve shaken hands with at a carnival.' },
+  { key: 'new', label: 'New arrivals', glyph: '☾', l: 42.3, t: 24, w: 8.4, h: 22, sy: 34, blurb: 'Just arrived. Go say hello and leave a note on their mirror!' },
+  { key: 'all', label: 'Everyone', glyph: '★', l: 68.2, t: 20, w: 10.4, h: 36, sy: 30, blurb: 'Every dressing room backstage.' },
+  { key: 'here', label: 'Here now', glyph: '🔥', l: 83.2, t: 11, w: 16.8, h: 53, sy: 46, blurb: 'Around right now. Pop in!' },
 ];
 async function renderBackstage(mainView) {
   mainView.innerHTML = `
     <div class="room-viewport bs-viewport">
       <div class="room-scene bs-scene" id="bsScene">
         <img class="room-bg" src="${ROOM}rooms/backstage.jpg" alt="The backstage hallway: curtained doorways, a costume rack, a mirror with bulbs" draggable="false">
-        <a class="bs-door bs-home" href="#/dressing-room" style="left:0;top:24%;width:8%;height:24%;--px:8%;--py:6px" aria-label="Back to your Dressing Room"><span class="bs-plate carnie-arrow left">Your room</span></a>
-        ${BACKSTAGE_DOORS.map(d => `<button class="bs-door" data-door="${d.key}" style="left:${d.l}%;top:${d.t}%;width:${d.w}%;height:${d.h}%;--px:${d.px}%;--py:${d.py}px" aria-label="${d.label}"><span class="bs-plate carnie-arrow ${d.dir}"><b>${d.glyph}</b> ${d.label}<em class="bs-count" data-count="${d.key}"></em></span></button>`).join('')}
+        <a class="bs-door bs-home" href="#/dressing-room" style="left:0;top:24%;width:8%;height:24%" aria-label="Back to your Dressing Room"><span class="carnie-arrow left">Your room</span></a>
+        ${BACKSTAGE_DOORS.map(d => `<button class="bs-door" data-door="${d.key}" style="left:${d.l}%;top:${d.t}%;width:${d.w}%;height:${d.h}%;--sy:${d.sy}%" aria-label="${d.label}"><span class="bs-card"><b>${d.glyph}</b>${d.label}<em class="bs-count" data-count="${d.key}"></em></span></button>`).join('')}
         <div class="bs-hint">Tap a doorway to see who’s back there</div>
       </div>
     </div>`;
@@ -374,7 +374,7 @@ async function renderBackstage(mainView) {
     all: [...people].sort((a, b) => (b.friend - a.friend) || a.display_name.localeCompare(b.display_name)),
     here: people.filter(p => p.here),
   };
-  BACKSTAGE_DOORS.forEach(d => { const c = mainView.querySelector(`[data-count="${d.key}"]`); if (c) c.textContent = groups[d.key].length ? ` · ${groups[d.key].length}` : ''; });
+  BACKSTAGE_DOORS.forEach(d => { const c = mainView.querySelector(`[data-count="${d.key}"]`); if (c) { c.textContent = groups[d.key].length || ''; c.hidden = !groups[d.key].length; } });
   mainView.querySelectorAll('[data-door]').forEach(b => b.addEventListener('click', () => openDoor(BACKSTAGE_DOORS.find(d => d.key === b.dataset.door), groups[b.dataset.door])));
   function openDoor(door, list) {
     const o = document.createElement('div');

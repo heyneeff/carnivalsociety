@@ -2622,3 +2622,19 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .wing-tab:hover { min-height: 37px; }
 .wing-tab.active { z-index: 2; min-height: 40px; margin-bottom: -3px; padding-bottom: 3px; background: #f3e3c0; color: #9B3036; }
 .wing-body { position: relative; z-index: 1; }
+
+/* Backstage pass 2 (2026-10-14): a name card hangs on each doorway's
+   curtain from two strings; "Your room" is the one carnie arrow (home). */
+.bs-card { position: absolute; left: 50%; top: var(--sy, 30%); transform: translateX(-50%) rotate(-2deg); transform-origin: 50% -14px; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 88%; padding: 5px 8px 6px; white-space: nowrap; background: linear-gradient(#FBF0D2, #E9CF9A); color: #5A1E24; border: 2px solid #8F6E34; border-radius: 4px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.55), inset 0 0 0 1px #FFF7E2; font: 400 clamp(9px, 1.35vw, 13px)/1.1 'Rye', serif; letter-spacing: 0.03em; animation: bs-card-sway 5s ease-in-out infinite; }
+.bs-door:nth-of-type(odd) .bs-card { animation-delay: -2.4s; }
+.bs-card::before, .bs-card::after { content: ''; position: absolute; top: -15px; width: 2px; height: 16px; background: linear-gradient(#C8A05A, #8F6E34); }
+.bs-card::before { left: 22%; transform: rotate(14deg); transform-origin: 50% 100%; }
+.bs-card::after { right: 22%; transform: rotate(-14deg); transform-origin: 50% 100%; }
+.bs-card b { color: #9B3036; font-size: 1.25em; line-height: 1; }
+.bs-card .bs-count { position: absolute; top: -9px; right: -9px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #9B3036; color: #FBF3DC; border: 2px solid #FBF0D2; font: 700 11px/16px 'Libre Franklin', sans-serif; font-style: normal; text-align: center; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4); }
+.bs-card .bs-count[hidden] { display: none; }
+.bs-door:hover .bs-card, .bs-door:focus-visible .bs-card { box-shadow: 0 4px 8px rgba(0, 0, 0, 0.55), 0 0 14px rgba(255, 210, 130, 0.85), inset 0 0 0 1px #FFF7E2; }
+@keyframes bs-card-sway { 0%, 100% { transform: translateX(-50%) rotate(-2deg); } 50% { transform: translateX(-50%) rotate(2deg); } }
+.bs-home .carnie-arrow { position: absolute; left: 8%; top: 102%; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .bs-card { animation: none; } }
+.bs-card { min-width: 0; padding: 4px 7px 5px; font-size: clamp(8px, 1.1vw, 11px); }
