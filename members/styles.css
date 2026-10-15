@@ -2638,3 +2638,6 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .bs-home .carnie-arrow { position: absolute; left: 8%; top: 102%; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .bs-card { animation: none; } }
 .bs-card { min-width: 0; padding: 4px 7px 5px; font-size: clamp(8px, 1.1vw, 11px); }
+/* Typing in the Green Room on a phone: the tab bar steps aside for the keyboard. */
+body.chat-typing .bottomtabs { display: none; }
+body.chat-typing .chat-panel { transition: none; }

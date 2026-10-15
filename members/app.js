@@ -6393,7 +6393,10 @@ function mountChat() {
   document.getElementById('chatLauncher').hidden = docked;
   if (isOpen) chat.unread = 0;
   drawChat();
-  document.getElementById('chatLauncher').onclick = () => { chat.open = true; mountChat(); document.getElementById('chatInput')?.focus(); };
+  document.getElementById('chatLauncher').onclick = () => { chat.open = true; mountChat(); chatToLatest(); document.getElementById('chatInput')?.focus(); };
+  const input = document.getElementById('chatInput');
+  input.onfocus = () => { fitChatToKeyboard(); setTimeout(() => { fitChatToKeyboard(); chatToLatest(); }, 350); };
+  input.onblur = () => setTimeout(fitChatToKeyboard, 150);
   document.getElementById('chatClose').onclick = () => { chat.open = false; document.body.classList.remove('chat-docked'); panel.classList.remove('open'); document.getElementById('chatLauncher').hidden = false; drawUnread(); };
   document.getElementById('chatForm').onsubmit = async e => {
     e.preventDefault();
@@ -6419,6 +6422,28 @@ function mountChat() {
   if (!chat.timer) startChat();
 }
 
+// Phones (2026-10-14): when the keyboard comes up, the Green Room shrinks to
+// the part of the screen you can still see (newest messages + where you
+// type, right above the keyboard) instead of the page sliding away under it.
+function chatToLatest() {
+  const list = document.getElementById('chatList');
+  if (list) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+}
+function fitChatToKeyboard() {
+  const panel = document.getElementById('chatPanel'), vv = window.visualViewport;
+  if (!panel) return;
+  const typing = !!vv && innerWidth <= 800 && chatIsOpen() && innerHeight - vv.height > 120;
+  document.body.classList.toggle('chat-typing', typing);
+  if (typing) {
+    Object.assign(panel.style, { top: `${vv.offsetTop}px`, bottom: 'auto', height: `${vv.height}px` });
+    window.scrollTo(0, 0);
+    chatToLatest();
+  } else panel.style.removeProperty('top'), panel.style.removeProperty('bottom'), panel.style.removeProperty('height');
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', () => { if (document.body.classList.contains('chat-typing') || document.activeElement?.id === 'chatInput') fitChatToKeyboard(); });
+  visualViewport.addEventListener('scroll', () => { if (document.body.classList.contains('chat-typing')) fitChatToKeyboard(); });
+}
 function chatIsOpen() { return document.getElementById('chatPanel')?.classList.contains('open'); }
 
 function drawUnread() {
