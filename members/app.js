@@ -1288,7 +1288,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
     }
   }
   const canManage = isModerator() && !onlyEventId;
-  const canEdit = !!profile?.is_ringleader && !onlyEventId;
+  const canEdit = !!profile?.is_ringleader; // on the list and on an event's own page
   // Ringleader controls fold away on each card so members see one clear ask.
   // A partner gets the same tools on the events they co-host or posted.
   const partnerHosts = e => !!profile?.is_partner && (e.partner_id === profile.id || e.created_by === profile.id);
@@ -1328,7 +1328,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       <div class="post-actions"><button class="action-btn" data-share-event="${e.id}" data-title="${escapeHtml(e.title)}">🔗 Share</button></div>
       ${hosts(e) ? `<details class="rl-tools"><summary>✎ ${partnerHosts(e) && !isModerator() ? 'Host tools' : 'Ringleader tools'}</summary><div class="rl-tools-body">
         <div class="post-actions">
-          ${canEdit || (partnerHosts(e) && !onlyEventId) ? `<button class="action-btn" data-edit-event="${e.id}">Edit</button>` : ''}
+          ${canEdit || partnerHosts(e) ? `<button class="action-btn" data-edit-event="${e.id}">✎ Edit details</button>` : ''}
           ${profile?.is_ringleader ? `<a class="action-btn" href="#/checkin/${e.id}">🚪 The Door</a>` : ''}
           ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage crew</button>` : ''}
           ${canManage || (partnerHosts(e) && !onlyEventId) ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
@@ -1432,7 +1432,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
   mainView.querySelectorAll('[data-edit-event]').forEach(btn => {
     btn.addEventListener('click', () => {
       const evt = (events || []).find(e => e.id === btn.dataset.editEvent);
-      if (evt) openEventEditModal(mainView, evt);
+      if (evt) openEventEditModal(mainView, evt, onlyEventId ? () => renderEventsView(mainView, onlyEventId) : undefined);
     });
   });
 
