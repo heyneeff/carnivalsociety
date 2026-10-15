@@ -6756,7 +6756,7 @@ async function renderRoom(mainView, ownerId = null) {
       }
       case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
       case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
-      case 'exit': return [fresh(it) ? 'Step out to the Courtyard (something new!)' : 'Step out to the Courtyard', '#/courtyard'];
+      case 'exit': return visiting ? ['Step back out backstage', '#/backstage'] : [fresh(it) ? 'Step out to the Courtyard (something new!)' : 'Step out to the Courtyard', '#/courtyard'];
       case 'hatbox': return ['Open the Ringleader’s Hat Box', 'more'];
       case 'potion': {
         const full = dailyCard?.full_deck;
@@ -6833,7 +6833,7 @@ async function renderRoom(mainView, ownerId = null) {
     </div>
     <div class="room-verb" id="roomVerb" aria-hidden="true"></div>
     <button class="room-reveal" id="roomReveal" aria-label="Show everything you can touch">✦</button>
-    ${visiting ? `<div class="room-visit-plaque"><span>🎪 ${escapeHtml(ownerName)}’s Dressing Room</span><button class="room-plaque-btn" id="roomLeaveNote">📝 Leave a note on the mirror</button><a class="raven-offer-no" href="#/dressing-room">← Back to my room</a></div>` : '<button class="room-arrange-btn" id="roomArrange">✎ Arrange</button>'}
+    ${visiting ? `<div class="room-visit-plaque"><span>🎪 ${escapeHtml(ownerName)}’s Dressing Room</span><button class="room-plaque-btn" id="roomLeaveNote">📝 Leave a note on the mirror</button><a class="raven-offer-no" href="#/backstage">← Back backstage</a></div>` : '<button class="room-arrange-btn" id="roomArrange">✎ Arrange</button>'}
     <div class="room-editor" id="roomEditor" hidden></div>
     <div class="room-toast" id="roomToast" role="status" aria-live="polite"></div>`;
 
