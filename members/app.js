@@ -6115,6 +6115,102 @@ function showCarnieCode() {
   requestAnimationFrame(() => o.classList.add('open'));
 }
 
+// ── Neeff's tour, holler-style (2026-10-14) ── his big head over the room,
+// a comic speech bubble that types with babble and a flapping mouth, faces
+// switching mid-line, and a spotlight on whatever he's talking about.
+const NT_FACES = { closed: 'head_closed', open: 'head_open', happy: 'head_happy', wink: 'head_wink', cosmic: 'head_cosmic', sus: 'head_closed' };
+function runNeeffTour(steps, { el, host, onDone }) {
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const t = document.createElement('div');
+  t.className = 'intro-tour neeff-tour';
+  t.setAttribute('role', 'dialog');
+  t.setAttribute('aria-label', 'Neeff shows you around');
+  t.innerHTML = `<div class="intro-spot"></div>
+    <div class="nt-head"><img alt="Neeff" draggable="false"></div>
+    <div class="nt-bubble">
+      <div class="nt-from">Ringleader Neeff says:</div>
+      <div class="nt-text" aria-live="polite"></div>
+      <div class="nt-extra"></div>
+      <div class="nt-btns"><span class="nt-step"></span><button class="raven-offer-no" data-skip>Skip the tour</button><button class="composer-submit" data-next>Next</button></div>
+    </div>`;
+  document.body.appendChild(t);
+  Object.values(NT_FACES).forEach(f => { new Image().src = `${ROOM}${f}.png`; });
+  const spot = t.querySelector('.intro-spot'), headBox = t.querySelector('.nt-head'), head = headBox.querySelector('img');
+  const out = t.querySelector('.nt-text'), extra = t.querySelector('.nt-extra'), next = t.querySelector('[data-next]');
+  let i = 0, timer = null, rig = null, babble = () => {}, finishNow = null;
+  const fmt = str => escapeHtml(str).replace(/\*([^*]*)\*?/g, '<b>$1</b>');
+  const face = f => { head.src = `${ROOM}${NT_FACES[f] || f}.png`; headBox.classList.toggle('sus', f === 'sus'); headBox.classList.toggle('cosmic', f === 'cosmic'); };
+  const end = () => { clearTimeout(timer); rig?.close?.(); t.classList.add('leaving'); setTimeout(() => t.remove(), 350); onDone?.(); };
+  // One line, typed: a char every 32ms, a babble on every other letter, the
+  // mouth flapping; | waits a beat; {face} swaps the face right there.
+  const type = st => {
+    clearTimeout(timer);
+    const tokens = st.say.match(/\{[a-z]+\}|\||[^{|]+/g) || [];
+    let shown = '', ti = 0, ci = 0, flap = 0, mood = 'happy';
+    out.innerHTML = ''; extra.innerHTML = ''; extra.hidden = true;
+    headBox.classList.add('talking');
+    const done = () => {
+      clearTimeout(timer); finishNow = null;
+      headBox.classList.remove('talking');
+      shown = st.say.replace(/\{[a-z]+\}|\|/g, ''); out.innerHTML = fmt(shown).replace(/ {2,}/g, ' ');
+      const faces = st.say.match(/\{([a-z]+)\}/g) || []; face(faces.length ? faces[faces.length - 1].slice(1, -1) : 'happy');
+      if (st.html) { extra.innerHTML = st.html; extra.hidden = false; }
+    };
+    finishNow = done;
+    if (still) { done(); return; }
+    const tick = () => {
+      const tok = tokens[ti];
+      if (tok === undefined) { done(); return; }
+      if (tok === '|') { ti++; headBox.classList.remove('talking'); face(mood === 'sus' ? 'sus' : mood); timer = setTimeout(() => { headBox.classList.add('talking'); tick(); }, 380); return; }
+      if (tok[0] === '{') { mood = tok.slice(1, -1); face(mood); ti++; tick(); return; }
+      const ch = tok[ci++];
+      if (ch === undefined) { ti++; ci = 0; tick(); return; }
+      shown += ch; out.innerHTML = fmt(shown);
+      if (/[\p{L}\p{N}!?]/u.test(ch) && (ci % 2 === 0 || ch === '!' || ch === '?')) {
+        babble(ch);
+        if (mood !== 'sus' && mood !== 'cosmic') face(flap++ % 2 ? 'closed' : (mood === 'wink' ? 'open' : 'open'));
+      }
+      timer = setTimeout(tick, /[.!?]/.test(ch) ? 120 : 32);
+    };
+    tick();
+  };
+  const place = target => {
+    t.classList.toggle('no-target', !target);
+    let side = 'left';
+    if (target) {
+      target.scrollIntoView?.({ block: 'nearest', inline: 'center', behavior: 'instant' });
+      const st = steps[i];
+      const rs = (st.role ? [...host.querySelectorAll(`[data-role="${st.role}"]`)] : [target]).map(n => n.getBoundingClientRect());
+      const r = { left: Math.min(...rs.map(q => q.left)), top: Math.min(...rs.map(q => q.top)), right: Math.max(...rs.map(q => q.right)), bottom: Math.max(...rs.map(q => q.bottom)) };
+      const pad = 10;
+      Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.right - r.left + pad * 2}px`, height: `${r.bottom - r.top + pad * 2}px` });
+      // Neeff stands on the other side from whatever he's pointing at.
+      if ((r.left + r.right) / 2 < innerWidth / 2) side = 'right';
+    }
+    t.classList.toggle('nt-right', side === 'right');
+  };
+  const show = () => {
+    const st = steps[i];
+    t.querySelector('.nt-step').textContent = `${i + 1} of ${steps.length}`;
+    next.textContent = st.last ? 'Yes, buzz me!' : st.cta || 'Next';
+    t.querySelector('[data-skip]').textContent = st.last ? 'Maybe later' : 'Skip the tour';
+    place(st.role ? el(st.role) : st.sel ? st.sel() : null);
+    headBox.className = `nt-head mv-${st.move || 'boing'}`; void headBox.offsetWidth; headBox.classList.add('go');
+    type(st);
+    next.focus();
+  };
+  t.querySelector('[data-skip]').onclick = end;
+  t.querySelector('.nt-bubble').addEventListener('click', e => { if (!e.target.closest('button') && finishNow) finishNow(); });
+  next.onclick = () => {
+    if (finishNow) { finishNow(); return; } // first tap finishes the line
+    // Sound needs a tap first: the babble starts with the first Next.
+    if (!rig && !soundOff()) { rig = megaphone(); babble = makeBabbler(rig); }
+    if (steps[i].last) { end(); inviteRaven('menu'); return; }
+    i++; show();
+  };
+  show();
+}
+
 // ── Card of the day (2026-10-14) ── Omen keeps one Mercury Oracle card a
 // day for every member (the server picks it, so no re-rolling). Face down
 // until you turn it over; after that Omen quiets down until tomorrow.
@@ -7141,66 +7237,29 @@ async function renderRoom(mainView, ownerId = null) {
     if (blastShowing || (room.backer && !room.backer.deck)) { setTimeout(() => { if (scene.isConnected && !document.querySelector('.unfold')) roomHooks.startIntro(); }, 1500); return; }
     const first = (profile.display_name || '').split(' ')[0];
     const el = role => host.querySelector(`[data-role="${role}"]`);
-    // Neeff gives the tour himself (2026-10-14), his own ten steps.
-    // A step points at a room object (role) or anything on screen (sel).
+    // Neeff gives the tour himself, holler-style (2026-10-14): his head pops
+    // up over the room and yaks, King-of-the-Cosmos style. In `say`:
+    // *bold*, | = a beat, {face} switches face mid-line (closed/open/happy/
+    // wink/cosmic/sus = suspicious side-eye). `move` = how the head carries on.
     const chatEl = () => document.querySelector('body.chat-docked #chatPanel') || document.getElementById('chatLauncher');
     const forumEl = () => document.querySelector('#forumWing:not([hidden])') || document.querySelector('.topnav-link[href="#/courtyard"], .bottomtabs a[href="#/courtyard"]');
     const steps = [
-      { face: 'head_happy', text: `Hi ${escapeHtml(first)}! I’m <b>Neeff</b>, creator of the Carnival Society.`, cta: 'Hi Neeff!' },
-      { face: 'head_open', text: 'We are building <b>the world’s largest real-life circus and carnival network!</b> Real nights, real fire, real sawdust, real people.', cta: 'Tell me more' },
-      { face: 'head_happy', text: 'This is <b>your Dressing Room</b>, your home backstage. Anything that glows in here, you can tap.' },
-      { sel: chatEl, text: 'There’s a <b>real, live chat room</b> over here: the Green Room. Say hi to the troupe anytime!' },
-      { sel: forumEl, text: 'The <b>forum</b> is over here. This is how we stay organized: news, plans and calls for helping hands.' },
-      el('flyer') ? { role: 'flyer', text: '<b>Upcoming events</b> are here. These flyers are real carnivals. Tap one and take a job on the crew.' }
-                  : { sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), text: '<b>Upcoming events</b> are up here. Every one is a real carnival: tap in and take a job on the crew.' },
-      { role: 'trunk', text: 'And this trunk: <b>every time you’re part of a carnival, you win awards</b>, and they land in here.' },
-      { face: 'head_wink', text: 'This is <b>technically a guild network</b>, but don’t worry about that now. You’ve joined at the entry level of our little club.' },
-      { face: 'head_open', text: `Here’s how you move up:<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Welcome!</li><li><b>Apprentice</b>: win 3 badges, including 2 volunteer shifts. The Guild Hall, Letters and your chapter board open up.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred. The trusted heart of the guild.</li></ol>` },
-      { sel: () => document.getElementById('roomArrange'), text: 'Last thing: this room is <b>yours to make</b>. Tap <b>Arrange</b> to move things, add decorations and change the room. Prizes you win go on your shelves, and friends who visit leave notes on your mirror.' },
-      { face: 'head_wink', text: 'That’s the tour! Want me to nudge your phone too, for job reminders, letters and hollers?', last: true },
+      { move: 'pop', say: `{happy}OH! HELLO, ${first.toUpperCase()}! | I'm *NEEFF*. | Creator of the Carnival Society. | Ringleader. | Cowboy. | Kind of a big deal.`, cta: 'Hi Neeff!' },
+      { move: 'sus', say: `{sus}I've got my eye on you... | | | {wink}...in a GOOD way.`, cta: 'Uh, okay!' },
+      { move: 'zoom', say: `{open}We are building *THE WORLD'S LARGEST REAL-LIFE CIRCUS AND CARNIVAL NETWORK!* | Real fire. | Real sawdust. | Real people.`, cta: 'Whoa' },
+      { move: 'shake', say: `{open}I built this to organize our circus and carnival and keep track of EVERYONE. | | {sus}*NO BIG DEAL, JEEZ.*` },
+      { move: 'boing', say: `{happy}This is *YOUR Dressing Room!* | Anything that glows, you can poke. | Go on. | {wink}Poke it. | (Later.)` },
+      { sel: chatEl, move: 'lean', say: `{open}Over here: the *GREEN ROOM!* | A real live chat room full of real live carnies. | Say hi! | {wink}They don't bite. | (Most of them.)` },
+      { sel: forumEl, move: 'lean', say: `{open}And the *FORUM!* | This is how we stay organized. | News! Plans! Calls for helping hands! | {sus}Very official. | Very important.` },
+      el('flyer') ? { role: 'flyer', move: 'boing', say: `{happy}*UPCOMING EVENTS!* | Every flyer is a real carnival. | Take a job on the crew and come make it happen!` }
+                  : { sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), move: 'boing', say: `{happy}*UPCOMING EVENTS* live up here! | Every one is a real carnival. | Take a job on the crew and come make it happen!` },
+      { role: 'trunk', move: 'spin', say: `{open}Every time you're part of a carnival, *YOU WIN AWARDS!* | They land in this trunk. | {happy}Shiny! | Collect them ALL!` },
+      { move: 'cosmic', say: `{cosmic}Technically... | this is a *GUILD NETWORK.* | Ancient. | Mysterious. | {happy}Don't worry about that now! | You've joined at the entry level of our little club.` },
+      { move: 'boing', say: `{open}Here's how you *RISE:*`, html: `<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Honk!</li><li><b>Apprentice</b>: win 3 badges, including 2 volunteer shifts. The Guild Hall, Letters and your chapter board open up.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred. The trusted heart of the guild.</li></ol>` },
+      { sel: () => document.getElementById('roomArrange'), move: 'lean', say: `{happy}This room is *YOURS.* | Tap *Arrange* to make it fabulous. | {sus}I'll be watching. | {wink}(I'm always watching.)` },
+      { move: 'pop', say: `{wink}THAT'S THE TOUR! | Want me to buzz your phone for jobs, letters and hollers?`, last: true },
     ].filter(st => (!st.role || el(st.role)) && (!st.sel || st.sel()));
-    const tour = document.createElement('div');
-    tour.className = 'intro-tour';
-    tour.setAttribute('role', 'dialog');
-    tour.setAttribute('aria-label', 'Neeff shows you around');
-    tour.innerHTML = `<div class="intro-spot"></div>
-      <div class="intro-card"><img src="${ROOM}head_happy.png" alt="Neeff" class="intro-bird intro-neeff"><div class="intro-text" aria-live="polite"></div>
-        <div class="intro-btns"><span class="intro-step"></span><button class="raven-offer-no" data-skip>Skip the tour</button><button class="composer-submit" data-next>Next</button></div></div>`;
-    document.body.appendChild(tour);
-    const spot = tour.querySelector('.intro-spot'), card = tour.querySelector('.intro-card');
-    const done = () => { try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } tour.remove(); };
-    let i = 0;
-    const show = () => {
-      const st = steps[i], target = st.role ? el(st.role) : st.sel ? st.sel() : null;
-      tour.querySelector('.intro-text').innerHTML = st.text;
-      tour.querySelector('.intro-neeff').src = `${ROOM}${st.face || 'head_happy'}.png`;
-      tour.querySelector('.intro-step').textContent = `${i + 1} of ${steps.length}`;
-      const next = tour.querySelector('[data-next]');
-      next.textContent = st.last ? 'Yes, notify me' : st.cta || 'Next';
-      tour.querySelector('[data-skip]').textContent = st.last ? 'Maybe later' : 'Skip the tour';
-      tour.classList.toggle('no-target', !target);
-      if (target) {
-        target.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
-        // Light the whole group (all three flyers), not just the first.
-        const rs = (st.role ? [...host.querySelectorAll(`[data-role="${st.role}"]`)] : [target]).map(n => n.getBoundingClientRect());
-        const r = { left: Math.min(...rs.map(q => q.left)), top: Math.min(...rs.map(q => q.top)), right: Math.max(...rs.map(q => q.right)), bottom: Math.max(...rs.map(q => q.bottom)) };
-        r.width = r.right - r.left; r.height = r.bottom - r.top;
-        const pad = 10;
-        Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
-        // The card sits below the object if there's room, else above.
-        if (r.height > innerHeight * 0.5) { card.style.top = ''; card.style.bottom = ''; next.focus(); return; } // a tall panel: card at the bottom
-        const below = r.bottom + 16 + 190 < innerHeight;
-        card.style.top = below ? `${r.bottom + 16}px` : 'auto';
-        card.style.bottom = below ? 'auto' : `${innerHeight - r.top + 16}px`;
-      } else { card.style.top = ''; card.style.bottom = ''; }
-      next.focus();
-    };
-    tour.querySelector('[data-skip]').onclick = done;
-    tour.querySelector('[data-next]').onclick = () => {
-      if (steps[i].last) { done(); inviteRaven('menu'); return; }
-      i++; show();
-    };
-    show();
+    runNeeffTour(steps, { el, host, onDone: () => { try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } } });
   };
   roomHooks.openTrunk = () => {
     const el = host.querySelector('[data-role="trunk"]'), it = items.find(i => i.role === 'trunk');

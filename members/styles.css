@@ -2649,3 +2649,59 @@ body.chat-typing .chat-panel { transition: none; }
    messages, the newest sits right above where you type. */
 .chat-list > :first-child { margin-top: auto; }
 .composer-glow { box-shadow: 0 0 0 3px #C8A05A, 0 0 24px rgba(255, 210, 130, 0.7) !important; transition: box-shadow 0.4s; }
+
+/* ── Neeff's tour, holler-style (2026-10-14) ── his head pops up big at the
+   bottom of the screen, a comic bubble beside it; he hops sides to stay out
+   of the spotlight's way. Moves: pop, boing, zoom, shake, spin, lean, sus,
+   cosmic. */
+.neeff-tour .nt-head { position: fixed; z-index: 2; bottom: -6px; left: max(8px, calc(50% - 470px)); width: min(30vh, 34vw, 270px); transform-origin: 50% 100%; pointer-events: none; }
+.neeff-tour .nt-head img { width: 100%; display: block; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.55)); }
+.neeff-tour .nt-bubble { position: fixed; z-index: 3; bottom: calc(min(30vh, 34vw, 270px) * 0.62); left: calc(max(8px, calc(50% - 470px)) + min(30vh, 34vw, 270px) * 0.82); width: min(440px, calc(100vw - 32px)); padding: 16px 18px 12px; border-radius: 22px; background: #FFF7E2; color: #231712; border: 4px solid #231712; box-shadow: 6px 6px 0 #9B3036; animation: nt-bubble-in 0.35s cubic-bezier(.2, 1.4, .4, 1) both; }
+.neeff-tour .nt-bubble::after { content: ''; position: absolute; left: -22px; bottom: 26px; border: 12px solid transparent; border-right: 18px solid #231712; }
+.neeff-tour.nt-right .nt-head { left: auto; right: max(8px, calc(50% - 470px)); }
+.neeff-tour.nt-right .nt-head img { transform: scaleX(-1); }
+.neeff-tour.nt-right .nt-bubble { left: auto; right: calc(max(8px, calc(50% - 470px)) + min(30vh, 34vw, 270px) * 0.82); box-shadow: -6px 6px 0 #9B3036; }
+.neeff-tour.nt-right .nt-bubble::after { left: auto; right: -22px; border-right: 12px solid transparent; border-left: 18px solid #231712; }
+.nt-from { font: 400 12px 'Rye', serif; letter-spacing: 0.08em; color: #9B3036; margin-bottom: 4px; }
+.nt-text { font: 600 19px/1.4 'Libre Franklin', sans-serif; min-height: 2.8em; }
+.nt-text b { color: #9B3036; }
+.nt-extra { font-size: 15px; }
+.nt-btns { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
+.nt-step { margin-right: auto; font: 700 12px 'Playfair Display', serif; color: #8F6E34; }
+@keyframes nt-bubble-in { from { opacity: 0; transform: scale(0.8) translateY(10px); } }
+/* while he talks: a little bob */
+.nt-head.talking img { animation: nt-yak 0.24s ease-in-out infinite alternate; }
+@keyframes nt-yak { to { transform: translateY(-4px) rotate(-1deg); } }
+.neeff-tour.nt-right .nt-head.talking img { animation-name: nt-yak-r; }
+@keyframes nt-yak-r { from { transform: scaleX(-1); } to { transform: scaleX(-1) translateY(-4px) rotate(1deg); } }
+/* entrances and carryings-on */
+.nt-head.go.mv-pop { animation: nt-pop 0.7s cubic-bezier(.2, 1.5, .4, 1) both; }
+@keyframes nt-pop { from { transform: translateY(110%) scale(0.6); } }
+.nt-head.go.mv-boing { animation: nt-boing 0.6s ease both; }
+@keyframes nt-boing { 0% { transform: scale(1, 1); } 25% { transform: scale(1.12, 0.86); } 50% { transform: scale(0.92, 1.12) translateY(-18px); } 75% { transform: scale(1.04, 0.96); } }
+.nt-head.go.mv-zoom { animation: nt-zoom 0.8s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes nt-zoom { 0% { transform: scale(1); } 40% { transform: scale(1.35) rotate(-4deg); } 100% { transform: scale(1); } }
+.nt-head.go.mv-shake { animation: nt-shake 0.6s ease both; }
+@keyframes nt-shake { 10%, 50%, 90% { transform: translateX(-10px) rotate(-3deg); } 30%, 70% { transform: translateX(10px) rotate(3deg); } }
+.nt-head.go.mv-spin { animation: nt-spin 0.8s cubic-bezier(.4, 0, .2, 1) both; }
+@keyframes nt-spin { from { transform: rotate(-360deg) scale(0.7); } }
+.nt-head.go.mv-lean { animation: nt-lean 0.6s ease both; }
+@keyframes nt-lean { 0% { transform: rotate(0); } 50% { transform: rotate(-8deg) translateX(14px); } 100% { transform: rotate(-3deg) translateX(6px); } }
+.nt-head.go.mv-cosmic { animation: nt-cosmic 1.4s ease both; }
+@keyframes nt-cosmic { 0% { transform: translateY(0); filter: none; } 50% { transform: translateY(-30px) scale(1.15); } 100% { transform: translateY(-8px); } }
+.nt-head.cosmic img { filter: drop-shadow(0 0 24px rgba(160, 120, 255, 0.9)) drop-shadow(0 10px 18px rgba(0, 0, 0, 0.55)); }
+/* suspicious: narrowed, tilted, shuffling side to side */
+.nt-head.sus img { animation: nt-sus 1.6s ease-in-out infinite; }
+@keyframes nt-sus { 0%, 100% { transform: rotate(-7deg) translateX(-8px) scaleY(0.97); } 50% { transform: rotate(-4deg) translateX(8px) scaleY(0.97); } }
+.neeff-tour.nt-right .nt-head.sus img { animation-name: nt-sus-r; }
+@keyframes nt-sus-r { 0%, 100% { transform: scaleX(-1) rotate(-7deg) translateX(-8px) scaleY(0.97); } 50% { transform: scaleX(-1) rotate(-4deg) translateX(8px) scaleY(0.97); } }
+.neeff-tour.leaving { opacity: 0; transition: opacity 0.35s; }
+@media (max-width: 640px) {
+  .neeff-tour .nt-head { width: 34vw; left: 4px; }
+  .neeff-tour.nt-right .nt-head { right: 4px; }
+  .neeff-tour .nt-bubble, .neeff-tour.nt-right .nt-bubble { left: 12px; right: 12px; width: auto; bottom: calc(34vw * 1.02); }
+  .neeff-tour .nt-bubble::after { left: 40px; bottom: -28px; border: 12px solid transparent; border-top: 18px solid #231712; }
+  .neeff-tour.nt-right .nt-bubble::after { left: auto; right: 40px; border: 12px solid transparent; border-top: 18px solid #231712; }
+  .nt-text { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) { .nt-head, .nt-head img, .nt-bubble { animation: none !important; } }
