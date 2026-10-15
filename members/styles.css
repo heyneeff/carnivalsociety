@@ -2577,3 +2577,5 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .cc-sig { margin-top: 14px; text-align: right; font: italic 600 18px 'Cormorant Garamond', Georgia, serif; color: #8F6E34; }
 .cc-close { position: absolute; top: -18px; right: -18px; }
 @media (prefers-reduced-motion: reduce) { .room-code { animation: none; } .carnie-code, .cc-sign { transition: none; } }
+.cc-plaque { display: block; width: min(230px, 60%); margin: -64px auto 10px; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.4)); }
+.cc-sign { margin-top: 60px; }

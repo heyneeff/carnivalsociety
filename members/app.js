@@ -6066,14 +6066,14 @@ const CARNIE_CODE = [
   ['Ask how you can be of service, not for a role.', 'If you ask for a role, your role is clown, and you need to reevaluate your life.'],
 ];
 // Where it hangs, per room painting (feet-free: left/top/width in % of the room).
-const CODE_SPOT = { office: [66.6, 24, 4.8], original: [30.5, 24, 6], default: [58.6, 27, 6.4] };
+const CODE_SPOT = { office: [57.4, 19.5, 9.2], original: [30, 22, 7.5], default: [58.2, 24, 8] };
 function mountCode(scene, theme) {
   scene.querySelector('.room-code')?.remove();
   const [l, t, w] = CODE_SPOT[theme] || CODE_SPOT.default;
   const el = document.createElement('button');
   el.className = 'room-code';
   el.style.cssText = `left:${l}%;top:${t}%;width:${w}%`;
-  el.setAttribute('aria-label', 'Read the Carnie Code');
+  el.setAttribute('aria-label', 'Read the Carnival Society Code');
   el.innerHTML = `<img src="${ROOM}carnie_code.png" alt="" draggable="false" onerror="this.remove()"><span class="rc-board" aria-hidden="true"><b>THE</b><b>CARNIE</b><b>CODE</b></span>`;
   el.onclick = e => { e.stopPropagation(); showCarnieCode(); };
   scene.appendChild(el);
@@ -6083,11 +6083,11 @@ function showCarnieCode() {
   const o = document.createElement('div');
   o.className = 'carnie-code';
   o.setAttribute('role', 'dialog');
-  o.setAttribute('aria-label', 'The Carnie Code');
+  o.setAttribute('aria-label', 'The Carnival Society Code');
   o.innerHTML = `
     <div class="cc-sign">
       <button class="oracle-close cc-close" aria-label="Put the sign back">×</button>
-      <div class="cc-title"><small>— the —</small>Carnie Code</div>
+      <img class="cc-plaque" src="${ROOM}carnie_code.png" alt="The Carnival Society Code">
       <ol>${CARNIE_CODE.map(([rule, more]) => `<li><b>${rule}</b>${more ? ` <span>${more}</span>` : ''}</li>`).join('')}</ol>
       <div class="cc-sig">— the Ringleader</div>
     </div>`;
@@ -6554,6 +6554,8 @@ const ROOM_ITEMS = {
   'Furniture': ['vanity_desk', 'chair_velvet', 'chaise', 'dresser', 'tuffet_red', 'tuffet_harlequin', 'stool_short', 'cushion_round', 'pillow_star', 'screen_moon', 'coat_rack', 'costume_rack', 'dress_stand', 'gramophone'],
   'Trunks & boxes': ['trunk_blue', 'trunk_star', 'trunk_scarf', 'treasure_box', 'crate_star', 'suitcase', 'hatbox_small', 'drum_blue', 'drum_short', 'drum_tall', 'pedestal_red', 'blankets'],
   'Lights & walls': ['mirror_bulbs', 'mirror_oval', 'mirror_floor', 'lamp_fringe', 'sconce', 'lantern_gold', 'lantern_iron', 'lantern_small', 'lantern_violet', 'candle', 'star_garland', 'banner_star', 'painting_bigtop', 'frame_small', 'curtain_drape', 'rug_star', 'moon_charm'],
+  // Neeff's Kooky Collector sheet: earned (or given), never bought.
+  'Prizes': ['first_ticket', 'pennant_kooks', 'friendship_bracelet', 'quill_ink', 'guestbook', 'paint_pot', 'pie', 'rope_knot', 'juggling_clubs', 'gift_basket', 'clown_nose', 'jack_o_lantern', 'snow_globe', 'welcome_wreath', 'thank_you_card', 'golden_ticket', 'backstage_pass', 'medal', 'plush_sunny', 'plush_daisy', 'photo_frame'],
   'Props & treasures': ['tophat', 'jester_hat', 'ringmaster_coat', 'leotard', 'boots', 'plumes', 'feather_vase', 'fan_feather', 'fan_stripe', 'hoop', 'rope_coil', 'toy_horn', 'ticket_admit', 'mercury_deck', 'tarot_fan', 'tarot_pair', 'books', 'perfume', 'plant_vase', 'popcorn_box', 'crystal_ball', 'unicycle', 'rocking_horse', 'juggling_pins', 'rabbit_hat', 'big_top', 'aerial_silks'],
 };
 // A few drawer items come already doing something (still changeable in Arrange).

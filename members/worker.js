@@ -2343,6 +2343,29 @@ const ROOM_SPECIALS = {
   "items/gramophone": { handshakes: 3, how: "Shake hands with 3 crewmates." },
   "items/aerial_silks": { rank: true, how: "Become an Apprentice." },
   "items/mercury_deck": { backer: true, how: "A thank-you gift for the Mercury Oracle's backers." },
+  // Prizes (2026-10-14, Neeff's Kooky Collector sheet). A few unlock on
+  // their own; the rest the Ringleader hands out as surprises (gift).
+  "items/first_ticket": { stamp: "ticket", how: "Come to your first carnival." },
+  "items/friendship_bracelet": { handshakes: 5, how: "Shake hands with 5 crewmates." },
+  "items/pennant_kooks": { event: "kooks", how: "Come to Carnival for Kooks." },
+  "items/quill_ink": { notesWritten: 10, how: "Leave notes on 10 mirrors." },
+  "items/guestbook": { visitors: 10, how: "Get notes from 10 different visitors." },
+  "items/paint_pot": { gift: true, how: "Paint a sign for a carnival. (You will be painting signs!)" },
+  "items/pie": { gift: true, how: "Bring food to a carnival. You must, I'm afraid." },
+  "items/rope_knot": { gift: true, how: "Tie the ropes: rig something at a carnival." },
+  "items/juggling_clubs": { gift: true, how: "Make a game for a carnival." },
+  "items/gift_basket": { gift: true, how: "Bring something for everyone. Generosity is a virtue." },
+  "items/clown_nose": { gift: true, how: "Ask for a role instead of how you can help. 🤡" },
+  "items/jack_o_lantern": { gift: true, how: "Come to the Halloween carnival." },
+  "items/snow_globe": { gift: true, how: "Come to the winter Freakshow." },
+  "items/welcome_wreath": { gift: true, how: "Finish your first-day checklist." },
+  "items/thank_you_card": { gift: true, how: "Someone's thank-you." },
+  "items/golden_ticket": { gift: true, how: "A gift from the Ringleader." },
+  "items/backstage_pass": { gift: true, how: "A gift from the Ringleader." },
+  "items/medal": { gift: true, how: "Save the day. A gift from the Ringleader." },
+  "items/plush_sunny": { gift: true, how: "A gift from the Ringleader (and Sunny)." },
+  "items/plush_daisy": { gift: true, how: "A gift from the Ringleader (and Daisy)." },
+  "items/photo_frame": { gift: true, how: "A gift from the Ringleader." },
 };
 async function roomUnlocks(env, userId) {
   const u = await env.DB.prepare("SELECT rank, is_ringleader FROM users WHERE id = ?").bind(userId).first();
@@ -2354,7 +2377,14 @@ async function roomUnlocks(env, userId) {
   const { results: gifts } = await env.DB.prepare("SELECT DISTINCT img FROM room_gifts WHERE room_user_id = ? AND opened_at IS NOT NULL").bind(userId).all();
   const given = new Set(gifts.map((g) => g.img));
   const backer = !!(await env.DB.prepare("SELECT 1 FROM backers b JOIN users u ON lower(u.email) = b.email WHERE u.id = ?").bind(userId).first());
-  return Object.entries(ROOM_SPECIALS).filter(([k, r]) => given.has(k) || (r.backer && backer) || (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
+  const c = await env.DB.prepare(
+    `SELECT (SELECT COUNT(DISTINCT room_user_id) FROM room_notes WHERE author_id = ?1 AND room_user_id != ?1) AS wrote,
+            (SELECT COUNT(DISTINCT author_id) FROM room_notes WHERE room_user_id = ?1 AND author_id != ?1) AS visitors,
+            (SELECT group_concat(DISTINCT e.slug) FROM door_entries d JOIN events e ON e.id = d.event_id WHERE d.user_id = ?1 AND d.voided_at IS NULL) AS came`
+  ).bind(userId).first();
+  const came = new Set(String(c.came || "").split(","));
+  return Object.entries(ROOM_SPECIALS).filter(([k, r]) => given.has(k) || (r.backer && backer) ||
+    (r.event && came.has(r.event)) || (r.notesWritten && c.wrote >= r.notesWritten) || (r.visitors && c.visitors >= r.visitors) || (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
 }
 function cleanRoomItems(raw, { ringleader, unlocked }) {
   if (raw === null) return null;
