@@ -2780,3 +2780,5 @@ body.chat-typing .chat-panel { transition: none; }
 .neeff-tour.nt-right .nt-head.sly img { animation-name: nt-sly-r; }
 @keyframes nt-sly-r { 0%, 100% { transform: scaleX(-1) rotate(-9deg) translateX(-4px); } 50% { transform: scaleX(-1) rotate(-5deg) translateX(5px) translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .nt-head.shout img, .nt-head.gasp img, .nt-head.sly img { animation: none; } }
+.nt-how { margin: 8px 0 0; padding: 8px 12px 8px 28px; background: #FBF0D2; border: 2px dashed #C8A05A; border-radius: 8px; font-size: 15px; line-height: 1.45; }
+p.nt-how { padding-left: 12px; }

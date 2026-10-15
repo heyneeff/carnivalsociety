@@ -6285,10 +6285,10 @@ function runNeeffTour(steps, { el, host, onDone }) {
   const show = () => {
     const st = steps[i];
     t.querySelector('.nt-step').textContent = `${i + 1} of ${steps.length}`;
-    next.textContent = st.last ? 'Yes, buzz me!' : st.wait ? 'I’ll do it later' : st.cta || 'Next';
+    next.textContent = st.last ? (st.cta || 'Yes, buzz me!') : st.wait ? 'I’ll do it later' : st.cta || 'Next';
     next.style.display = st.wait && st.required ? 'none' : ''; // some things you just have to do
     const skip = t.querySelector('[data-skip]');
-    skip.textContent = st.last ? 'Maybe later' : 'Skip the tour';
+    skip.textContent = st.last ? 'Later' : 'Skip the tour';
     skip.hidden = !!st.office || !!st.required; // the office intro and saying hello can't be skipped
     st.onShow2?.();
     t.classList.toggle('in-office', !!st.office);
@@ -6316,7 +6316,7 @@ function runNeeffTour(steps, { el, host, onDone }) {
     // Sound needs a tap first: the babble starts with the first Next.
     if (!rig && !soundOff()) { rig = megaphone(); babble = makeBabbler(rig); }
     if (ended) return;
-    if (steps[i].last) { end(); inviteRaven('menu'); return; }
+    if (steps[i].last) { const f = steps[i].finish; end(); if (f) f(); else inviteRaven('menu'); return; }
     if (steps[i].wait) later = true;
     steps[i].leave?.();
     advance();
@@ -7410,7 +7410,20 @@ async function renderRoom(mainView, ownerId = null) {
         onShow2: () => { if (!document.body.classList.contains('chat-docked') && typeof chat !== 'undefined') { chat.open = true; mountChat(); } const inp = document.getElementById('chatInput'); if (inp && !inp.value) inp.value = `Hi! I'm ${profile.display_name.split(' ')[0]}${profile.city ? ` from ${profile.city}` : ''}. `; } },
       { move: 'boing', say: `{proud}They're gonna *LOVE* you.` },
       el('raven') ? { role: 'raven', move: 'lean', say: `{open}Oh! And this is *OMEN*, my raven. | Every day he pulls a card just for you from my *ORACLE.* | He also delivers the news. | {shout}If he squawks at ya, *TALK TO HIM, DANGIT.*` } : null,
-      { move: 'boing', say: `{wink}THAT'S THE TOUR! | Want me to buzz your phone for jobs, letters and hollers?`, last: true },
+      (() => {
+        // Not a question: put me on your home screen (or desktop), how depends on the device.
+        const env = ravenEnv(), ios = env.ios && !env.standalone;
+        const how = env.standalone ? `<p class="nt-how">You already have me on your home screen. Tap below and I can buzz you.</p>`
+          : ios ? `<ol class="nt-how"><li>Tap <b>Share</b> ⬆︎ at the bottom of Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open Carnival Society from there</li></ol>`
+          : deferredInstall ? `<p class="nt-how">Tap <b>Add me!</b> below and say yes.</p>`
+          : `<p class="nt-how">On a computer: click the little <b>install</b> icon at the right end of the address bar, or the browser menu → <b>Install</b> / <b>Add to Home screen</b>.</p>`;
+        return { move: 'boing', say: `{wink}THAT'S THE TOUR! | {shout}Now put me on your *HOME SCREEN!* | {happy}Your phone, your desktop, wherever. | That way I can buzz you for jobs, letters and hollers.`, html: how, cta: env.standalone ? 'Buzz me!' : ios ? 'Show me how' : 'Add me!', last: true,
+          finish: async () => {
+            if (ios) { showIosInstall(); return; }
+            if (deferredInstall && !env.standalone) { try { deferredInstall.prompt(); await deferredInstall.userChoice; } catch (e) { /* dismissed */ } deferredInstall = null; }
+            inviteRaven('menu');
+          } };
+      })(),
     ].filter(st => st && (!st.role || el(st.role)) && (!st.sel || st.sel()));
     runNeeffTour(steps, { el, host, onDone: () => { office.remove(); try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } } });
   };
