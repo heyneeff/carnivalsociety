@@ -7419,10 +7419,12 @@ async function renderRoom(mainView, ownerId = null) {
           : deferredInstall ? `<p class="nt-how">If you want to join us <b>for real</b>, tap the button so you don't miss a real-life meeting!</p>`
           : `${why}<p class="nt-how">On a computer: click the little <b>install</b> icon at the right end of the address bar, or the browser menu → <b>Install</b> / <b>Add to Home screen</b>.</p>`;
         return { move: 'boing', say: `{wink}THAT'S THE TOUR! | {shout}Now put me on your *HOME SCREEN!* | {happy}Your phone, your desktop, wherever. | That way I can buzz you for jobs, letters and hollers.`, html: how, cta: env.standalone ? '🎪 Join us for real!' : ios ? '🎪 Join us for real: show me how' : deferredInstall ? '🎪 Join us for real!' : '🎪 Got it, join for real!', last: true,
+          // Straight to the browser's own prompts (install, then notifications):
+          // no second raven card after the tour. iPhone: the steps are in the bubble.
           finish: async () => {
-            if (ios) { showIosInstall(); return; }
+            if (ios) return;
             if (deferredInstall && !env.standalone) { try { deferredInstall.prompt(); await deferredInstall.userChoice; } catch (e) { /* dismissed */ } deferredInstall = null; }
-            inviteRaven('menu');
+            try { if (env.supported) await followRaven(); } catch (e) { /* they said no */ }
           } };
       })(),
     ].filter(st => st && (!st.role || el(st.role)) && (!st.sel || st.sel()));
