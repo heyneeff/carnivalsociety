@@ -350,20 +350,20 @@ function renderResetScreen(token, errorMsg = '') {
 // doorways, each opening onto a row of name plates. Tap a name plate and you
 // step into that person's Dressing Room. The mirror takes you home.
 const BACKSTAGE_DOORS = [
-  { key: 'friends', label: 'Friends', glyph: '☀', l: 28.3, t: 23, w: 9.6, h: 22, px: -62, py: 0, blurb: 'People you’ve shaken hands with at a carnival.' },
-  { key: 'new', label: 'New arrivals', glyph: '☾', l: 42.3, t: 24, w: 8.4, h: 22, px: -30, py: 34, blurb: 'Just arrived. Go say hello and leave a note on their mirror!' },
-  { key: 'all', label: 'Everyone', glyph: '★', l: 68.2, t: 20, w: 10.4, h: 36, px: -50, py: 0, blurb: 'Every dressing room backstage.' },
-  { key: 'here', label: 'Here now', glyph: '🔥', l: 83.2, t: 11, w: 16.8, h: 53, px: -78, py: 0, blurb: 'Around right now. Pop in!' },
+  { key: 'friends', label: 'Friends', glyph: '☀', l: 28.3, t: 23, w: 9.6, h: 22, px: -40, py: 0, dir: 'up', blurb: 'People you’ve shaken hands with at a carnival.' },
+  { key: 'new', label: 'New arrivals', glyph: '☾', l: 42.3, t: 24, w: 8.4, h: 22, px: -25, py: 40, dir: 'up', blurb: 'Just arrived. Go say hello and leave a note on their mirror!' },
+  { key: 'all', label: 'Everyone', glyph: '★', l: 68.2, t: 20, w: 10.4, h: 36, px: -95, py: -60, dir: 'right', blurb: 'Every dressing room backstage.' },
+  { key: 'here', label: 'Here now', glyph: '🔥', l: 83.2, t: 11, w: 16.8, h: 53, px: -112, py: -80, dir: 'right', blurb: 'Around right now. Pop in!' },
 ];
 async function renderBackstage(mainView) {
   mainView.innerHTML = `
-    <div class="backstage">
-      <div class="bs-scene" id="bsScene">
-        <img class="bs-bg" src="${ROOM}rooms/backstage.jpg" alt="The backstage hallway: curtained doorways, a costume rack, a mirror with bulbs">
-        <a class="bs-door bs-home" href="#/dressing-room" style="left:0;top:24%;width:8%;height:24%" aria-label="Back to your Dressing Room"><span class="bs-plate">Your room</span></a>
-        ${BACKSTAGE_DOORS.map(d => `<button class="bs-door" data-door="${d.key}" style="left:${d.l}%;top:${d.t}%;width:${d.w}%;height:${d.h}%;--px:${d.px}%;--py:${d.py}px" aria-label="${d.label}"><span class="bs-plate"><b>${d.glyph}</b> ${d.label}<em class="bs-count" data-count="${d.key}"></em></span></button>`).join('')}
+    <div class="room-viewport bs-viewport">
+      <div class="room-scene bs-scene" id="bsScene">
+        <img class="room-bg" src="${ROOM}rooms/backstage.jpg" alt="The backstage hallway: curtained doorways, a costume rack, a mirror with bulbs" draggable="false">
+        <a class="bs-door bs-home" href="#/dressing-room" style="left:0;top:24%;width:8%;height:24%;--px:8%;--py:6px" aria-label="Back to your Dressing Room"><span class="bs-plate carnie-arrow left">Your room</span></a>
+        ${BACKSTAGE_DOORS.map(d => `<button class="bs-door" data-door="${d.key}" style="left:${d.l}%;top:${d.t}%;width:${d.w}%;height:${d.h}%;--px:${d.px}%;--py:${d.py}px" aria-label="${d.label}"><span class="bs-plate carnie-arrow ${d.dir}"><b>${d.glyph}</b> ${d.label}<em class="bs-count" data-count="${d.key}"></em></span></button>`).join('')}
+        <div class="bs-hint">Tap a doorway to see who’s back there</div>
       </div>
-      <p class="bs-hint">Tap a doorway to see who’s back there.</p>
     </div>`;
   let people = [];
   try { ({ people } = await apiFetch('/api/backstage')); } catch (e) { /* the doors still open, just empty */ }
@@ -729,6 +729,7 @@ function renderMainView(route) {
   stopDMPolling();
   // Arranging only owns the right wing while you're looking at the room itself.
   document.body.classList.toggle('arranging', roomEditing && route === 'dressing-room');
+  if (route === 'backstage') { mainView.dataset.page = 'room'; mainView.classList.add('main-room'); const st = document.createElement('div'); st.className = 'room-stage'; mainView.appendChild(st); renderBackstage(st); return; }
   if (isRoomRoute(route) || unfoldKindOf(route)) { mountRoomStage(mainView, route); return; }
   roomStage = null; unfoldKind = null; roomHooks = {};
   mainView.dataset.page = pageKind(route);
@@ -822,7 +823,6 @@ function renderPage(mainView, route) {
   if (route === 'partner' || route.startsWith('partner/')) { renderPartnerDesk(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'album') { renderAlbum(mainView); return; }
-  if (route === 'backstage') { renderBackstage(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
   if (route === 'blast') { renderBlastView(mainView); return; }
   if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
@@ -6383,7 +6383,7 @@ function mountChat() {
   const panel = document.getElementById('chatPanel');
   if (!panel) return;
   const route = currentRoute();
-  const onRoom = isRoomRoute(route) || !!unfoldKindOf(route);
+  const onRoom = isRoomRoute(route) || !!unfoldKindOf(route) || route === 'backstage';
   // Docked wherever the room is the backdrop, when its side is wide enough.
   const sideSpace = (innerWidth - (innerHeight - 69)) / 2;
   const docked = onRoom && innerWidth > 800 && sideSpace >= 300;

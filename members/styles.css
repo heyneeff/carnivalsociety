@@ -2579,3 +2579,20 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 @media (prefers-reduced-motion: reduce) { .room-code { animation: none; } .carnie-code, .cc-sign { transition: none; } }
 .cc-plaque { display: block; width: min(230px, 60%); margin: -64px auto 10px; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.4)); }
 .cc-sign { margin-top: 60px; }
+
+/* Backstage sits in the same stage as the rooms (2026-10-14 pass). */
+.room-scene.bs-scene { width: auto; border-radius: 0; box-shadow: 0 0 60px rgba(0,0,0,0.6); }
+.bs-scene .bs-hint { position: absolute; left: 50%; bottom: 2.5%; transform: translateX(-50%); padding: 4px 14px; border-radius: 999px; background: rgba(30, 8, 14, 0.62); color: #F4E8D0; font: italic 16px 'Cormorant Garamond', Georgia, serif; white-space: nowrap; pointer-events: none; }
+/* Little carnie arrows: painted wooden direction signs with marquee bulbs. */
+.carnie-arrow { background:
+    radial-gradient(circle, #FFE7A0 0 1.4px, rgba(255, 210, 120, 0.5) 1.8px, transparent 2.4px) 6px 2px / 10px 4px repeat-x,
+    radial-gradient(circle, #FFE7A0 0 1.4px, rgba(255, 210, 120, 0.5) 1.8px, transparent 2.4px) 1px calc(100% - 2px) / 10px 4px repeat-x,
+    linear-gradient(#B23A41, #8A262D);
+  color: #FBF3DC; border: 0; border-radius: 0; box-shadow: none; padding: 6px 20px 6px 14px; font: 400 clamp(10px, 1.45vw, 14px)/1.1 'Rye', serif; letter-spacing: 0.04em; text-shadow: 0 1px 0 #4a1418;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 0.5px #E9CF8C);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 7px 50%); }
+.carnie-arrow b { color: #FFD67A; }
+.carnie-arrow.left { padding: 6px 14px 6px 20px; clip-path: polygon(12px 0, 100% 0, calc(100% - 7px) 50%, 100% 100%, 12px 100%, 0 50%); }
+.carnie-arrow.up { padding: 15px 14px 6px; background-position: 6px 11px, 1px calc(100% - 2px), 0 0; clip-path: polygon(0 10px, calc(50% - 11px) 10px, 50% 0, calc(50% + 11px) 10px, 100% 10px, 100% 100%, 0 100%); }
+.bs-door:hover .carnie-arrow, .bs-door:focus-visible .carnie-arrow { filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 6px rgba(255, 210, 130, 0.9)); }
+.carnie-arrow .bs-count { color: #F4E8D0; opacity: 0.85; font-family: 'Playfair Display', serif; font-weight: 700; }
