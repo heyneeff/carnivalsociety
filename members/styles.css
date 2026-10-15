@@ -2763,3 +2763,20 @@ body.chat-typing .chat-panel { transition: none; }
 .jb-flash { outline: 3px solid #FFD67A; outline-offset: 4px; border-radius: 8px; transition: outline 0.3s; }
 .nt-press { display: block; margin-top: 4px; font: 700 13px 'Libre Franklin', sans-serif; font-style: normal; color: #9B3036; }
 @media (prefers-reduced-motion: reduce) { .jb-coming { animation: none; } }
+
+/* More of Neeff's expressions (2026-10-15), acted with his drawn faces. */
+.nt-head.shout img { animation: nt-shout 0.18s linear infinite; }
+@keyframes nt-shout { 0% { transform: scale(1.14) translate(-3px, 0) rotate(-2deg); } 50% { transform: scale(1.16) translate(3px, -2px) rotate(2deg); } 100% { transform: scale(1.14) translate(-3px, 0) rotate(-2deg); } }
+.neeff-tour.nt-right .nt-head.shout img { animation-name: nt-shout-r; }
+@keyframes nt-shout-r { 0% { transform: scaleX(-1) scale(1.14) translate(-3px, 0) rotate(-2deg); } 50% { transform: scaleX(-1) scale(1.16) translate(3px, -2px) rotate(2deg); } 100% { transform: scaleX(-1) scale(1.14) translate(-3px, 0) rotate(-2deg); } }
+.nt-head.gasp img { animation: nt-gasp 0.5s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes nt-gasp { 0% { transform: none; } 40% { transform: translateY(-34px) scale(0.92, 1.12) rotate(6deg); } 100% { transform: translateY(-12px) rotate(4deg); } }
+.neeff-tour.nt-right .nt-head.gasp img { animation-name: nt-gasp-r; }
+@keyframes nt-gasp-r { 0% { transform: scaleX(-1); } 40% { transform: scaleX(-1) translateY(-34px) scale(0.92, 1.12) rotate(6deg); } 100% { transform: scaleX(-1) translateY(-12px) rotate(4deg); } }
+.nt-head.proud img { transform: rotate(-6deg) translateY(-6px) scale(1.04); transition: transform 0.3s; filter: drop-shadow(0 0 16px rgba(255, 214, 120, 0.7)) drop-shadow(0 10px 18px rgba(0, 0, 0, 0.55)); }
+.neeff-tour.nt-right .nt-head.proud img { transform: scaleX(-1) rotate(-6deg) translateY(-6px) scale(1.04); }
+.nt-head.sly img { animation: nt-sly 2.2s ease-in-out infinite; }
+@keyframes nt-sly { 0%, 100% { transform: rotate(-9deg) translateX(-4px); } 50% { transform: rotate(-5deg) translateX(5px) translateY(-3px); } }
+.neeff-tour.nt-right .nt-head.sly img { animation-name: nt-sly-r; }
+@keyframes nt-sly-r { 0%, 100% { transform: scaleX(-1) rotate(-9deg) translateX(-4px); } 50% { transform: scaleX(-1) rotate(-5deg) translateX(5px) translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .nt-head.shout img, .nt-head.gasp img, .nt-head.sly img { animation: none; } }

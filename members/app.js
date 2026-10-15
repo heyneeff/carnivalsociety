@@ -6191,7 +6191,9 @@ function explodeHead(el, rig) {
 // ── Neeff's tour, holler-style (2026-10-14) ── his big head over the room,
 // a comic speech bubble that types with babble and a flapping mouth, faces
 // switching mid-line, and a spotlight on whatever he's talking about.
-const NT_FACES = { closed: 'head_closed', open: 'head_open', happy: 'head_happy', wink: 'head_wink', cosmic: 'head_cosmic', sus: 'head_closed' };
+const NT_FACES = { closed: 'head_closed', open: 'head_open', happy: 'head_happy', wink: 'head_wink', cosmic: 'head_cosmic', sus: 'head_closed', sly: 'head_wink', shout: 'head_open', gasp: 'head_open', proud: 'head_happy' };
+// Acted expressions: the face plus how he holds himself (CSS on .nt-head).
+const NT_ACTED = ['sus', 'sly', 'cosmic', 'shout', 'gasp', 'proud'];
 function runNeeffTour(steps, { el, host, onDone }) {
   const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const t = document.createElement('div');
@@ -6212,7 +6214,8 @@ function runNeeffTour(steps, { el, host, onDone }) {
   const out = t.querySelector('.nt-text'), extra = t.querySelector('.nt-extra'), next = t.querySelector('[data-next]');
   let i = 0, timer = null, rig = null, babble = () => {}, finishNow = null;
   const fmt = str => escapeHtml(str).replace(/\*([^*]*)\*?/g, '<b>$1</b>');
-  const face = f => { head.src = `${ROOM}${NT_FACES[f] || f}.png`; headBox.classList.toggle('sus', f === 'sus'); headBox.classList.toggle('cosmic', f === 'cosmic'); };
+  const face = f => { head.src = `${ROOM}${NT_FACES[f] || f}.png`; NT_ACTED.forEach(a => headBox.classList.toggle(a, f === a)); };
+  const mouth = f => { head.src = `${ROOM}${NT_FACES[f]}.png`; }; // flap without dropping the pose
   let ended = false;
   const end = () => {
     if (ended) return; ended = true; // one goodbye, one explosion
@@ -6242,14 +6245,14 @@ function runNeeffTour(steps, { el, host, onDone }) {
     const tick = () => {
       const tok = tokens[ti];
       if (tok === undefined) { done(); return; }
-      if (tok === '|') { ti++; headBox.classList.remove('talking'); face(mood === 'sus' ? 'sus' : mood); timer = setTimeout(() => { headBox.classList.add('talking'); tick(); }, 380); return; }
+      if (tok === '|') { ti++; headBox.classList.remove('talking'); face(mood); timer = setTimeout(() => { headBox.classList.add('talking'); tick(); }, 380); return; }
       if (tok[0] === '{') { mood = tok.slice(1, -1); face(mood); ti++; tick(); return; }
       const ch = tok[ci++];
       if (ch === undefined) { ti++; ci = 0; tick(); return; }
       shown += ch; out.innerHTML = fmt(shown);
       if (/[\p{L}\p{N}!?]/u.test(ch) && (ci % 2 === 0 || ch === '!' || ch === '?')) {
         babble(ch);
-        if (mood !== 'sus' && mood !== 'cosmic') face(flap++ % 2 ? 'closed' : (mood === 'wink' ? 'open' : 'open'));
+        if (!['sus', 'sly', 'cosmic', 'wink'].includes(mood)) mouth(flap++ % 2 ? 'closed' : 'open');
       }
       timer = setTimeout(tick, /[.!?]/.test(ch) ? 120 : 32);
     };
@@ -6283,9 +6286,11 @@ function runNeeffTour(steps, { el, host, onDone }) {
     const st = steps[i];
     t.querySelector('.nt-step').textContent = `${i + 1} of ${steps.length}`;
     next.textContent = st.last ? 'Yes, buzz me!' : st.wait ? 'I’ll do it later' : st.cta || 'Next';
+    next.style.display = st.wait && st.required ? 'none' : ''; // some things you just have to do
     const skip = t.querySelector('[data-skip]');
     skip.textContent = st.last ? 'Maybe later' : 'Skip the tour';
-    skip.hidden = !!st.office; // Neeff's intro in the office can't be skipped
+    skip.hidden = !!st.office || !!st.required; // the office intro and saying hello can't be skipped
+    st.onShow2?.();
     t.classList.toggle('in-office', !!st.office);
     st.onShow?.();
     const target = st.role ? el(st.role) : st.sel ? st.sel() : null;
@@ -7381,29 +7386,29 @@ async function renderRoom(mainView, ownerId = null) {
     const steps = [
       { office: true, move: 'spin', say: `{happy}OH! HELLO, ${first.toUpperCase()}! | Welcome to my *OFFICE.* | I'm *NEEFF.* | Creator of the Carnival Society. | Ringleader. | Cowboy. | Kind of a big deal.`, cta: 'Hi Neeff!' },
       { office: true, move: 'sus', say: `{sus}I've got my eye on you... | | | {wink}JK... | | {sus}*But seriously!*`, cta: 'Uh, okay!' },
-      { office: true, move: 'zoom', say: `{open}We are building *THE WORLD'S LARGEST REAL-LIFE CIRCUS AND CARNIVAL NETWORK!* | Real fire. | Real sawdust. | Real people.`, cta: 'Whoa' },
-      { office: true, move: 'shake', say: `{open}I built this to organize our circus and carnival and keep track of EVERYONE. | | {sus}*NO BIG DEAL, JEEZ.*` },
+      { office: true, move: 'zoom', say: `{shout}We are building *THE WORLD'S LARGEST REAL-LIFE CIRCUS AND CARNIVAL NETWORK!* | Real fire. | Real sawdust. | Real people.`, cta: 'Whoa' },
+      { office: true, move: 'shake', say: `{open}I built this to organize our circus and carnival and keep track of EVERYONE. | | {sly}*NO BIG DEAL, JEEZ.*` },
       near ? { office: true, move: 'zoom', say: nearHere ? `{open}AND GUESS WHAT? | There's a *REAL CARNIVAL* coming up near you! | {wink}You should come.` : `{open}AND GUESS WHAT? | Our next *REAL CARNIVAL* is coming up! | {wink}You should come.`, html: nearCard, cta: 'Ooh!' } : null,
-      { office: true, sel: chatEl, move: 'lean', say: `{open}Out there: the *GREEN ROOM!* | A real live chat room full of real live carnies. | {wink}They don't bite. | (Most of them.)` },
       { office: true, sel: forumEl, move: 'lean', say: `{open}And the *FORUM!* | This is how we stay organized. | News! Plans! Calls for helping hands! | {sus}Very official. | Very important.` },
       { office: true, sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), move: 'boing', say: `{happy}*UPCOMING EVENTS* live up here! | Every one is a real carnival. | Take a job on the crew and come make it happen!` },
       { office: true, move: 'cosmic', say: `{cosmic}Technically... | this is a *GUILD NETWORK.* | Ancient. | Mysterious. | {happy}Don't worry about that now! | You've joined at the entry level of our little club.` },
       { office: true, move: 'boing', say: `{open}Every time you take part in one of our carnivals, you earn *BADGES* and move up the *CARNIVAL RANKS.* | These have *real-life consequences,* | and eventually get you *a real seat at the table.*`, html: `<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Honk!</li><li><b>Apprentice</b>: 3 badges, including 2 volunteer shifts.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred.</li></ol>` },
       { office: true, side: 'right', move: 'lean', say: `{happy}Check out all my *COOL BADGES!*`, cta: 'Ooh, show me',
         afterType: () => { trunk.src = `${ROOM}trunk_open.png`; trunk.classList.add('open'); badge = popBadge('badge_fart', 'translate(-200%, 120%) scale(0.2) rotate(-60deg)'); } },
-      { office: true, side: 'right', move: 'shake', say: `{sus}WHOOPS! | *NOT THAT ONE!*`, cta: '...',
+      { office: true, side: 'right', move: 'shake', say: `{gasp}WHOOPS! | {shout}*NOT THAT ONE!*`, cta: '...',
         onShow: () => { if (!badge) return; const b = badge; b.animate([{ transform: 'translate(-50%,-50%)' }, { transform: 'translate(250%, -180%) rotate(540deg) scale(0.3)', opacity: 0 }], { duration: 650, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' }); setTimeout(() => b.remove(), 700); badge = null; },
         afterType: () => { badge = popBadge('badge_handsome', 'translate(-200%, 120%) scale(0.2) rotate(-60deg)'); badge.classList.add('shiny'); } },
-      { office: true, side: 'right', move: 'boing', say: `{happy}There we go. | *WORLD'S MOST HANDSOME RINGLEADER.* | {wink}Nailed it.` },
-      { office: true, move: 'shake', say: `{open}Now... | | *GET OUT OF MY OFFICE!*`, cta: 'Bye!',
+      { office: true, side: 'right', move: 'boing', say: `{proud}There we go. | *WORLD'S MOST HANDSOME RINGLEADER.* | {sly}Nailed it.` },
+      { office: true, move: 'shake', say: `{open}Now... | | {shout}*GET OUT OF MY OFFICE!* | {happy}You've got your own spot.`, cta: 'Bye!',
         leave: () => { badge?.remove(); office.classList.add('leaving'); setTimeout(() => office.remove(), 750); } },
       // Act two: their own room, for real.
       { move: 'spin', say: `{happy}And *THIS* is *YOUR Dressing Room!* | Anything that glows, you can poke.` },
       { sel: () => document.getElementById('roomArrange'), wait: 'cs-room-saved', move: 'lean', say: `{open}Make it yours! | Tap *Arrange,* move something, and hit *Save.*` },
       { move: 'boing', say: `{happy}LOOKS FABULOUS. | {wink}Very you.`, skipIfLater: true },
       el('flyer') ? { role: 'flyer', move: 'lean', say: `{open}Every flyer on your wall is a *REAL CARNIVAL.* | Tap one, then hit the big *I'M COMING!* button. | {wink}That's how you save your spot.` } : null,
-      { sel: chatEl, wait: 'cs-chat-sent', move: 'lean', say: `{open}Now say hi in the *GREEN ROOM!* | Type something. | Anything. | {sus}I'll know if you don't.` },
-      { move: 'boing', say: `{happy}They're gonna *LOVE* you.`, skipIfLater: true },
+      { sel: chatEl, wait: 'cs-chat-sent', required: true, move: 'lean', say: `{open}One last thing: the *GREEN ROOM!* | A real live chat room full of real live carnies. | *Introduce yourself!* | Where you're from, what you're into. | {sly}I'll know if you don't.`,
+        onShow2: () => { if (!document.body.classList.contains('chat-docked') && typeof chat !== 'undefined') { chat.open = true; mountChat(); } const inp = document.getElementById('chatInput'); if (inp && !inp.value) inp.value = `Hi! I'm ${profile.display_name.split(' ')[0]}${profile.city ? ` from ${profile.city}` : ''}. `; } },
+      { move: 'boing', say: `{proud}They're gonna *LOVE* you.` },
       el('raven') ? { role: 'raven', move: 'lean', say: `{open}Oh! And Omen the raven keeps a *card of the day* just for you. | Tap him anytime.` } : null,
       { move: 'boing', say: `{wink}THAT'S THE TOUR! | Want me to buzz your phone for jobs, letters and hollers?`, last: true },
     ].filter(st => st && (!st.role || el(st.role)) && (!st.sel || st.sel()));
