@@ -2366,6 +2366,19 @@ const ROOM_SPECIALS = {
   "items/plush_sunny": { gift: true, how: "A gift from the Ringleader (and Sunny)." },
   "items/plush_daisy": { gift: true, how: "A gift from the Ringleader (and Daisy)." },
   "items/photo_frame": { gift: true, how: "A gift from the Ringleader." },
+  // Trophies (2026-10-14): only ever handed out by the Ringleader.
+  "items/trophy_cup": { gift: true, how: "A trophy from the Ringleader: Grand Champion Cup." },
+  "items/trophy_hoops": { gift: true, how: "A trophy from the Ringleader: Golden Hoops." },
+  "items/trophy_horse": { gift: true, how: "A trophy from the Ringleader: Bareback Rider." },
+  "items/trophy_bigtop": { gift: true, how: "A trophy from the Ringleader: Big Top Award." },
+  "items/trophy_stars": { gift: true, how: "A trophy from the Ringleader: Shooting Stars." },
+  "items/trophy_jester": { gift: true, how: "A trophy from the Ringleader: Fool of the Year." },
+  "items/trophy_elephant": { gift: true, how: "A trophy from the Ringleader: The Elephant Never Forgets." },
+  "items/trophy_laurel": { gift: true, how: "A trophy from the Ringleader: Laurels." },
+  "items/trophy_cup_bigtop": { gift: true, how: "A trophy from the Ringleader: Big Top Cup." },
+  "items/trophy_cannon": { gift: true, how: "A trophy from the Ringleader: Human Cannonball." },
+  "items/trophy_crown": { gift: true, how: "A trophy from the Ringleader: King or Queen of the Carnival." },
+  "items/trophy_star": { gift: true, how: "A trophy from the Ringleader: Star of the Show." },
 };
 async function roomUnlocks(env, userId) {
   const u = await env.DB.prepare("SELECT rank, is_ringleader FROM users WHERE id = ?").bind(userId).first();

@@ -6556,6 +6556,8 @@ const ROOM_ITEMS = {
   'Lights & walls': ['mirror_bulbs', 'mirror_oval', 'mirror_floor', 'lamp_fringe', 'sconce', 'lantern_gold', 'lantern_iron', 'lantern_small', 'lantern_violet', 'candle', 'star_garland', 'banner_star', 'painting_bigtop', 'frame_small', 'curtain_drape', 'rug_star', 'moon_charm'],
   // Neeff's Kooky Collector sheet: earned (or given), never bought.
   'Prizes': ['first_ticket', 'pennant_kooks', 'friendship_bracelet', 'quill_ink', 'guestbook', 'paint_pot', 'pie', 'rope_knot', 'juggling_clubs', 'gift_basket', 'clown_nose', 'jack_o_lantern', 'snow_globe', 'welcome_wreath', 'thank_you_card', 'golden_ticket', 'backstage_pass', 'medal', 'plush_sunny', 'plush_daisy', 'photo_frame'],
+  // Trophies: the Ringleader hands these out (surprises), for real feats.
+  'Trophies': ['trophy_cup', 'trophy_hoops', 'trophy_horse', 'trophy_bigtop', 'trophy_stars', 'trophy_jester', 'trophy_elephant', 'trophy_laurel', 'trophy_cup_bigtop', 'trophy_cannon', 'trophy_crown', 'trophy_star'],
   'Props & treasures': ['tophat', 'jester_hat', 'ringmaster_coat', 'leotard', 'boots', 'plumes', 'feather_vase', 'fan_feather', 'fan_stripe', 'hoop', 'rope_coil', 'toy_horn', 'ticket_admit', 'mercury_deck', 'tarot_fan', 'tarot_pair', 'books', 'perfume', 'plant_vase', 'popcorn_box', 'crystal_ball', 'unicycle', 'rocking_horse', 'juggling_pins', 'rabbit_hat', 'big_top', 'aerial_silks'],
 };
 // A few drawer items come already doing something (still changeable in Arrange).
@@ -6598,7 +6600,8 @@ async function openSurprise(ownerId, ownerName, wrapped, done) {
   o.className = 'prize-pop surprise-pop';
   o.setAttribute('role', 'dialog');
   o.setAttribute('aria-label', `Leave a surprise for ${ownerName}`);
-  const all = Object.values(ROOM_ITEMS).flat().filter(n => n !== 'ticket_admit');
+  // Trophies and prizes first: they're what the Ringleader hands out most.
+  const all = [...ROOM_ITEMS.Trophies, ...ROOM_ITEMS.Prizes, ...Object.entries(ROOM_ITEMS).filter(([c]) => c !== 'Trophies' && c !== 'Prizes').flatMap(([, l]) => l)].filter(n => n !== 'ticket_admit');
   o.innerHTML = `
     <form class="prize-card surprise-card">
       <div class="prize-kicker">🎁 A surprise for ${escapeHtml(ownerName)}</div>
