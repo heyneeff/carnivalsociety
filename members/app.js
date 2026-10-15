@@ -233,6 +233,7 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
           ${mode === 'signup' && appConfig.turnstile_site_key ? '<div id="turnstileWidget" class="turnstile-slot"></div>' : ''}
           <p class="auth-error">${escapeHtml(errorMsg)}</p>
           <button type="submit" class="auth-submit">${mode === 'signup' ? 'Join — it’s free' : mode === 'forgot' ? 'Send reset link' : 'Enter'}</button>
+          ${mode === 'signup' ? '<p class="auth-sub auth-next">Next, you’ll introduce yourself. The Ringleader lets new carnies in by hand, a few at a time.</p>' : ''}
           ${mode === 'signin' && appConfig.password_reset_enabled ? '<button type="button" class="auth-link" id="forgotLink">Forgot password?</button>' : ''}
           ${mode === 'forgot' ? '<button type="button" class="auth-link" id="backToSignin">Back to sign in</button>' : ''}
         </form>
@@ -7053,8 +7054,10 @@ async function renderRoom(mainView, ownerId = null) {
       { role: 'trunk', text: 'Your steamer trunk. Every time you show up and help at a real carnival, you win a badge and it lands in here. <b>Two shifts and you’re an Apprentice.</b>' },
       inner ? { role: 'book', text: 'The Big Book is the <b>Guild Hall</b>: news, plans and talk for the whole troupe.' }
             : { role: 'exit', text: 'Step out to the <b>Courtyard</b> for guild news and calls for helping hands.' },
-      { role: 'mirror', text: 'Look in the mirror to <b>pick your acts</b> (fire, clowning, building, costumes…) so your crew knows what you love.' },
-      { role: 'raven', text: 'And me, <b>Omen</b>! When there’s a letter, a new flyer or a job that needs hands, <b>I squawk about it</b> right here.' },
+      { role: 'mirror', text: 'The mirror is <b>you</b>: your photo, your acts, your profile. Friends who visit leave notes on it, too.' },
+      { role: 'raven', text: 'And me, <b>Omen</b>! When there’s a letter, a new flyer or a job that needs hands, <b>I squawk about it</b>. And every day I keep <b>a card from the Mercury Oracle</b> just for you. Tap me to turn it over.' },
+      { text: 'Through <b>Backstage</b> (up top) are everyone else’s dressing rooms. Pop into the <b>New arrivals</b> doorway, visit someone, leave a note on their mirror.' },
+      { text: 'And the <b>Green Room</b> is where the troupe hangs out and talks. Say hi any time!' },
       { text: 'That’s the tour! Want me to find you on your phone too, with job reminders, letters and hollers?', last: true },
     ].filter(st => !st.role || el(st.role));
     const tour = document.createElement('div');
@@ -8363,7 +8366,8 @@ async function renderWaitlistScreen() {
         <div class="gi-body">
           <h1>Hold tight, ${escapeHtml(first)}!</h1>
           ${d.position ? `<div class="wl-number"><small>You’re</small><b>#${d.position}</b><small>in line</small></div>` : ''}
-          <p class="gi-desc gi-center">Carnival Society is opening its doors a few carnies at a time. The Ringleader lets new people in by hand, and you’ll get a nudge when it’s your turn.</p>
+          <p class="gi-desc gi-center">Carnival Society is opening its doors a few carnies at a time. <b>The Ringleader reads every hello by hand</b>, and you’ll get a nudge (and an email) when it’s your turn.</p>
+          ${(() => { let i = null; try { i = JSON.parse(profile.intro || 'null'); } catch (e) { /* none */ } return i ? `<div class="wl-mine"><div class="wl-mine-head">${avatarFor(profile.id, profile.display_name, 44, profile.avatar_url)}<div><b>Your hello</b><small>📍 ${escapeHtml(i.from)}</small></div></div><p>${escapeHtml(i.about)}</p><small>It goes up in the <b>Introduce yourself!</b> thread the moment you’re in.</small></div>` : ''; })()}
           <p class="gi-desc gi-center"><b>You don’t have to wait to come to a carnival.</b> Grab a ticket below and we’ll see you there.</p>
           ${d.tickets.length ? `<h3 class="gi-h3">Your tickets</h3><div class="gi-events">${d.tickets.map(t => `<a class="gi-event" href="#/ticket/${t.code}"><span>${new Date(sqlTime(t.starts_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><b>${escapeHtml(t.title)}</b><em>${t.status === 'paid' ? 'Show it →' : 'Spot saved →'}</em></a>`).join('')}</div>` : ''}
           ${d.events.filter(e => !ticketFor.has(e.title)).length ? `<h3 class="gi-h3">Coming up</h3><div class="gi-events">${d.events.filter(e => !ticketFor.has(e.title)).map(e => `<a class="gi-event" href="#/get/${e.slug || e.id}"><span>${new Date(sqlTime(e.starts_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><b>${escapeHtml(e.title)}</b><em>Get in →</em></a>`).join('')}</div>` : ''}
@@ -8396,13 +8400,20 @@ async function renderWaitlistTab(mainView) {
   mainView.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchDirectoryTab(mainView, b.dataset.tab)));
   const { waiting } = await apiFetch('/api/waitlist');
   mainView.querySelector('.placeholder-note').outerHTML = `<div id="wlBox">
-    <p class="admin-note">New sign-ups wait here until you let them in. They can still buy tickets. When you let someone in, they get a "You’re in!" nudge (if they turned on notifications) and land in their Dressing Room next time they open the app.</p>
+    <p class="admin-note">New sign-ups introduce themselves, then wait here until you let them in. They can still buy tickets. When you let someone in, their hello goes up in the <b>Introduce yourself!</b> thread, and they get a "You’re in!" email and nudge.</p>
+    <p class="post-actions"><button class="action-btn" id="testEmails" type="button">✉️ Send me the test emails</button> <span class="post-meta" id="testEmailsNote"></span></p>
     ${waiting.length ? `<div class="post-actions wl-actions"><button class="composer-submit" data-next="10">Let in the next ${Math.min(10, waiting.length)}</button>${waiting.length > 10 ? `<button class="action-btn" data-next="${waiting.length}">Let everyone in (${waiting.length})</button>` : ''}</div>` : ''}
     <div class="door-recent">${waiting.map((w, i) => `
       <div class="door-entry wl-entry">${avatarFor(w.id, w.display_name, 48, w.avatar_url)}<div class="wl-who"><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
         <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}</div>
         ${w.intro ? `<div class="wl-intro"><small>📍 ${escapeHtml(w.intro.from)}${w.skills ? ` · 🎪 ${escapeHtml(w.skills)}` : ''}</small>${escapeHtml(w.intro.about)}</div>` : '<div class="wl-intro none">Hasn’t introduced themself yet.</div>'}</div>
         <button class="composer-submit" data-let="${w.id}">Let in</button></div>`).join('') || '<div class="placeholder-note">Nobody waiting. The line is clear!</div>'}</div></div>`;
+  document.getElementById('testEmails').onclick = async ev => {
+    const note = document.getElementById('testEmailsNote'); ev.target.disabled = true; note.textContent = 'Sending…';
+    try { const r = await apiFetch('/api/admin/test-emails', { method: 'POST' }); note.textContent = `Sent to ${r.to}: ${Object.entries(r.sent).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v ? '✓' : '✗'}`).join(', ')}`; }
+    catch (err) { note.textContent = err.message; }
+    ev.target.disabled = false;
+  };
   mainView.querySelector('#wlBox').addEventListener('click', async e => {
     const one = e.target.closest('[data-let]'), next = e.target.closest('[data-next]');
     if (!one && !next) return;

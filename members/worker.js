@@ -440,6 +440,17 @@ async function api(request, env, url, ctx) {
   // The waitlist: until the Ringleader lets you in, you can buy tickets, see
   // your place in line and turn on notifications; nothing else.
   if (user && user.waitlisted_at && !user.is_ringleader && !waitlistAllowed(method, pathname)) return err(403, "You're on the waitlist. The Ringleader lets new carnies in by hand, a few at a time.");
+  if (pathname === "/api/admin/test-emails" && method === "POST") {
+    if (!user?.is_ringleader) return err(403, "Ringleaders only.");
+    if (!env.RESEND_API_KEY) return err(400, "Email isn't switched on.");
+    const me = { ...user };
+    const sent = {
+      on_the_list: await sendWelcomeEmail(env, { ...me, waitlisted_at: "now" }),
+      backer_welcome: await sendWelcomeEmail(env, { ...me, waitlisted_at: null }),
+      youre_in: await sendYoureInEmail(env, user.id),
+    };
+    return json({ to: user.email, sent });
+  }
   if (pathname === "/api/me/intro" && method === "POST") {
     if (!user) return err(401, "Sign in required.");
     const b = await body(request);
@@ -451,6 +462,10 @@ async function api(request, env, url, ctx) {
     await env.DB.prepare("UPDATE users SET intro = ?, introduced_at = COALESCE(introduced_at, datetime('now')), onboarded = 1, city = COALESCE(NULLIF(city, ''), ?), skills = COALESCE(?, skills) WHERE id = ?")
       .bind(JSON.stringify({ from, about }), from, acts, user.id).run();
     if (!user.waitlisted_at) await publishIntro(env, user.id);
+    else if (!user.introduced_at) {
+      const { results: rls } = await env.DB.prepare("SELECT id FROM users WHERE is_ringleader = 1").all();
+      for (const r of rls) await notifyUser(env, r.id, { kind: "rank", title: `👋 ${user.display_name} introduced themself`, body: `From ${from}. They're in line, ready when you are.`, url: "#/directory" });
+    }
     return json({ user: publicUser(await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(user.id).first()) });
   }
   if (pathname === "/api/me/photo" && (method === "POST" || method === "DELETE")) {
@@ -535,6 +550,7 @@ async function api(request, env, url, ctx) {
     if (!isInner(user) && (!parent_id || parent_id !== await introThreadId(env, { create: false }))) return err(403, "Inner members only.");
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, parent_id, title, body) VALUES (?, ?, ?, ?, ?, ?)").bind(id, board_id, user.id, parent_id || null, title || null, text).run();
+    if (parent_id && parent_id === await introThreadId(env, { create: false })) ctx.waitUntil(nudgeHellos(env, user, parent_id, text));
     return json({ id });
   }
   const postMatch = pathname.match(/^\/api\/posts\/([^/]+)$/);
@@ -1558,13 +1574,7 @@ async function api(request, env, url, ctx) {
       n++;
       await publishIntro(env, id);
       await notifyUser(env, id, { kind: "rank", title: "🎪 You're in! Welcome to Carnival Society", body: "The Ringleader let you in. Your Dressing Room is ready.", url: "#/dressing-room" });
-      const who = await env.DB.prepare("SELECT email, display_name FROM users WHERE id = ?").bind(id).first();
-      if (who && !who.email.endsWith("@door.carnivalsociety.org")) {
-        const claim = await claimLinkFor(env, id);
-        await sendEmail(env, { to: who.email, subject: "🎪 You're in! Welcome to Carnival Society",
-          html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in. Your Dressing Room is ready: decorate it, find a carnival, take a job, meet your crew.</p><p style="margin:0;">Everything you win in there, you earn out here, at real carnivals.</p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
-          text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}` });
-      }
+      await sendYoureInEmail(env, id);
     }
     return json({ ok: true, admitted: n });
   }
@@ -2060,14 +2070,27 @@ async function isCourtyardBoard(env, boardId) {
   const row = await env.DB.prepare("SELECT slug FROM boards WHERE id = ?").bind(boardId).first();
   return !!row && row.slug === COURTYARD_SLUG;
 }
+// The first email after signing up. Most people wait in line (the
+// Ringleader lets new carnies in by hand); backers walk straight in.
 async function sendWelcomeEmail(env, u) {
-  const site = siteUrl(env);
-  return sendEmail(env, {
-    to: u.email,
-    subject: "Welcome to the Carnival Society courtyard",
-    text: `Hi ${u.display_name},\n\nYou're in the courtyard. Sign in at ${site} to see what's coming up and volunteer for an event; that's the fastest way into the guild.\n\nSee you under the tent.`,
-    html: `<p>Hi ${escapeEmailHtml(u.display_name)},</p><p>You're in the courtyard. <a href="${site}">Sign in</a> to see what's coming up and volunteer for an event; that's the fastest way into the guild.</p><p>See you under the tent.</p>`
-  });
+  const site = siteUrl(env), first = escapeEmailHtml(String(u.display_name || "").split(" ")[0]);
+  if (!u.waitlisted_at) {
+    return sendEmail(env, { to: u.email, subject: "🎪 Welcome backstage, " + String(u.display_name || "").split(" ")[0] + "!",
+      html: emailFrame(env, { heading: "Come on in!", body: `<p style="margin:0 0 12px;">Hi ${first}! Carnival Society is a real carnival we're building together: real nights, real fire, real sawdust, real people. The app is the backstage.</p><p style="margin:0;">Your Dressing Room is ready. Say hello to the troupe, and the Ringleader has something waiting for you.</p>`, button: ["Open my Dressing Room", `${site}/#/dressing-room`] }),
+      text: `Hi ${u.display_name}! Your Dressing Room is ready: ${site}/#/dressing-room` });
+  }
+  return sendEmail(env, { to: u.email, subject: "🎪 You're on the list!",
+    html: emailFrame(env, { heading: "You're on the list!", body: `<p style="margin:0 0 12px;">Hi ${first}! Carnival Society is a real carnival we're building together: real nights, real fire, real sawdust, real people. The app is the backstage.</p><p style="margin:0 0 12px;">We open the doors a few carnies at a time, and <b>the Ringleader reads every hello by hand</b>. If you haven't introduced yourself yet, that's your first step: it's how we get to know you.</p><p style="margin:0;">You don't have to wait to come to a carnival. Grab a ticket anytime, and we'll email you the moment you're in.</p>`, button: ["Say hello", `${site}/#/dressing-room`] }),
+    text: `Hi ${u.display_name}! You're on the list. Introduce yourself at ${site} and the Ringleader will let you in by hand. You can grab a carnival ticket anytime.` });
+}
+// "You're in!" when the Ringleader lets someone in from the waitlist.
+async function sendYoureInEmail(env, id) {
+  const who = await env.DB.prepare("SELECT email, display_name FROM users WHERE id = ?").bind(id).first();
+  if (!who || who.email.endsWith("@door.carnivalsociety.org")) return false;
+  const claim = await claimLinkFor(env, id);
+  return sendEmail(env, { to: who.email, subject: "🎪 You're in! Welcome to Carnival Society",
+    html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in, and your hello is up in the <b>Introduce yourself!</b> thread for the troupe to see.</p><p style="margin:0 0 12px;">Your Dressing Room is ready: decorate it, turn over your card of the day, wander backstage and visit someone's room, find a carnival, take a job.</p><p style="margin:0;">Everything you win in there, you earn out here, at real carnivals.</p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
+    text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}` });
 }
 async function volunteerRoutes(request, env, url, user) {
   const { pathname } = url;
@@ -2421,6 +2444,19 @@ async function introThreadId(env, { create = true } = {}) {
   const id = crypto.randomUUID();
   await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, title, body, pinned) VALUES (?, ?, ?, ?, ?, 1)").bind(id, board.id, rl.id, INTRO_TITLE, INTRO_OPENING).run();
   return id;
+}
+// "Welcome, Dot!" in the introductions thread: the newcomers it names (or,
+// if it names nobody, the newest one) get a squawk that someone said hello.
+async function nudgeHellos(env, from, threadId, text) {
+  const { results } = await env.DB.prepare(
+    `SELECT p.author_id AS id, u.display_name FROM posts p JOIN users u ON u.id = p.author_id
+     WHERE p.parent_id = ? AND p.author_id != ? AND p.id = u.intro_post_id AND p.created_at > datetime('now', '-30 days')
+     ORDER BY p.created_at DESC LIMIT 40`
+  ).bind(threadId, from.id).all();
+  const low = text.toLowerCase();
+  let to = results.filter((r) => { const f = r.display_name.split(" ")[0].toLowerCase(); return f.length > 1 && new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(low); });
+  if (!to.length && results[0]) to = [results[0]];
+  for (const r of to) await notifyUser(env, r.id, { kind: "letter", title: `👋 ${from.display_name} said hello to you!`, body: text.slice(0, 120), url: `#/post/${threadId}` }, "notify_letters");
 }
 // Their hello goes up in the thread, once, when they're in (not while waiting).
 async function publishIntro(env, userId) {
