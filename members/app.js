@@ -1275,6 +1275,8 @@ async function renderEventsView(mainView, onlyEventId = null) {
   mainView.innerHTML = `<h2>Events</h2><div class="placeholder-note">Loading…</div>`;
 
   let { events } = await apiFetch('/api/events');
+  // Which carnivals you're already coming to (a ticket, paid or a saved spot).
+  const myTix = new Map(((await apiFetch('/api/me/tickets').catch(() => ({ tickets: [] }))).tickets || []).map(t => [t.event_id, t]));
   if (onlyEventId) {
     events = (events || []).filter(e => e.id === onlyEventId);
     if (!events.length) {
@@ -1316,7 +1318,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
       ${e.tagline || e.lineup ? lineupHtml(e) : ''}
       ${e.description ? `<div class="post-snippet">${escapeHtml(e.description)}</div>` : ''}
       ${e.photos_url ? `<a class="action-btn photos-btn" href="${escapeHtml(e.photos_url)}" target="_blank" rel="noopener">📸 See the photos</a>` : ''}
-      ${e.door_cents != null ? `<a class="composer-submit get-in-btn" href="#/get/${e.slug || e.id}">🎟️ Get in · ${e.door_cents ? doorMoney(e.door_cents) : 'free'}${e.entry_tickets ? ` with ${e.entry_tickets} free carnival tickets` : ''}</a>` : ''}
+      ${joinBox(e, myTix.get(e.id))}
       <div class="ticket-panel" id="ticketPanel-${e.id}"></div>
       <div class="volunteer-row" id="volunteerRow-${e.id}"></div>
       <div class="run-board" data-run-for="${e.id}" data-starts="${e.starts_at}" data-ends="${e.ends_at || ''}"></div>
@@ -1682,6 +1684,30 @@ async function renderJobs(mainView) {
     act(async () => { await apiFetch(`/api/events/${f.dataset.event}/jobs`, { method: 'POST', body: d }); f.reset(); }, '📌 Pinned to the flyer.');
   });
 }
+
+// "Are you coming?" (2026-10-15): the one obvious place to say yes to a
+// carnival, at the top of every event: I'M COMING (ticket / saved spot), or
+// help on the crew, or bring something it needs.
+function joinBox(e, ticket) {
+  const price = e.door_cents ? `${doorMoney(e.door_cents)} at the door${e.entry_tickets ? `, with ${e.entry_tickets} free carnival tickets` : ''}` : 'Free';
+  const coming = ticket
+    ? `<div class="jb-yes">✓ You’re coming!${ticket.status === 'reserved' ? ' <small>Spot saved, pay at the door</small>' : ''} <a class="action-btn" href="#/ticket/${ticket.code}">Show my ticket</a></div>`
+    : e.door_cents != null
+      ? `<a class="jb-coming" href="#/get/${e.slug || e.id}">🎟️ I’M COMING!</a><div class="jb-price">${escapeHtml(price)}. Tap to save your spot.</div>`
+      : `<div class="jb-soon">Tickets open soon. Help on the crew and you’re in!</div>`;
+  return `<div class="join-box" data-join="${e.id}">
+    <div class="jb-title">🎪 Are you coming?</div>
+    ${coming}
+    <div class="jb-doors"><button class="jb-door" data-jb-go="job-board" data-for="${e.id}">🛠️ Help on the crew</button><button class="jb-door" data-jb-go="need-board" data-for="${e.id}">🎁 Bring something</button></div>
+  </div>`;
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest?.('[data-jb-go]');
+  if (!b) return;
+  const card = b.closest('.post-card'), to = card?.querySelector(`.${b.dataset.jbGo}`) || card?.querySelector('.volunteer-row');
+  to?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  to?.classList.add('jb-flash'); setTimeout(() => to?.classList.remove('jb-flash'), 1600);
+});
 
 // Volunteer toggle for everyone; moderators also get the sign-up list.
 function renderVolunteerRow(eventId) {
@@ -7343,7 +7369,7 @@ async function renderRoom(mainView, ownerId = null) {
       || upcoming.find(e => city && `${e.location || ''} ${e.title || ''}`.toLowerCase().includes(city))
       || upcoming[0];
     const nearHere = near && (near.chapter_id === profile.home_chapter_id || (city && `${near.location || ''}`.toLowerCase().includes(city)));
-    const nearCard = near ? `<a class="nt-flyer" href="#/event/${near.id}" target="_blank" rel="noopener"><small>${new Date(sqlTime(near.starts_at)).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(sqlTime(near.starts_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small><b>${escapeHtml(near.title)}</b>${near.tagline ? `<em>${escapeHtml(near.tagline)}</em>` : ''}${near.location ? `<span>📍 ${escapeHtml(near.location)}</span>` : ''}</a>` : '';
+    const nearCard = near ? `<div class="nt-flyer"><small>${new Date(sqlTime(near.starts_at)).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(sqlTime(near.starts_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small><b>${escapeHtml(near.title)}</b>${near.tagline ? `<em>${escapeHtml(near.tagline)}</em>` : ''}${near.location ? `<span>📍 ${escapeHtml(near.location)}</span>` : ''}<i class="nt-press">Find its flyer on your wall and press 🎟️ I’M COMING!</i></div>` : '';
     let badge = null;
     const popBadge = (img, from) => {
       const b = document.createElement('img');
@@ -7375,6 +7401,7 @@ async function renderRoom(mainView, ownerId = null) {
       { move: 'spin', say: `{happy}And *THIS* is *YOUR Dressing Room!* | Anything that glows, you can poke.` },
       { sel: () => document.getElementById('roomArrange'), wait: 'cs-room-saved', move: 'lean', say: `{open}Make it yours! | Tap *Arrange,* move something, and hit *Save.*` },
       { move: 'boing', say: `{happy}LOOKS FABULOUS. | {wink}Very you.`, skipIfLater: true },
+      el('flyer') ? { role: 'flyer', move: 'lean', say: `{open}Every flyer on your wall is a *REAL CARNIVAL.* | Tap one, then hit the big *I'M COMING!* button. | {wink}That's how you save your spot.` } : null,
       { sel: chatEl, wait: 'cs-chat-sent', move: 'lean', say: `{open}Now say hi in the *GREEN ROOM!* | Type something. | Anything. | {sus}I'll know if you don't.` },
       { move: 'boing', say: `{happy}They're gonna *LOVE* you.`, skipIfLater: true },
       el('raven') ? { role: 'raven', move: 'lean', say: `{open}Oh! And Omen the raven keeps a *card of the day* just for you. | Tap him anytime.` } : null,

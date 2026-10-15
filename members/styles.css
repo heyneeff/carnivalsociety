@@ -2745,3 +2745,21 @@ body.chat-typing .chat-panel { transition: none; }
 .nt-flyer em { font: italic 15px 'Cormorant Garamond', Georgia, serif; color: #8F6E34; }
 .nt-flyer span { font-size: 14px; }
 .nt-flyer:hover { transform: rotate(0) scale(1.02); }
+
+/* "Are you coming?" (2026-10-15): the one obvious yes on every event. */
+.join-box { margin: 12px 0; padding: 14px 16px 12px; border-radius: 12px; background: #FBF0D2; border: 3px solid #231712; box-shadow: 5px 5px 0 #9B3036; color: #231712; text-align: center; }
+.jb-title { font: 400 18px 'Rye', serif; color: #9B3036; margin-bottom: 8px; }
+.jb-coming { display: block; padding: 14px 18px; border-radius: 12px; background: #9B3036; color: #FBF3DC; border: 3px solid #231712; font: 400 clamp(20px, 4.5vw, 26px)/1.1 'Rye', serif; letter-spacing: 0.04em; text-decoration: none; box-shadow: 0 5px 0 #4a1418; animation: jb-pulse 2.2s ease-in-out infinite; }
+.jb-coming:hover { filter: brightness(1.1); }
+.jb-coming:active { transform: translateY(3px); box-shadow: 0 2px 0 #4a1418; }
+@keyframes jb-pulse { 50% { transform: scale(1.03); } }
+.jb-price { margin-top: 6px; font: italic 15px 'Cormorant Garamond', Georgia, serif; color: #5A4238; }
+.jb-yes { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; font: 700 18px 'Playfair Display', serif; color: #2f6b3a; }
+.jb-yes small { font: italic 15px 'Cormorant Garamond', Georgia, serif; color: #5A4238; }
+.jb-soon { font: italic 16px 'Cormorant Garamond', Georgia, serif; color: #5A4238; }
+.jb-doors { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+.jb-door { padding: 8px 14px; border-radius: 999px; border: 2px solid #6b4a2e; background: #fff; color: #4a2f1c; font: 700 14px 'Libre Franklin', sans-serif; cursor: pointer; }
+.jb-door:hover { background: #F2D16B; }
+.jb-flash { outline: 3px solid #FFD67A; outline-offset: 4px; border-radius: 8px; transition: outline 0.3s; }
+.nt-press { display: block; margin-top: 4px; font: 700 13px 'Libre Franklin', sans-serif; font-style: normal; color: #9B3036; }
+@media (prefers-reduced-motion: reduce) { .jb-coming { animation: none; } }

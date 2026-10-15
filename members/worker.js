@@ -3811,7 +3811,7 @@ async function ticketRoutes(request, env, url) {
     const user = await getSessionUser(request, env);
     if (!user) return err(401, "Not signed in.");
     const { results } = await env.DB.prepare(
-      `SELECT tickets.id, tickets.code, tickets.status, tickets.checked_in_at, ticket_tiers.name AS tier_name, events.title, events.starts_at, events.location
+      `SELECT tickets.id, tickets.code, tickets.status, tickets.checked_in_at, tickets.event_id, ticket_tiers.name AS tier_name, events.title, events.starts_at, events.location
        FROM tickets JOIN ticket_tiers ON ticket_tiers.id = tickets.tier_id JOIN events ON events.id = tickets.event_id
        WHERE tickets.user_id = ? AND tickets.status IN ('paid', 'reserved') ORDER BY events.starts_at`
     ).bind(user.id).all();
