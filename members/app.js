@@ -845,7 +845,7 @@ function renderPage(mainView, route) {
 
 // Chapters not open yet — locked in the tab bar instead of removed, so the
 // nav still shows the guild's full shape.
-const LOCKED_BOARD_SLUGS = ['denver', 'los-angeles'];
+const LOCKED_BOARD_SLUGS = []; // every chapter board is open (Denver + LA unlocked 2026-10-14)
 
 // The forum: one warm parchment sheet in a wooden frame (Spiritfarer /
 // Animal Crossing bulletin-board energy), real forum function inside.
