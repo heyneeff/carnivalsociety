@@ -7409,7 +7409,7 @@ async function renderRoom(mainView, ownerId = null) {
       { sel: chatEl, wait: 'cs-chat-sent', required: true, move: 'lean', say: `{open}One last thing: the *GREEN ROOM!* | A real live chat room full of real live carnies. | *Introduce yourself!* | Where you're from, what you're into. | {sly}I'll know if you don't.`,
         onShow2: () => { if (!document.body.classList.contains('chat-docked') && typeof chat !== 'undefined') { chat.open = true; mountChat(); } const inp = document.getElementById('chatInput'); if (inp && !inp.value) inp.value = `Hi! I'm ${profile.display_name.split(' ')[0]}${profile.city ? ` from ${profile.city}` : ''}. `; } },
       { move: 'boing', say: `{proud}They're gonna *LOVE* you.` },
-      el('raven') ? { role: 'raven', move: 'lean', say: `{open}Oh! And Omen the raven keeps a *card of the day* just for you. | Tap him anytime.` } : null,
+      el('raven') ? { role: 'raven', move: 'lean', say: `{open}Oh! And this is *OMEN*, my raven. | Every day he pulls a card just for you from my *ORACLE.* | He also delivers the news. | {shout}If he squawks at ya, *TALK TO HIM, DANGIT.*` } : null,
       { move: 'boing', say: `{wink}THAT'S THE TOUR! | Want me to buzz your phone for jobs, letters and hollers?`, last: true },
     ].filter(st => st && (!st.role || el(st.role)) && (!st.sel || st.sel()));
     runNeeffTour(steps, { el, host, onDone: () => { office.remove(); try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } } });
