@@ -2939,6 +2939,21 @@ async function doorRoutes(request, env, url, user) {
 async function roomRoutes(request, env, url, user) {
   const { pathname } = url;
   const method = request.method;
+  // Backstage (2026-10-14): everyone you can visit, with who's a friend
+  // (shook hands), who's new, and who's around right now (in the app lately).
+  if (pathname === "/api/backstage" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.display_name, u.avatar_url, u.city, u.created_at, u.is_ringleader,
+         EXISTS (SELECT 1 FROM handshakes h WHERE h.met_at IS NOT NULL AND ((h.user_a = u.id AND h.user_b = ?1) OR (h.user_b = u.id AND h.user_a = ?1))) AS friend,
+         EXISTS (SELECT 1 FROM chat_presence p WHERE p.user_id = u.id AND p.seen_at > datetime('now', '-3 minutes')) AS here
+       FROM users u
+       WHERE u.id != ?1 AND u.waitlisted_at IS NULL AND COALESCE(u.is_partner, 0) = 0
+       ORDER BY u.created_at DESC LIMIT 400`
+    ).bind(user.id).all();
+    return json({ people: results.map((r) => ({ id: r.id, display_name: r.display_name, photo: r.avatar_url || null, city: r.city || null, created_at: r.created_at,
+      ringleader: !!r.is_ringleader, friend: !!r.friend, here: !!r.here })) });
+  }
   if (pathname === "/api/me/room" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const backer = await backerOf(env, user);
@@ -3763,6 +3778,7 @@ function courtyardAllowed(method, pathname) {
   if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
   if (method === "GET" && pathname === "/api/me/blast") return true;
   if (method === "GET" && pathname === "/api/me/card") return true;
+  if (method === "GET" && pathname === "/api/backstage") return true;
   if (method === "POST" && pathname === "/api/posts") return true; // replies in the introductions thread only (checked there)
   if (method === "POST" && /^\/api\/me\/backer\/(welcomed|deck)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/me\/blast\/\d+\/seen$/.test(pathname)) return true;

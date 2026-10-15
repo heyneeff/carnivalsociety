@@ -345,6 +345,69 @@ function renderResetScreen(token, errorMsg = '') {
   });
 }
 
+// ── Backstage (2026-10-14) ── Neeff's painted backstage: four curtained
+// doorways, each opening onto a row of name plates. Tap a name plate and you
+// step into that person's Dressing Room. The mirror takes you home.
+const BACKSTAGE_DOORS = [
+  { key: 'friends', label: 'Friends', glyph: '☀', l: 28.3, t: 23, w: 9.6, h: 22, px: -62, py: 0, blurb: 'People you’ve shaken hands with at a carnival.' },
+  { key: 'new', label: 'New arrivals', glyph: '☾', l: 42.3, t: 24, w: 8.4, h: 22, px: -30, py: 34, blurb: 'Just arrived. Go say hello and leave a note on their mirror!' },
+  { key: 'all', label: 'Everyone', glyph: '★', l: 68.2, t: 20, w: 10.4, h: 36, px: -50, py: 0, blurb: 'Every dressing room backstage.' },
+  { key: 'here', label: 'Here now', glyph: '🔥', l: 83.2, t: 11, w: 16.8, h: 53, px: -78, py: 0, blurb: 'Around right now. Pop in!' },
+];
+async function renderBackstage(mainView) {
+  mainView.innerHTML = `
+    <div class="backstage">
+      <div class="bs-scene" id="bsScene">
+        <img class="bs-bg" src="${ROOM}rooms/backstage.jpg" alt="The backstage hallway: curtained doorways, a costume rack, a mirror with bulbs">
+        <a class="bs-door bs-home" href="#/dressing-room" style="left:0;top:24%;width:8%;height:24%" aria-label="Back to your Dressing Room"><span class="bs-plate">Your room</span></a>
+        ${BACKSTAGE_DOORS.map(d => `<button class="bs-door" data-door="${d.key}" style="left:${d.l}%;top:${d.t}%;width:${d.w}%;height:${d.h}%;--px:${d.px}%;--py:${d.py}px" aria-label="${d.label}"><span class="bs-plate"><b>${d.glyph}</b> ${d.label}<em class="bs-count" data-count="${d.key}"></em></span></button>`).join('')}
+      </div>
+      <p class="bs-hint">Tap a doorway to see who’s back there.</p>
+    </div>`;
+  let people = [];
+  try { ({ people } = await apiFetch('/api/backstage')); } catch (e) { /* the doors still open, just empty */ }
+  const week = Date.now() - 14 * 864e5;
+  const groups = {
+    friends: people.filter(p => p.friend),
+    new: people.filter(p => sqlTime(p.created_at) > week),
+    all: [...people].sort((a, b) => (b.friend - a.friend) || a.display_name.localeCompare(b.display_name)),
+    here: people.filter(p => p.here),
+  };
+  BACKSTAGE_DOORS.forEach(d => { const c = mainView.querySelector(`[data-count="${d.key}"]`); if (c) c.textContent = groups[d.key].length ? ` · ${groups[d.key].length}` : ''; });
+  mainView.querySelectorAll('[data-door]').forEach(b => b.addEventListener('click', () => openDoor(BACKSTAGE_DOORS.find(d => d.key === b.dataset.door), groups[b.dataset.door])));
+  function openDoor(door, list) {
+    const o = document.createElement('div');
+    o.className = 'bs-curtain';
+    o.setAttribute('role', 'dialog');
+    o.setAttribute('aria-label', door.label);
+    const plate = p => `
+      <a class="bs-name" href="#/room/${p.id}">
+        ${avatarFor(p.id, p.display_name, 52, p.photo)}
+        <span class="bs-who"><b>${escapeHtml(p.display_name)}</b><small>${escapeHtml(p.city || '')}</small></span>
+        <span class="bs-tags">${p.here ? '<i class="bs-lamp" title="Here now"></i>' : ''}${p.friend ? '<i title="Friend">★</i>' : ''}${sqlTime(p.created_at) > week ? '<i class="bs-new">NEW</i>' : ''}${p.ringleader ? '<i class="bs-rl">Ringleader</i>' : ''}</span>
+      </a>`;
+    o.innerHTML = `
+      <div class="bs-panel">
+        <button class="oracle-close bs-close" aria-label="Close the curtain">×</button>
+        <h2><span>${door.glyph}</span> ${door.label}</h2>
+        <p class="bs-blurb">${door.blurb}</p>
+        ${door.key === 'all' ? '<input class="bs-search" type="search" placeholder="Find someone by name or city…" aria-label="Find someone">' : ''}
+        <div class="bs-list">${list.length ? list.map(plate).join('') : `<p class="bs-empty">${door.key === 'friends' ? 'No handshakes yet. Shake hands with your crew at the next carnival!' : door.key === 'here' ? 'Quiet back here right now. Check the Green Room!' : 'Nobody here yet.'}</p>`}</div>
+      </div>`;
+    const close = () => { o.classList.add('leaving'); setTimeout(() => o.remove(), 280); };
+    o.querySelector('.bs-close').onclick = close;
+    o.addEventListener('click', e => { if (e.target === o) close(); if (e.target.closest('.bs-name')) o.remove(); });
+    const search = o.querySelector('.bs-search');
+    if (search) search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      o.querySelector('.bs-list').innerHTML = list.filter(p => !q || `${p.display_name} ${p.city || ''}`.toLowerCase().includes(q)).map(plate).join('') || '<p class="bs-empty">Nobody by that name backstage.</p>';
+    };
+    document.body.appendChild(o);
+    requestAnimationFrame(() => o.classList.add('open'));
+    (search || o.querySelector('.bs-close')).focus();
+  }
+}
+
 // ── Introduce yourself (2026-10-14) ── every newcomer's first screen: a
 // photo, where you're from, what brings you, your acts. The Ringleader reads
 // it on the waitlist; once you're in it goes up in the pinned Courtyard thread.
@@ -518,6 +581,7 @@ function renderShell() {
 
   const primary = [
     link('#/dressing-room', 'Dressing Room', is('dressing-room', 'badges', 'passport'), sticker('vanity')),
+    link('#/backstage', 'Backstage', is('backstage'), sticker('costume_ringmaster')),
     link('#/courtyard', 'Courtyard', is('courtyard'), TENT_SVG, newsDot('courtyard')),
     link('#/events', 'Events', is('events', 'event/'), sticker('flyer_circus'), newsDot('events')),
     inner ? link('#/guild-hall', 'Guild Hall', onGuildHallBoard, sticker('book_lectern'), newsDot('guild')) : '',
@@ -757,6 +821,7 @@ function renderPage(mainView, route) {
   if (route === 'partner' || route.startsWith('partner/')) { renderPartnerDesk(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'album') { renderAlbum(mainView); return; }
+  if (route === 'backstage') { renderBackstage(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
   if (route === 'blast') { renderBlastView(mainView); return; }
   if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
@@ -6051,7 +6116,7 @@ function flashToast(msg, ms = 4000) {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (mobileNavOpen && !document.querySelector('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal')) { mobileNavOpen = false; renderShell(); return; }
-  const tops = document.querySelectorAll('.unfold, .oracle-overlay, .daily-card, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
+  const tops = document.querySelectorAll('.unfold, .bs-curtain, .oracle-overlay, .daily-card, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
   const top = tops[tops.length - 1];
   if (top) {
     e.preventDefault();
