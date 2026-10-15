@@ -2782,3 +2782,4 @@ body.chat-typing .chat-panel { transition: none; }
 @media (prefers-reduced-motion: reduce) { .nt-head.shout img, .nt-head.gasp img, .nt-head.sly img { animation: none; } }
 .nt-how { margin: 8px 0 0; padding: 8px 12px 8px 28px; background: #FBF0D2; border: 2px dashed #C8A05A; border-radius: 8px; font-size: 15px; line-height: 1.45; }
 p.nt-how { padding-left: 12px; }
+.nt-how-why { margin: 8px 0 0; font-size: 15px; font-weight: 600; color: #9B3036; }

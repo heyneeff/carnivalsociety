@@ -7413,11 +7413,12 @@ async function renderRoom(mainView, ownerId = null) {
       (() => {
         // Not a question: put me on your home screen (or desktop), how depends on the device.
         const env = ravenEnv(), ios = env.ios && !env.standalone;
-        const how = env.standalone ? `<p class="nt-how">You already have me on your home screen. Tap below and I can buzz you.</p>`
-          : ios ? `<ol class="nt-how"><li>Tap <b>Share</b> ⬆︎ at the bottom of Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open Carnival Society from there</li></ol>`
-          : deferredInstall ? `<p class="nt-how">Tap <b>Add me!</b> below and say yes.</p>`
-          : `<p class="nt-how">On a computer: click the little <b>install</b> icon at the right end of the address bar, or the browser menu → <b>Install</b> / <b>Add to Home screen</b>.</p>`;
-        return { move: 'boing', say: `{wink}THAT'S THE TOUR! | {shout}Now put me on your *HOME SCREEN!* | {happy}Your phone, your desktop, wherever. | That way I can buzz you for jobs, letters and hollers.`, html: how, cta: env.standalone ? 'Buzz me!' : ios ? 'Show me how' : 'Add me!', last: true,
+        const why = `<p class="nt-how-why">If you want to join us <b>for real</b>, add me so you don't miss a real-life meeting!</p>`;
+        const how = env.standalone ? `<p class="nt-how">If you want to join us <b>for real</b>, let me buzz you so you don't miss a real-life meeting!</p>`
+          : ios ? `${why}<ol class="nt-how"><li>Tap <b>Share</b> ⬆︎ at the bottom of Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open Carnival Society from there</li></ol>`
+          : deferredInstall ? `<p class="nt-how">If you want to join us <b>for real</b>, tap the button so you don't miss a real-life meeting!</p>`
+          : `${why}<p class="nt-how">On a computer: click the little <b>install</b> icon at the right end of the address bar, or the browser menu → <b>Install</b> / <b>Add to Home screen</b>.</p>`;
+        return { move: 'boing', say: `{wink}THAT'S THE TOUR! | {shout}Now put me on your *HOME SCREEN!* | {happy}Your phone, your desktop, wherever. | That way I can buzz you for jobs, letters and hollers.`, html: how, cta: env.standalone ? '🎪 Join us for real!' : ios ? '🎪 Join us for real: show me how' : deferredInstall ? '🎪 Join us for real!' : '🎪 Got it, join for real!', last: true,
           finish: async () => {
             if (ios) { showIosInstall(); return; }
             if (deferredInstall && !env.standalone) { try { deferredInstall.prompt(); await deferredInstall.userChoice; } catch (e) { /* dismissed */ } deferredInstall = null; }
