@@ -6204,6 +6204,7 @@ function runNeeffTour(steps, { el, host, onDone }) {
     const done = () => {
       clearTimeout(timer); finishNow = null;
       headBox.classList.remove('talking');
+      if (!st._after) { st._after = true; st.afterType?.(); }
       shown = st.say.replace(/\{[a-z]+\}|\|/g, ''); out.innerHTML = fmt(shown).replace(/ {2,}/g, ' ');
       const faces = st.say.match(/\{([a-z]+)\}/g) || []; face(faces.length ? faces[faces.length - 1].slice(1, -1) : 'happy');
       if (st.html) { extra.innerHTML = st.html; extra.hidden = false; }
@@ -6239,26 +6240,52 @@ function runNeeffTour(steps, { el, host, onDone }) {
       // Neeff stands on the other side from whatever he's pointing at.
       if ((r.left + r.right) / 2 < innerWidth / 2) side = 'right';
     }
+    if (steps[i].side) side = steps[i].side; // e.g. out of the way of the trunk
     t.classList.toggle('nt-right', side === 'right');
+  };
+  let waitOff = null, later = false;
+  const advance = () => {
+    waitOff?.(); waitOff = null;
+    do { i++; } while (steps[i]?.skipIfLater && later);
+    later = false;
+    if (i >= steps.length) { end(); return; }
+    show();
   };
   const show = () => {
     const st = steps[i];
     t.querySelector('.nt-step').textContent = `${i + 1} of ${steps.length}`;
-    next.textContent = st.last ? 'Yes, buzz me!' : st.cta || 'Next';
-    t.querySelector('[data-skip]').textContent = st.last ? 'Maybe later' : 'Skip the tour';
-    place(st.role ? el(st.role) : st.sel ? st.sel() : null);
+    next.textContent = st.last ? 'Yes, buzz me!' : st.wait ? 'I’ll do it later' : st.cta || 'Next';
+    const skip = t.querySelector('[data-skip]');
+    skip.textContent = st.last ? 'Maybe later' : 'Skip the tour';
+    skip.hidden = !!st.office; // Neeff's intro in the office can't be skipped
+    t.classList.toggle('in-office', !!st.office);
+    st.onShow?.();
+    const target = st.role ? el(st.role) : st.sel ? st.sel() : null;
+    place(target);
+    // A real task: the tour steps aside and waits until they've done it.
+    t.classList.toggle('waiting', !!st.wait);
+    spot.style.opacity = '';
+    if (st.wait) {
+      const did = () => advance();
+      window.addEventListener(st.wait, did, { once: true });
+      const hideSpot = () => { spot.style.opacity = '0'; };
+      target?.addEventListener('click', hideSpot, { once: true });
+      waitOff = () => { window.removeEventListener(st.wait, did); target?.removeEventListener('click', hideSpot); };
+    }
     headBox.className = `nt-head mv-${st.move || 'boing'}`; void headBox.offsetWidth; headBox.classList.add('go');
     type(st);
     next.focus();
   };
-  t.querySelector('[data-skip]').onclick = end;
+  t.querySelector('[data-skip]').onclick = () => { waitOff?.(); end(); };
   t.querySelector('.nt-bubble').addEventListener('click', e => { if (!e.target.closest('button') && finishNow) finishNow(); });
   next.onclick = () => {
     if (finishNow) { finishNow(); return; } // first tap finishes the line
     // Sound needs a tap first: the babble starts with the first Next.
     if (!rig && !soundOff()) { rig = megaphone(); babble = makeBabbler(rig); }
     if (steps[i].last) { end(); inviteRaven('menu'); return; }
-    i++; show();
+    if (steps[i].wait) later = true;
+    steps[i].leave?.();
+    advance();
   };
   show();
 }
@@ -6571,6 +6598,7 @@ function mountChat() {
     chat.busy = true;
     try {
       await apiFetch('/api/chat', { method: 'POST', body: { body: text } });
+      window.dispatchEvent(new Event('cs-chat-sent')); // the tour waits for this
       input.value = '';
       document.getElementById('chatError').textContent = '';
       await pollChat();
@@ -7295,23 +7323,61 @@ async function renderRoom(mainView, ownerId = null) {
     // wink/cosmic/sus = suspicious side-eye). `move` = how the head carries on.
     const chatEl = () => document.querySelector('body.chat-docked #chatPanel') || document.getElementById('chatLauncher');
     const forumEl = () => document.querySelector('#forumWing:not([hidden])') || document.querySelector('.topnav-link[href="#/courtyard"], .bottomtabs a[href="#/courtyard"]');
+    // Act one happens in Neeff's office (his painting, Sunny & Daisy padding
+    // about), laid over the room; then "GET OUT OF MY OFFICE!" and the
+    // newcomer is in their own room, doing things for real.
+    const office = document.createElement('div');
+    office.className = 'tour-office';
+    const sr = scene.getBoundingClientRect();
+    Object.assign(office.style, { left: `${sr.left}px`, top: `${sr.top}px`, width: `${sr.width}px`, height: `${sr.height}px` });
+    office.innerHTML = `<div class="room-scene to-scene"><img class="room-bg" src="${ROOM}rooms/office.jpg" alt="" draggable="false"><img class="to-trunk" src="${ROOM}trunk_closed.png" alt="" draggable="false"></div>`;
+    document.body.appendChild(office);
+    const oScene = office.querySelector('.to-scene'), trunk = office.querySelector('.to-trunk');
+    mountCats(oScene, 'office');
+    // The next carnival near them: their chapter, else their city, else the next one anywhere.
+    const city = (profile.city || '').split(',')[0].trim().toLowerCase();
+    const near = upcoming.find(e => profile.home_chapter_id && e.chapter_id === profile.home_chapter_id)
+      || upcoming.find(e => city && `${e.location || ''} ${e.title || ''}`.toLowerCase().includes(city))
+      || upcoming[0];
+    const nearHere = near && (near.chapter_id === profile.home_chapter_id || (city && `${near.location || ''}`.toLowerCase().includes(city)));
+    const nearCard = near ? `<a class="nt-flyer" href="#/event/${near.id}" target="_blank" rel="noopener"><small>${new Date(sqlTime(near.starts_at)).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · ${new Date(sqlTime(near.starts_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small><b>${escapeHtml(near.title)}</b>${near.tagline ? `<em>${escapeHtml(near.tagline)}</em>` : ''}${near.location ? `<span>📍 ${escapeHtml(near.location)}</span>` : ''}</a>` : '';
+    let badge = null;
+    const popBadge = (img, from) => {
+      const b = document.createElement('img');
+      b.className = 'to-badge'; b.src = `${ROOM}${img}.png`; b.alt = '';
+      oScene.appendChild(b);
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) b.animate([{ transform: from, opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1.15) rotate(8deg)', opacity: 1, offset: 0.7 }, { transform: 'translate(-50%,-50%)', opacity: 1 }], { duration: 750, easing: 'cubic-bezier(.2,1.3,.4,1)' });
+      return b;
+    };
     const steps = [
-      { move: 'spin', say: `{happy}OH! HELLO, ${first.toUpperCase()}! | I'm *NEEFF*. | Creator of the Carnival Society. | Ringleader. | Cowboy. | Kind of a big deal.`, cta: 'Hi Neeff!' },
-      { move: 'sus', say: `{sus}I've got my eye on you... | | | {wink}JK... | | {sus}*But seriously!*`, cta: 'Uh, okay!' },
-      { move: 'zoom', say: `{open}We are building *THE WORLD'S LARGEST REAL-LIFE CIRCUS AND CARNIVAL NETWORK!* | Real fire. | Real sawdust. | Real people.`, cta: 'Whoa' },
-      { move: 'shake', say: `{open}I built this to organize our circus and carnival and keep track of EVERYONE. | | {sus}*NO BIG DEAL, JEEZ.*` },
-      { move: 'boing', say: `{happy}This is *YOUR Dressing Room!* | Anything that glows, you can poke. | Go on. | {wink}Poke it. | (Later.)` },
-      { sel: chatEl, move: 'lean', say: `{open}Over here: the *GREEN ROOM!* | A real live chat room full of real live carnies. | Say hi! | {wink}They don't bite. | (Most of them.)` },
-      { sel: forumEl, move: 'lean', say: `{open}And the *FORUM!* | This is how we stay organized. | News! Plans! Calls for helping hands! | {sus}Very official. | Very important.` },
-      el('flyer') ? { role: 'flyer', move: 'boing', say: `{happy}*UPCOMING EVENTS!* | Every flyer is a real carnival. | Take a job on the crew and come make it happen!` }
-                  : { sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), move: 'boing', say: `{happy}*UPCOMING EVENTS* live up here! | Every one is a real carnival. | Take a job on the crew and come make it happen!` },
-      { role: 'trunk', move: 'spin', say: `{open}Every time you're part of a carnival, *YOU WIN AWARDS!* | They land in this trunk. | {happy}Shiny! | Collect them ALL!` },
-      { move: 'cosmic', say: `{cosmic}Technically... | this is a *GUILD NETWORK.* | Ancient. | Mysterious. | {happy}Don't worry about that now! | You've joined at the entry level of our little club.` },
-      { move: 'boing', say: `{open}Here's how you *RISE:*`, html: `<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Honk!</li><li><b>Apprentice</b>: win 3 badges, including 2 volunteer shifts. The Guild Hall, Letters and your chapter board open up.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred. The trusted heart of the guild.</li></ol>` },
-      { sel: () => document.getElementById('roomArrange'), move: 'lean', say: `{happy}This room is *YOURS.* | Tap *Arrange* to make it fabulous. | {sus}I'll be watching. | {wink}(I'm always watching.)` },
-      { move: 'pop', say: `{wink}THAT'S THE TOUR! | Want me to buzz your phone for jobs, letters and hollers?`, last: true },
-    ].filter(st => (!st.role || el(st.role)) && (!st.sel || st.sel()));
-    runNeeffTour(steps, { el, host, onDone: () => { try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } } });
+      { office: true, move: 'spin', say: `{happy}OH! HELLO, ${first.toUpperCase()}! | Welcome to my *OFFICE.* | I'm *NEEFF.* | Creator of the Carnival Society. | Ringleader. | Cowboy. | Kind of a big deal.`, cta: 'Hi Neeff!' },
+      { office: true, move: 'sus', say: `{sus}I've got my eye on you... | | | {wink}JK... | | {sus}*But seriously!*`, cta: 'Uh, okay!' },
+      { office: true, move: 'zoom', say: `{open}We are building *THE WORLD'S LARGEST REAL-LIFE CIRCUS AND CARNIVAL NETWORK!* | Real fire. | Real sawdust. | Real people.`, cta: 'Whoa' },
+      { office: true, move: 'shake', say: `{open}I built this to organize our circus and carnival and keep track of EVERYONE. | | {sus}*NO BIG DEAL, JEEZ.*` },
+      near ? { office: true, move: 'zoom', say: nearHere ? `{open}AND GUESS WHAT? | There's a *REAL CARNIVAL* coming up near you! | {wink}You should come.` : `{open}AND GUESS WHAT? | Our next *REAL CARNIVAL* is coming up! | {wink}You should come.`, html: nearCard, cta: 'Ooh!' } : null,
+      { office: true, sel: chatEl, move: 'lean', say: `{open}Out there: the *GREEN ROOM!* | A real live chat room full of real live carnies. | {wink}They don't bite. | (Most of them.)` },
+      { office: true, sel: forumEl, move: 'lean', say: `{open}And the *FORUM!* | This is how we stay organized. | News! Plans! Calls for helping hands! | {sus}Very official. | Very important.` },
+      { office: true, sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), move: 'boing', say: `{happy}*UPCOMING EVENTS* live up here! | Every one is a real carnival. | Take a job on the crew and come make it happen!` },
+      { office: true, move: 'cosmic', say: `{cosmic}Technically... | this is a *GUILD NETWORK.* | Ancient. | Mysterious. | {happy}Don't worry about that now! | You've joined at the entry level of our little club.` },
+      { office: true, move: 'boing', say: `{open}Every time you take part in one of our carnivals, you earn *BADGES* and move up the *CARNIVAL RANKS.* | These have *real-life consequences,* | and eventually get you *a real seat at the table.*`, html: `<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Honk!</li><li><b>Apprentice</b>: 3 badges, including 2 volunteer shifts.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred.</li></ol>` },
+      { office: true, side: 'right', move: 'lean', say: `{happy}Check out all my *COOL BADGES!*`, cta: 'Ooh, show me',
+        afterType: () => { trunk.src = `${ROOM}trunk_open.png`; trunk.classList.add('open'); badge = popBadge('badge_fart', 'translate(-200%, 120%) scale(0.2) rotate(-60deg)'); } },
+      { office: true, side: 'right', move: 'shake', say: `{sus}WHOOPS! | *NOT THAT ONE!*`, cta: '...',
+        onShow: () => { if (!badge) return; const b = badge; b.animate([{ transform: 'translate(-50%,-50%)' }, { transform: 'translate(250%, -180%) rotate(540deg) scale(0.3)', opacity: 0 }], { duration: 650, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' }); setTimeout(() => b.remove(), 700); badge = null; },
+        afterType: () => { badge = popBadge('badge_handsome', 'translate(-200%, 120%) scale(0.2) rotate(-60deg)'); badge.classList.add('shiny'); } },
+      { office: true, side: 'right', move: 'boing', say: `{happy}There we go. | *WORLD'S MOST HANDSOME RINGLEADER.* | {wink}Nailed it.` },
+      { office: true, move: 'shake', say: `{open}Now... | | *GET OUT OF MY OFFICE!*`, cta: 'Bye!',
+        leave: () => { badge?.remove(); office.classList.add('leaving'); setTimeout(() => office.remove(), 750); } },
+      // Act two: their own room, for real.
+      { move: 'spin', say: `{happy}And *THIS* is *YOUR Dressing Room!* | Anything that glows, you can poke.` },
+      { sel: () => document.getElementById('roomArrange'), wait: 'cs-room-saved', move: 'lean', say: `{open}Make it yours! | Tap *Arrange,* move something, and hit *Save.*` },
+      { move: 'boing', say: `{happy}LOOKS FABULOUS. | {wink}Very you.`, skipIfLater: true },
+      { sel: chatEl, wait: 'cs-chat-sent', move: 'lean', say: `{open}Now say hi in the *GREEN ROOM!* | Type something. | Anything. | {sus}I'll know if you don't.` },
+      { move: 'boing', say: `{happy}They're gonna *LOVE* you.`, skipIfLater: true },
+      el('raven') ? { role: 'raven', move: 'lean', say: `{open}Oh! And Omen the raven keeps a *card of the day* just for you. | Tap him anytime.` } : null,
+      { move: 'boing', say: `{wink}THAT'S THE TOUR! | Want me to buzz your phone for jobs, letters and hollers?`, last: true },
+    ].filter(st => st && (!st.role || el(st.role)) && (!st.sel || st.sel()));
+    runNeeffTour(steps, { el, host, onDone: () => { office.remove(); try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } } });
   };
   roomHooks.openTrunk = () => {
     const el = host.querySelector('[data-role="trunk"]'), it = items.find(i => i.role === 'trunk');
@@ -7492,6 +7558,7 @@ async function renderRoom(mainView, ownerId = null) {
     if (a === 'save') {
       try {
         await apiFetch('/api/me/room', { method: 'PUT', body: { theme, items } });
+        window.dispatchEvent(new Event('cs-room-saved')); // the tour waits for this
         saved.splice(0, saved.length, ...JSON.parse(JSON.stringify(items)));
         savedTheme = theme;
         exitEditing(true); say('Saved. Visitors see your room like this now.');

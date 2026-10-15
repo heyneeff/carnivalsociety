@@ -2713,3 +2713,35 @@ body.chat-typing .chat-panel { transition: none; }
 .blast-overlay.exploding .blast-bubble, .blast-overlay.exploding .holler-bubble, .neeff-tour.exploding .nt-bubble { transition: opacity 0.2s, transform 0.2s; opacity: 0; transform: scale(0.85); }
 .blast-overlay.exploding, .neeff-tour.exploding { pointer-events: none; }
 .neeff-tour.exploding .intro-spot { transition: box-shadow 0.6s; box-shadow: 0 0 0 9999px rgba(12, 6, 5, 0); }
+
+/* ── Tour act one: Neeff's office over the room (2026-10-14) ── */
+.tour-office { position: fixed; z-index: 1150; overflow: hidden; background: #1b0a0d; animation: to-in 0.6s ease both; }
+.tour-office .to-scene { width: 100%; height: 100%; }
+.tour-office .room-bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.to-trunk { position: absolute; left: 2%; top: 74%; width: 17%; filter: drop-shadow(0 4px 4px rgba(0,0,0,0.4)); }
+.to-trunk.open { top: 69.8%; animation: to-trunk-pop 0.5s cubic-bezier(.2,1.5,.4,1); }
+@keyframes to-trunk-pop { 0% { transform: scale(1, 1); } 40% { transform: scale(1.12, 0.9); } 100% { transform: none; } }
+.to-badge { position: absolute; left: 50%; top: 44%; width: 34%; transform: translate(-50%, -50%); z-index: 3000; filter: drop-shadow(0 12px 20px rgba(0,0,0,0.55)); }
+.to-badge.shiny { filter: drop-shadow(0 0 22px rgba(255, 214, 120, 0.95)) drop-shadow(0 12px 20px rgba(0,0,0,0.55)); }
+.tour-office.leaving { animation: to-out 0.7s cubic-bezier(.6,0,.8,.4) forwards; }
+@keyframes to-in { from { opacity: 0; } }
+@keyframes to-out { to { transform: scale(0.05) rotate(25deg); opacity: 0; } }
+.neeff-tour.in-office.no-target .intro-spot { box-shadow: 0 0 0 9999px rgba(12, 6, 5, 0.12); }
+/* Waiting for them to do it for real: no dimming, no blocking; Neeff and
+   his bubble tuck up top, the target glows. */
+.neeff-tour.waiting { pointer-events: none; }
+.neeff-tour.waiting .nt-bubble { pointer-events: auto; top: 84px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); width: min(420px, calc(100vw - 24px)); box-shadow: 6px 6px 0 #9B3036; }
+.neeff-tour.waiting .nt-bubble::after { display: none; }
+.neeff-tour.waiting .nt-head { width: 92px; bottom: auto; top: 66px; left: calc(50% - min(210px, 50vw - 12px) - 40px); right: auto; z-index: 4; }
+.neeff-tour.waiting .nt-head img { transform: none; }
+.neeff-tour.waiting .intro-spot { box-shadow: 0 0 0 4px #FFD67A, 0 0 26px 8px rgba(255, 214, 140, 0.75); animation: nt-glow 1.2s ease-in-out infinite alternate; transition: opacity 0.3s; }
+@keyframes nt-glow { to { box-shadow: 0 0 0 6px #FFE7A0, 0 0 40px 14px rgba(255, 214, 140, 0.9); } }
+@media (max-width: 640px) { .neeff-tour.waiting .nt-head { display: none; } .neeff-tour.waiting .nt-bubble { top: 70px; } }
+@media (prefers-reduced-motion: reduce) { .tour-office, .tour-office.leaving, .to-trunk.open { animation: none; } .tour-office.leaving { opacity: 0; } }
+/* the next carnival, as a little flyer in Neeff's bubble */
+.nt-flyer { display: grid; gap: 2px; margin-top: 10px; padding: 10px 14px; border-radius: 6px; background: #FBF0D2; border: 2px dashed #9B3036; color: #231712; text-decoration: none; transform: rotate(-1.5deg); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+.nt-flyer small { font: 700 12px 'Libre Franklin', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: #9B3036; }
+.nt-flyer b { font: 400 20px/1.1 'Rye', serif; color: #231712; }
+.nt-flyer em { font: italic 15px 'Cormorant Garamond', Georgia, serif; color: #8F6E34; }
+.nt-flyer span { font-size: 14px; }
+.nt-flyer:hover { transform: rotate(0) scale(1.02); }
