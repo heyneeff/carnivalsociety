@@ -2596,3 +2596,29 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .carnie-arrow.up { padding: 15px 14px 6px; background-position: 6px 11px, 1px calc(100% - 2px), 0 0; clip-path: polygon(0 10px, calc(50% - 11px) 10px, 50% 0, calc(50% + 11px) 10px, 100% 10px, 100% 100%, 0 100%); }
 .bs-door:hover .carnie-arrow, .bs-door:focus-visible .carnie-arrow { filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 6px rgba(255, 210, 130, 0.9)); }
 .carnie-arrow .bs-count { color: #F4E8D0; opacity: 0.85; font-family: 'Playfair Display', serif; font-weight: 700; }
+
+/* ── Guild Hall design pass (2026-10-14): folder tabs that sit ON the
+   parchment. One row (scrolls sideways if it must); every tab's foot is
+   tucked behind the sheet; the open board's tab merges into it. The red
+   banner hangs above as a sign. */
+.forum-banner { margin: 0 auto 12px; }
+.forum-tabs { z-index: auto; flex-wrap: nowrap; justify-content: safe center; align-items: flex-end; gap: 4px; margin: 0 0 -10px; padding: 8px 18px 0; overflow-x: auto; scrollbar-width: none; }
+.forum-tabs::-webkit-scrollbar { display: none; }
+.forum-tab { position: relative; z-index: 1; flex: none; min-height: 40px; padding: 0 14px 10px; font-size: 14px; background: linear-gradient(#e3cc9f, #d4b886); color: #6b4a2e; border: 3px solid #6b4a2e; border-bottom: none; border-radius: 12px 12px 0 0; box-shadow: inset 0 2px 0 rgba(255,255,255,0.35); transform: none; transition: background 0.15s, min-height 0.15s; }
+.forum-tab:hover { transform: none; min-height: 44px; background: linear-gradient(#ecd9b1, #dcc194); }
+.forum-tab.active { z-index: 4; min-height: 50px; padding-bottom: 14px; background: #fbf2dc; color: #9B3036; box-shadow: inset 0 2px 0 #fffaf0; }
+.forum-tab.locked { opacity: 0.6; background: linear-gradient(#d8c39a, #c9ae7e); }
+.forum-tab.locked:hover { min-height: 40px; }
+.forum-sheet { z-index: 2; }
+@media (max-width: 640px) { .forum-tabs { justify-content: flex-start; padding: 8px 10px 0; } .forum-tab { padding: 0 11px 10px; font-size: 13px; } }
+.forum-tabs { gap: 2px; padding: 8px 8px 0; }
+.forum-tab { padding: 0 10px 10px; font-size: 13px; gap: 5px; }
+.forum-tab.active { padding-bottom: 14px; }
+.forum-tab svg { width: 14px; height: 14px; }
+/* The wing's tabs sit on its parchment too (no gap; the open one merges in). */
+.wing-head { padding-bottom: 0; }
+.wing-tabs { align-items: flex-end; gap: 3px; margin: 0 -6px; }
+.wing-tab { position: relative; z-index: 1; min-height: 34px; padding: 0 12px; border-width: 2px; background: linear-gradient(#d6bf91, #c4a978); transition: min-height 0.15s; }
+.wing-tab:hover { min-height: 37px; }
+.wing-tab.active { z-index: 2; min-height: 40px; margin-bottom: -3px; padding-bottom: 3px; background: #f3e3c0; color: #9B3036; }
+.wing-body { position: relative; z-index: 1; }
