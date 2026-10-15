@@ -7403,7 +7403,7 @@ async function renderRoom(mainView, ownerId = null) {
         leave: () => { badge?.remove(); office.classList.add('leaving'); setTimeout(() => office.remove(), 750); } },
       // Act two: their own room, for real.
       { move: 'spin', say: `{happy}And *THIS* is *YOUR Dressing Room!* | Anything that glows, you can poke.` },
-      { sel: () => document.getElementById('roomArrange'), wait: 'cs-room-saved', move: 'lean', say: `{open}Make it yours! | Tap *Arrange,* move something, and hit *Save.*` },
+      { sel: () => document.getElementById('roomArrange'), wait: 'cs-room-saved', move: 'lean', say: `{open}Make it yours! | Tap *Arrange,* move something around, then tap *Done.*` },
       { move: 'boing', say: `{happy}LOOKS FABULOUS. | {wink}Very you.`, skipIfLater: true },
       el('flyer') ? { role: 'flyer', move: 'lean', say: `{open}Every flyer on your wall is a *REAL CARNIVAL.* | Tap one, then hit the big *I'M COMING!* button. | {wink}That's how you save your spot.` } : null,
       { sel: chatEl, wait: 'cs-chat-sent', required: true, move: 'lean', say: `{open}One last thing: the *GREEN ROOM!* | A real live chat room full of real live carnies. | *Introduce yourself!* | Where you're from, what you're into. | {sly}I'll know if you don't.`,
@@ -7562,7 +7562,7 @@ async function renderRoom(mainView, ownerId = null) {
         </div>` : '<div class="re-row re-hint">Tap something in the room to select it.</div>'}
       <details class="re-drawer" ${it ? '' : 'open'}><summary>+ Add a thing</summary>${drawer}<p class="re-hint">🔒 Specials are won at real carnivals. Hover one to see how.</p></details>
       <div class="re-row re-btns re-save">
-        <button data-a="save" class="re-primary">Save my room</button><button data-a="cancel">Cancel</button><button data-a="reset">Start over</button>
+        <button data-a="save" class="re-primary">✓ Done</button><button data-a="cancel">Undo my changes</button><button data-a="reset">Start over</button>
       </div>`;
   }
   editor.addEventListener('input', e => {
@@ -7576,7 +7576,7 @@ async function renderRoom(mainView, ownerId = null) {
       document.getElementById('roomBg').src = themeSrc(theme);
       mountCats(scene, theme);
       mountCode(scene, theme);
-      say(`${ROOM_THEMES[theme]}. Save to keep it.`);
+      say(`${ROOM_THEMES[theme]}. Tap Done to keep it.`);
       return;
     }
     const it = sel(); const f = e.target.dataset.f;
@@ -7604,18 +7604,22 @@ async function renderRoom(mainView, ownerId = null) {
     if (a === 'reset') {
       if (!confirm('Start this room over with the starter arrangement?')) return;
       items = defaultRoom(theme);
-      selectedId = null; draw(); say('Fresh start. Save to keep it.');
+      selectedId = null; draw(); say('Fresh start. Tap Done to keep it.');
     }
-    if (a === 'save') {
-      try {
-        await apiFetch('/api/me/room', { method: 'PUT', body: { theme, items } });
-        window.dispatchEvent(new Event('cs-room-saved')); // the tour waits for this
-        saved.splice(0, saved.length, ...JSON.parse(JSON.stringify(items)));
-        savedTheme = theme;
-        exitEditing(true); say('Saved. Visitors see your room like this now.');
-      } catch (err) { say(`Couldn't save: ${err.message}`); }
-    }
+    if (a === 'save') await saveAndExit();
   });
+  // Closing Arrange keeps what you did (2026-10-15): no separate Save step.
+  async function saveAndExit() {
+    const changed = theme !== savedTheme || JSON.stringify(items) !== JSON.stringify(saved);
+    if (!changed) { exitEditing(true); window.dispatchEvent(new Event('cs-room-saved')); return; }
+    try {
+      await apiFetch('/api/me/room', { method: 'PUT', body: { theme, items } });
+      window.dispatchEvent(new Event('cs-room-saved')); // the tour waits for this
+      saved.splice(0, saved.length, ...JSON.parse(JSON.stringify(items)));
+      savedTheme = theme;
+      exitEditing(true); say('Saved! Visitors see your room like this now.');
+    } catch (err) { say(`Couldn't save: ${err.message}`); }
+  }
   function exitEditing(keep) {
     roomEditing = false; selectedId = null;
     document.body.classList.remove('arranging');
@@ -7624,11 +7628,11 @@ async function renderRoom(mainView, ownerId = null) {
     draw();
   }
   document.getElementById('roomArrange')?.addEventListener('click', e => {
-    if (roomEditing) { exitEditing(); return; }
-    roomEditing = true; editor.hidden = false; e.currentTarget.textContent = '✕ Stop arranging';
+    if (roomEditing) { saveAndExit(); return; }
+    roomEditing = true; editor.hidden = false; e.currentTarget.textContent = '✓ Done arranging';
     // On wide screens the Guild Hall slides out and the Arrange panel takes its wing.
     document.body.classList.add('arranging');
-    say('Arrange mode: drag things around. Nothing opens until you stop.');
+    say('Arrange mode: drag things around. Tap Done when you’re happy; it saves itself.');
     draw();
   });
 
