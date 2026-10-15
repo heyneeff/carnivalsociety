@@ -6049,6 +6049,55 @@ function mountCats(scene, theme) {
   });
 }
 
+// ── The Carnie Code (2026-10-14) ── Neeff's code, hung on every room's
+// wall (like the barker's cone, it's part of the room, not a decoration you
+// can lose). Tap it to read it. His painted sign (assets/room/carnie_code.png)
+// swaps in by itself once it exists; until then a little board stands in.
+const CARNIE_CODE = [
+  ['The show is going on.', 'With or without you! Join in! …Or don’t.'],
+  ['Magic is using what you have and what is available to make something special.', ''],
+  ['Bring food.', 'You must, I’m afraid. Bring what you like.'],
+  ['You will be painting signs!', '(All signs point toward painting signs.)'],
+  ['Pick a skill and do it well.', 'Tie ropes, juggle, make games. Pick a skill and do it well.'],
+  ['It’s not so serious.', 'And if unseriousness is taken seriously, the result is serious unseriousness. Seriously.'],
+  ['If it’s bad and not funny, it’s just bad.', ''],
+  ['Generosity is a virtue.', ''],
+  ['I am appreciated in my unimportance.', 'I will not be the reason this fails.'],
+  ['Ask how you can be of service, not for a role.', 'If you ask for a role, your role is clown, and you need to reevaluate your life.'],
+];
+// Where it hangs, per room painting (feet-free: left/top/width in % of the room).
+const CODE_SPOT = { office: [66.6, 24, 4.8], original: [30.5, 24, 6], default: [58.6, 27, 6.4] };
+function mountCode(scene, theme) {
+  scene.querySelector('.room-code')?.remove();
+  const [l, t, w] = CODE_SPOT[theme] || CODE_SPOT.default;
+  const el = document.createElement('button');
+  el.className = 'room-code';
+  el.style.cssText = `left:${l}%;top:${t}%;width:${w}%`;
+  el.setAttribute('aria-label', 'Read the Carnie Code');
+  el.innerHTML = `<img src="${ROOM}carnie_code.png" alt="" draggable="false" onerror="this.remove()"><span class="rc-board" aria-hidden="true"><b>THE</b><b>CARNIE</b><b>CODE</b></span>`;
+  el.onclick = e => { e.stopPropagation(); showCarnieCode(); };
+  scene.appendChild(el);
+}
+function showCarnieCode() {
+  if (document.querySelector('.carnie-code')) return;
+  const o = document.createElement('div');
+  o.className = 'carnie-code';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', 'The Carnie Code');
+  o.innerHTML = `
+    <div class="cc-sign">
+      <button class="oracle-close cc-close" aria-label="Put the sign back">×</button>
+      <div class="cc-title"><small>— the —</small>Carnie Code</div>
+      <ol>${CARNIE_CODE.map(([rule, more]) => `<li><b>${rule}</b>${more ? ` <span>${more}</span>` : ''}</li>`).join('')}</ol>
+      <div class="cc-sig">— the Ringleader</div>
+    </div>`;
+  const close = () => { o.classList.add('leaving'); setTimeout(() => o.remove(), 280); };
+  o.querySelector('.cc-close').onclick = close;
+  o.addEventListener('click', e => { if (e.target === o) close(); });
+  document.body.appendChild(o);
+  requestAnimationFrame(() => o.classList.add('open'));
+}
+
 // ── Card of the day (2026-10-14) ── Omen keeps one Mercury Oracle card a
 // day for every member (the server picks it, so no re-rolling). Face down
 // until you turn it over; after that Omen quiets down until tomorrow.
@@ -6117,7 +6166,7 @@ function flashToast(msg, ms = 4000) {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (mobileNavOpen && !document.querySelector('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal')) { mobileNavOpen = false; renderShell(); return; }
-  const tops = document.querySelectorAll('.unfold, .bs-curtain, .oracle-overlay, .daily-card, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
+  const tops = document.querySelectorAll('.unfold, .carnie-code, .bs-curtain, .oracle-overlay, .daily-card, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
   const top = tops[tops.length - 1];
   if (top) {
     e.preventDefault();
@@ -7034,6 +7083,7 @@ async function renderRoom(mainView, ownerId = null) {
   };
   roomHooks.placeDeck = placeDeck;
   mountCats(scene, theme);
+  mountCode(scene, theme);
   roomHooks.onCard = () => draw();
   if (room.backer?.welcomed && !room.backer.deck) setTimeout(placeDeck, 900);
 
@@ -7246,6 +7296,7 @@ async function renderRoom(mainView, ownerId = null) {
       theme = e.target.value;
       document.getElementById('roomBg').src = themeSrc(theme);
       mountCats(scene, theme);
+      mountCode(scene, theme);
       say(`${ROOM_THEMES[theme]}. Save to keep it.`);
       return;
     }
