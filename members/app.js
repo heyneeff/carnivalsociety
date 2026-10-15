@@ -5807,7 +5807,7 @@ function openMercury() {
 // left flips them. Positions are % of the square room, feet at (x, y).
 const CAT_ART = 'assets/room/cats/';
 const CAT_WALK_W = 153; // px width of a walk frame; poses size relative to it
-const CAT_FRAMES = 8, CAT_FRAME_MS = 105; // Neeff's eight-step walk cycle
+const CAT_FRAMES = { sunny: 8, daisy: 8 }, CAT_FRAME_MS = 105; // frames in each cat's walk cycle
 const CAT_POSES = {
   sunny: { stand: 79, stretch: 99, meow: 83, happy: 87 },
   daisy: { stand: 86, stretch: 108, meow: 89, happy: 87 },
@@ -5817,7 +5817,7 @@ function mountCats(scene, theme) {
   if (theme !== 'office') return;
   const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   ['sunny', 'daisy'].forEach(name => {
-    for (let i = 1; i <= CAT_FRAMES; i++) new Image().src = `${CAT_ART}${name}_walk${i}.webp`;
+    for (let i = 1; i <= CAT_FRAMES[name]; i++) new Image().src = `${CAT_ART}${name}_walk${i}.webp`;
     const el = document.createElement('button');
     el.className = 'room-cat';
     el.setAttribute('aria-label', `Pet ${name === 'sunny' ? 'Sunny' : 'Daisy'}`);
@@ -5860,7 +5860,7 @@ function mountCats(scene, theme) {
       frameTimer = setInterval(() => {
         if (!el.isConnected) return stop();
         cat.x += dx; cat.y += dy;
-        show(`walk${(f++ % CAT_FRAMES) + 1}`, CAT_WALK_W, cat.dir < 0);
+        show(`walk${(f++ % CAT_FRAMES[name]) + 1}`, CAT_WALK_W, cat.dir < 0);
         if (++i >= steps) { clearInterval(frameTimer); pose('stand', rnd(800, 1800), idle); }
       }, CAT_FRAME_MS);
     };
