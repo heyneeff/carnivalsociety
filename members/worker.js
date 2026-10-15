@@ -440,6 +440,45 @@ async function api(request, env, url, ctx) {
   // The waitlist: until the Ringleader lets you in, you can buy tickets, see
   // your place in line and turn on notifications; nothing else.
   if (user && user.waitlisted_at && !user.is_ringleader && !waitlistAllowed(method, pathname)) return err(403, "You're on the waitlist. The Ringleader lets new carnies in by hand, a few at a time.");
+  if (pathname === "/api/me/intro" && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const b = await body(request);
+    const from = String(b.from || "").trim().slice(0, 80);
+    const about = String(b.about || "").trim().slice(0, 800);
+    if (!from) return err(400, "Where are you from?");
+    if (about.length < 10) return err(400, "Tell the troupe a little more about what brings you here.");
+    const acts = Array.isArray(b.acts) ? b.acts.map((a) => String(a).slice(0, 40)).slice(0, 12).join(", ") : null;
+    await env.DB.prepare("UPDATE users SET intro = ?, introduced_at = COALESCE(introduced_at, datetime('now')), onboarded = 1, city = COALESCE(NULLIF(city, ''), ?), skills = COALESCE(?, skills) WHERE id = ?")
+      .bind(JSON.stringify({ from, about }), from, acts, user.id).run();
+    if (!user.waitlisted_at) await publishIntro(env, user.id);
+    return json({ user: publicUser(await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(user.id).first()) });
+  }
+  if (pathname === "/api/me/photo" && (method === "POST" || method === "DELETE")) {
+    if (!user) return err(401, "Sign in required.");
+    if (method === "DELETE") {
+      await env.DB.prepare("DELETE FROM user_photos WHERE user_id = ?").bind(user.id).run();
+      await env.DB.prepare("UPDATE users SET avatar_url = NULL WHERE id = ?").bind(user.id).run();
+      return json({ avatar_url: null });
+    }
+    const data = String((await body(request)).data || "");
+    if (!/^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(data)) return err(400, "That doesn't look like a picture.");
+    if (data.length > 300000) return err(400, "That picture is too big. Try a smaller one.");
+    await env.DB.prepare("INSERT INTO user_photos (user_id, data, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at").bind(user.id, data).run();
+    const avatar = `/api/photos/${user.id}?v=${Date.now().toString(36)}`;
+    await env.DB.prepare("UPDATE users SET avatar_url = ? WHERE id = ?").bind(avatar, user.id).run();
+    return json({ avatar_url: avatar });
+  }
+  const photoMatch = pathname.match(/^\/api\/photos\/([^/]+)$/);
+  if (photoMatch && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    // Waitlisted folk see only their own; the Ringleader sees everyone's.
+    if (user.waitlisted_at && !user.is_ringleader && photoMatch[1] !== user.id) return err(403, "Not yet.");
+    const row = await env.DB.prepare("SELECT data FROM user_photos WHERE user_id = ?").bind(photoMatch[1]).first();
+    if (!row) return err(404, "No photo.");
+    const [, type, b64] = row.data.match(/^data:([^;]+);base64,(.*)$/);
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return new Response(bytes, { headers: { "Content-Type": type, "Cache-Control": "private, max-age=604800, immutable" } });
+  }
   if (pathname === "/api/me/waitlist" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const pos = user.waitlisted_at ? (await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE waitlisted_at IS NOT NULL AND (waitlisted_at < ? OR (waitlisted_at = ? AND id <= ?))").bind(user.waitlisted_at, user.waitlisted_at, user.id).first()).n : 0;
@@ -476,7 +515,7 @@ async function api(request, env, url, ctx) {
     // Forum list: reply count, last activity (bumps busy threads up) and who
     // replied last, alongside the usual post + author fields.
     const { results } = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring,
+      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo,
               (SELECT COUNT(*) FROM posts r WHERE r.parent_id = posts.id) AS reply_count,
               COALESCE((SELECT MAX(r.created_at) FROM posts r WHERE r.parent_id = posts.id), posts.created_at) AS last_activity,
               (SELECT u2.display_name FROM posts r JOIN users u2 ON u2.id = r.author_id WHERE r.parent_id = posts.id ORDER BY r.created_at DESC LIMIT 1) AS last_replier
@@ -493,6 +532,7 @@ async function api(request, env, url, ctx) {
     const { board_id, parent_id, title, body: text } = await body(request);
     if (!board_id || !text) return err(400, "board_id and body required.");
     if (!parent_id && !isModerator(user) && await isCourtyardBoard(env, board_id)) return err(403, "Only Ringleaders start threads in the Courtyard.");
+    if (!isInner(user) && (!parent_id || parent_id !== await introThreadId(env, { create: false }))) return err(403, "Inner members only.");
     const id = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, parent_id, title, body) VALUES (?, ?, ?, ?, ?, ?)").bind(id, board_id, user.id, parent_id || null, title || null, text).run();
     return json({ id });
@@ -503,17 +543,17 @@ async function api(request, env, url, ctx) {
     if (authErr) return authErr;
     const postId = postMatch[1];
     const post = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring
+      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo
        FROM posts JOIN users ON users.id = posts.author_id WHERE posts.id = ?`
     ).bind(postId).first();
     if (!post) return err(404, "Not found.");
     if (!isInner(user) && !await isCourtyardBoard(env, post.board_id)) return err(403, "Inner members only.");
     const { results: replyRows } = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring
+      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo
        FROM posts JOIN users ON users.id = posts.author_id
        WHERE posts.parent_id = ? ORDER BY posts.created_at ASC`
     ).bind(postId).all();
-    return json({ post: shapePost(post), replies: replyRows.map(shapePost) });
+    return json({ post: { ...shapePost(post), open_to_all: post.id === await introThreadId(env, { create: false }) }, replies: replyRows.map(shapePost) });
   }
   if (postMatch && method === "PATCH") {
     const authErr = requireAuth();
@@ -1499,12 +1539,12 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/waitlist" && method === "GET") {
     if (!user?.is_ringleader) return err(403, "Ringleaders only.");
     const { results } = await env.DB.prepare(
-      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at,
+      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at, u.intro, u.avatar_url, u.skills,
          (SELECT COUNT(*) FROM tickets t WHERE t.user_id = u.id AND t.status IN ('paid', 'reserved')) AS tickets,
          (SELECT COUNT(*) FROM door_entries d WHERE d.user_id = u.id AND d.voided_at IS NULL) AS came
        FROM users u WHERE u.waitlisted_at IS NOT NULL ORDER BY u.waitlisted_at, u.id`
     ).all();
-    return json({ waiting: results.map((r) => ({ ...r, email: r.email.endsWith("@door.carnivalsociety.org") ? null : r.email })) });
+    return json({ waiting: results.map((r) => ({ ...r, intro: parseIntro(r.intro), email: r.email.endsWith("@door.carnivalsociety.org") ? null : r.email })) });
   }
   if (pathname === "/api/waitlist/admit" && method === "POST") {
     if (!user?.is_ringleader) return err(403, "Ringleaders only.");
@@ -1516,6 +1556,7 @@ async function api(request, env, url, ctx) {
       const res = await env.DB.prepare("UPDATE users SET waitlisted_at = NULL WHERE id = ? AND waitlisted_at IS NOT NULL").bind(id).run();
       if (!res.meta.changes) continue;
       n++;
+      await publishIntro(env, id);
       await notifyUser(env, id, { kind: "rank", title: "🎪 You're in! Welcome to Carnival Society", body: "The Ringleader let you in. Your Dressing Room is ready.", url: "#/dressing-room" });
       const who = await env.DB.prepare("SELECT email, display_name FROM users WHERE id = ?").bind(id).first();
       if (who && !who.email.endsWith("@door.carnivalsociety.org")) {
@@ -1932,7 +1973,7 @@ function shapePost(row) {
     body: row.body,
     pinned: !!row.pinned,
     created_at: row.created_at,
-    author: { display_name: row.a_name, rank: row.a_rank, is_ringleader: !!row.a_ring }
+    author: { display_name: row.a_name, rank: row.a_rank, is_ringleader: !!row.a_ring, photo: row.a_photo || null }
   };
 }
 function shapeEvent(row) {
@@ -2366,6 +2407,34 @@ async function hasFix(env, userId) {
 }
 // Name + email → an account: the one that email already has, or a new
 // Courtyard account with a claim link (never a claim link for an old one).
+// ── Introductions (2026-10-14) ── one pinned thread in the Courtyard where
+// every newcomer's hello lands (from the Ringleader's welcome on down).
+const INTRO_TITLE = "Introduce yourself! 👋";
+const INTRO_OPENING = "This is a real carnival we're building together: real nights, real fire, real sawdust, real people. This app is the backstage, and this thread is the stage door.\n\nWhen you arrive, say hello: where you're from, what brings you here, what you want to make or do or see. Then say hi to whoever came in before you. Welcome to the troupe!";
+const parseIntro = (s) => { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } };
+async function introThreadId(env, { create = true } = {}) {
+  const found = await env.DB.prepare("SELECT p.id FROM posts p JOIN boards b ON b.id = p.board_id WHERE b.slug = ? AND p.parent_id IS NULL AND p.title = ? ORDER BY p.created_at LIMIT 1").bind(COURTYARD_SLUG, INTRO_TITLE).first();
+  if (found || !create) return found?.id || null;
+  const board = await env.DB.prepare("SELECT id FROM boards WHERE slug = ?").bind(COURTYARD_SLUG).first();
+  const rl = await env.DB.prepare("SELECT id FROM users WHERE is_ringleader = 1 ORDER BY created_at LIMIT 1").first();
+  if (!board || !rl) return null;
+  const id = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, title, body, pinned) VALUES (?, ?, ?, ?, ?, 1)").bind(id, board.id, rl.id, INTRO_TITLE, INTRO_OPENING).run();
+  return id;
+}
+// Their hello goes up in the thread, once, when they're in (not while waiting).
+async function publishIntro(env, userId) {
+  const u = await env.DB.prepare("SELECT intro, intro_post_id, skills, waitlisted_at FROM users WHERE id = ?").bind(userId).first();
+  const intro = parseIntro(u?.intro);
+  if (!intro || u.intro_post_id || u.waitlisted_at) return;
+  const thread = await introThreadId(env);
+  if (!thread) return;
+  const board = await env.DB.prepare("SELECT board_id FROM posts WHERE id = ?").bind(thread).first();
+  const id = crypto.randomUUID();
+  const text = `📍 ${intro.from}${u.skills ? `\n🎪 ${u.skills}` : ""}\n\n${intro.about}`;
+  await env.DB.prepare("INSERT INTO posts (id, board_id, author_id, parent_id, body) VALUES (?, ?, ?, ?, ?)").bind(id, board.board_id, userId, thread, text).run();
+  await env.DB.prepare("UPDATE users SET intro_post_id = ? WHERE id = ?").bind(id, userId).run();
+}
 // ── Backers (2026-10-14) ── people who backed the Mercury Oracle with extra
 // support: a private list (name + email) the Ringleader keeps. They skip the
 // waitlist and get a welcome holler + the Mercury Oracle deck on their dresser.
@@ -3671,6 +3740,7 @@ function partnerAllowed(method, pathname) {
   return false;
 }
 function waitlistAllowed(method, pathname) {
+  if (pathname === "/api/me/intro" || pathname === "/api/me/photo" || (method === "GET" && /^\/api\/photos\/[^/]+$/.test(pathname))) return true;
   if (method === "GET" && (pathname === "/api/me/waitlist" || pathname === "/api/me/tickets" || pathname === "/api/me/notifications/pending")) return true;
   if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
   return false;
@@ -3693,6 +3763,7 @@ function courtyardAllowed(method, pathname) {
   if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
   if (method === "GET" && pathname === "/api/me/blast") return true;
   if (method === "GET" && pathname === "/api/me/card") return true;
+  if (method === "POST" && pathname === "/api/posts") return true; // replies in the introductions thread only (checked there)
   if (method === "POST" && /^\/api\/me\/backer\/(welcomed|deck)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/me\/blast\/\d+\/seen$/.test(pathname)) return true;
   if (method === "DELETE" && /^\/api\/chat\/\d+$/.test(pathname)) return true;

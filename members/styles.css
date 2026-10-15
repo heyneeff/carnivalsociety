@@ -2486,3 +2486,27 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .cat-meow { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); padding: 3px 9px; border-radius: 12px; background: #FBF3DC; border: 1px solid #C8A05A; color: #9B3036; font: italic 600 clamp(11px, 1.6vw, 16px)/1.2 'Cormorant Garamond', Georgia, serif; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
 .cat-meow.pop { animation: cat-meow 1.5s ease both; }
 @keyframes cat-meow { 0% { opacity: 0; transform: translate(-50%, 6px) scale(0.7); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.05); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -8px); } }
+
+/* ── Introduce yourself + faces (2026-10-14) ── on the Get-in paper card. */
+.hello-card .gi-form textarea { font: 17px/1.45 'Libre Franklin', sans-serif; letter-spacing: 0; text-transform: none; padding: 12px 14px; border: 2px solid var(--gi-ink); border-radius: 12px; background: #fff; color: var(--gi-ink); resize: vertical; box-shadow: inset 2px 2px 0 rgba(35,23,18,0.08); }
+.hello-card .gi-field > span small { font-family: 'Cormorant Garamond', Georgia, serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: 14px; }
+.hello-card .act-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.hello-card .act-chip { background: #fff; color: var(--gi-ink, #231712); border: 2px solid var(--gi-ink, #231712); font-family: 'Libre Franklin', sans-serif; text-transform: none; letter-spacing: 0; min-height: 40px; padding: 0.4rem 0.9rem; }
+.hello-card .act-chip.on { background: #9B3036; color: #fff; border-color: #9B3036; }
+.intro-photo { display: flex; align-items: center; gap: 14px; text-align: left; }
+.intro-photo b { display: block; font-family: 'Playfair Display', serif; font-size: 18px; color: var(--gi-ink, #231712); }
+.intro-photo small { display: block; font: italic 15px/1.3 'Cormorant Garamond', Georgia, serif; color: #8F6E34; margin: 2px 0 4px; }
+.intro-face { flex: none; width: 88px; height: 88px; border-radius: 50%; border: 3px solid #C8A05A; box-shadow: 0 0 0 2px #231712; background: #FBF3DC; display: grid; place-items: center; overflow: hidden; padding: 0; cursor: pointer; font-size: 30px; }
+.intro-face img { width: 100%; height: 100%; object-fit: cover; }
+.profile-photo { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; }
+.profile-photo .intro-face { cursor: default; }
+.profile-photo .action-btn { margin-right: 6px; }
+.forum-avatar.photo { object-fit: cover; padding: 0; background: #FBF3DC; }
+.topbar-avatar { overflow: hidden; }
+.topbar-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.wl-entry { align-items: flex-start; gap: 12px; }
+.wl-who { flex: 1; min-width: 0; }
+.wl-intro { margin-top: 6px; padding: 8px 10px; border-left: 3px solid #C8A05A; background: rgba(200, 160, 90, 0.08); font-size: 15px; line-height: 1.45; white-space: pre-wrap; }
+.wl-intro small { display: block; opacity: 0.8; margin-bottom: 3px; }
+.wl-intro.none { font-style: italic; opacity: 0.6; }
+.hello-card .gi-field > span { display: block; margin-bottom: 5px; font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gi-deep); }

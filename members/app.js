@@ -152,6 +152,7 @@ function render() {
   const ticketMatch = window.location.hash.match(/^#\/ticket\/([0-9a-f]{20})(?:\/([0-9a-f]+))?$/);
   if (ticketMatch) { dropForumWing(); renderTicketPage(ticketMatch[1], ticketMatch[2]); return; }
   if (!session || !profile) { session = false; profile = null; dropForumWing(); renderAuthScreen(defaultAuthMode()); return; }
+  if (!profile.introduced_at && !profile.is_ringleader) { dropForumWing(); renderIntroScreen(); return; }
   if (profile.waitlisted_at && !profile.is_ringleader) { dropForumWing(); renderWaitlistScreen(); return; }
   if (!profile.onboarded) { dropForumWing(); renderOnboarding(); return; }
   renderShell();
@@ -344,6 +345,98 @@ function renderResetScreen(token, errorMsg = '') {
   });
 }
 
+// ── Introduce yourself (2026-10-14) ── every newcomer's first screen: a
+// photo, where you're from, what brings you, your acts. The Ringleader reads
+// it on the waitlist; once you're in it goes up in the pinned Courtyard thread.
+// A picture from the camera roll, cropped square and shrunk to ~320px.
+function pickPhoto() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.naturalWidth, img.naturalHeight), out = 320;
+        const c = document.createElement('canvas'); c.width = c.height = out;
+        c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That picture wouldn’t open. Try another.')); };
+      img.src = url;
+    };
+    input.click();
+  });
+}
+async function savePhoto(data) {
+  const { avatar_url } = await apiFetch('/api/me/photo', { method: 'POST', body: { data } });
+  profile.avatar_url = avatar_url;
+  return avatar_url;
+}
+
+function renderIntroScreen() {
+  const first = (profile.display_name || '').split(' ')[0];
+  const acts = new Set((profile.skills || '').split(',').map(x => x.trim()).filter(Boolean));
+  app.innerHTML = `
+    <div class="getin">
+      <div class="getin-card hello-card">
+        ${getinMarquee('Step right up!')}
+        <div class="gi-body">
+          <h1>Welcome to the troupe, ${escapeHtml(first)}!</h1>
+          <p class="gi-desc gi-center"><b>Carnival Society is a real carnival we’re building together:</b> real nights, real fire, real sawdust, real people. This app is the backstage.</p>
+          <p class="gi-desc gi-center">Before you step in, say hello so the troupe knows who’s coming.</p>
+          <form class="gi-form intro-form" id="introForm">
+            <div class="intro-photo">
+              <button type="button" class="intro-face" id="introFace" aria-label="Add a photo of you">${profile.avatar_url ? `<img src="${escapeHtml(profile.avatar_url)}" alt="">` : '<span>📷</span>'}</button>
+              <div><b>Your face</b><small>So people know you at the carnival. (Optional, but it helps!)</small>
+                <button type="button" class="gi-link" id="introPhotoBtn">${profile.avatar_url ? 'Change photo' : 'Add a photo'}</button></div>
+            </div>
+            <label class="gi-field"><span>Where are you from?</span>
+              <input id="introFrom" maxlength="80" required value="${escapeHtml(profile.city || '')}" placeholder="Boulder, CO"></label>
+            <label class="gi-field"><span>What brings you to the carnival?</span>
+              <textarea id="introAbout" maxlength="800" rows="4" required placeholder="I spin fire, I build things, I’ve never been to a carnival and want in…"></textarea></label>
+            <div class="gi-field"><span>Pick your act <small>(tap all that sound like you)</small></span>
+              <div class="act-chips">${ACTS.map(a => `<button type="button" class="act-chip ${acts.has(a) ? 'on' : ''}" data-act="${escapeHtml(a)}">${escapeHtml(a)}</button>`).join('')}</div></div>
+            <button class="gi-btn" type="submit">Say hello →</button>
+            <p class="gi-fine" id="introNote">This goes up in the pinned <b>Introduce yourself!</b> thread in the Courtyard${profile.waitlisted_at ? ' once the Ringleader lets you in' : ''}.</p>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  const note = document.getElementById('introNote');
+  const addPhoto = async () => {
+    try {
+      const data = await pickPhoto();
+      if (!data) return;
+      note.textContent = 'Saving your photo…';
+      const url = await savePhoto(data);
+      document.getElementById('introFace').innerHTML = `<img src="${escapeHtml(url)}" alt="">`;
+      document.getElementById('introPhotoBtn').textContent = 'Change photo';
+      note.textContent = 'Looking good!';
+    } catch (e) { note.textContent = e.message; }
+  };
+  document.getElementById('introFace').onclick = addPhoto;
+  document.getElementById('introPhotoBtn').onclick = addPhoto;
+  document.querySelectorAll('#introForm .act-chip').forEach(chip => chip.addEventListener('click', () => {
+    const a = chip.dataset.act;
+    if (acts.has(a)) acts.delete(a); else acts.add(a);
+    chip.classList.toggle('on', acts.has(a));
+  }));
+  document.getElementById('introForm').onsubmit = async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('.gi-btn'); btn.disabled = true;
+    try {
+      const { user } = await apiFetch('/api/me/intro', { method: 'POST', body: { from: document.getElementById('introFrom').value, about: document.getElementById('introAbout').value, acts: [...acts] } });
+      profile = user;
+      if (!profile.waitlisted_at) await loadAppData();
+      if (!location.hash || /^#\/(join)?$/.test(location.hash)) location.hash = '#/dressing-room';
+      render();
+    } catch (err) { note.textContent = err.message; btn.disabled = false; }
+  };
+}
+
 // ── Onboarding — shown once after signup (or on next sign-in if skipped) ──
 // "Pick your act": tappable roles instead of free-text skills — an identity
 // on day one, and a way to call on "all the sound people" later. Everything
@@ -487,7 +580,7 @@ function renderShell() {
               ${svg('M4 7h16M4 12h16M4 17h16')}<span class="tb-more-label">Menu</span>
               ${profile?.is_ringleader && newSignupsCount ? '<span class="topbar-dot" aria-hidden="true"></span>' : ''}
             </button>
-            <a class="topbar-avatar" href="#/profile" aria-label="${escapeHtml(profile?.display_name || 'You')}: your profile" title="Your profile">${escapeHtml(initials)}</a>
+            <a class="topbar-avatar" href="#/profile" aria-label="${escapeHtml(profile?.display_name || 'You')}: your profile" title="Your profile">${profile?.avatar_url ? `<img src="${escapeHtml(profile.avatar_url)}" alt="">` : escapeHtml(initials)}</a>
           </div>
         </div>
       </header>
@@ -753,7 +846,8 @@ function rankColor(rank) {
 
 // ── Board view: thread cards + a pop-up note to start a thread ─────────
 const AVATAR_COLORS = ['#9B3036', '#2F7F7A', '#8B5FA3', '#C97C3D', '#5F7A3D', '#C77B8A', '#8F6E34'];
-function avatarFor(id, name, size = 44) {
+function avatarFor(id, name, size = 44, photo = null) {
+  if (photo) return `<img class="forum-avatar photo" src="${escapeHtml(photo)}" alt="" style="--sz:${size}px" loading="lazy">`;
   let h = 0;
   for (const ch of String(id || name || '?')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return `<span class="forum-avatar" style="--av:${AVATAR_COLORS[h % AVATAR_COLORS.length]};--sz:${size}px" aria-hidden="true">${escapeHtml((name || '?').trim().slice(0, 1).toUpperCase())}</span>`;
@@ -777,7 +871,7 @@ async function renderBoardView(host, slug) {
     const fresh = seen && Date.parse(sqlIso(p.last_activity)) > seen && p.author_id !== profile.id;
     return `
     <a class="thread-card ${p.pinned ? 'pinned' : ''}" href="#/post/${p.id}">
-      ${avatarFor(p.author_id, p.author?.display_name)}
+      ${avatarFor(p.author_id, p.author?.display_name, 44, p.author?.photo)}
       <span class="thread-main">
         <span class="thread-title">${fresh ? '<span class="forum-new">NEW</span>' : ''}${escapeHtml(p.title || '(untitled)')}</span>
         <span class="thread-snippet">${escapeHtml((p.body || '').slice(0, 180))}</span>
@@ -856,7 +950,7 @@ async function renderThreadView(mainView, postId) {
   body.innerHTML = `
     <article class="op-card ${post.pinned ? 'pinned' : ''}">
       ${post.pinned ? '<span class="thread-seal" title="Pinned"></span>' : ''}
-      <header class="op-head">${avatarFor(post.author_id, post.author?.display_name, 52)}
+      <header class="op-head">${avatarFor(post.author_id, post.author?.display_name, 52, post.author?.photo)}
         <div><h1 class="op-title">${escapeHtml(post.title || '(untitled)')}</h1>
         <div class="thread-meta">${escapeHtml(post.author?.display_name || 'someone')} ${authorChip(post.author)} · ${timeAgo(sqlIso(post.created_at))}</div></div>
       </header>
@@ -868,15 +962,15 @@ async function renderThreadView(mainView, postId) {
     <div class="reply-count-line">${replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : 'No replies yet'}</div>
     <div class="reply-stack">${(replies || []).map(r => `
       <div class="reply-row ${mine(r.author_id) ? 'mine' : ''}">
-        ${avatarFor(r.author_id, r.author?.display_name, 38)}
+        ${avatarFor(r.author_id, r.author?.display_name, 38, r.author?.photo)}
         <div class="reply-bubble">
           <div class="thread-meta"><b>${escapeHtml(r.author?.display_name || 'someone')}</b> ${authorChip(r.author)} · ${timeAgo(sqlIso(r.created_at))}
             ${mine(r.author_id) || canModerate ? `<button class="reply-del" data-delete-reply="${r.id}" aria-label="Delete reply">×</button>` : ''}</div>
           <div class="reply-text">${escapeHtml(r.body)}</div>
         </div>
       </div>`).join('')}</div>
-    ${isInnerMember()
-      ? `<button class="forum-btn reply-open" id="replyOpen">✒ Write a reply</button>`
+    ${isInnerMember() || post.open_to_all
+      ? `<button class="forum-btn reply-open" id="replyOpen">${post.open_to_all ? '👋 Say hello' : '✒ Write a reply'}</button>`
       : `<div class="forum-note-pinned">Inner members can reply. Work two shifts to step inside.</div>`}`;
   document.getElementById('replyOpen')?.addEventListener('click', () => openForumNote({
     heading: `Reply to “${post.title || 'this thread'}”`, withTitle: false, cta: 'Send reply', placeholder: 'Write a reply…',
@@ -5271,6 +5365,11 @@ async function renderProfileView(mainView, flash = '') {
   mainView.innerHTML = `
     <h2>My Profile</h2>
     ${flash ? `<div class="stamp-flash">${escapeHtml(flash)}</div>` : ''}
+    <div class="profile-photo">
+      <span class="intro-face">${p.avatar_url ? `<img src="${escapeHtml(p.avatar_url)}" alt="">` : '<span>📷</span>'}</span>
+      <div><button type="button" class="action-btn" id="profilePhotoBtn">${p.avatar_url ? 'Change my photo' : 'Add a photo'}</button>
+        ${p.avatar_url ? '<button type="button" class="action-btn" id="profilePhotoDel">Remove</button>' : ''}</div>
+    </div>
     <form class="composer profile-form" id="profileForm">
       <div class="auth-field"><label>Name</label><input name="display_name" required value="${escapeHtml(p.display_name)}"></div>
       <div class="auth-field"><label>City</label><input name="city" required value="${escapeHtml(p.city || '')}"></div>
@@ -5297,6 +5396,12 @@ async function renderProfileView(mainView, flash = '') {
       <button type="submit" class="composer-submit">Save</button>
     </form>`;
   drawRavenSettings();
+  document.getElementById('profilePhotoBtn').onclick = async () => {
+    try { const data = await pickPhoto(); if (!data) return; await savePhoto(data); renderShell(); renderProfileView(mainView, 'New photo saved!'); }
+    catch (e) { flashToast(e.message); }
+  };
+  const del = document.getElementById('profilePhotoDel');
+  if (del) del.onclick = async () => { await apiFetch('/api/me/photo', { method: 'DELETE' }); profile.avatar_url = null; renderShell(); renderProfileView(mainView, 'Photo removed.'); };
   mainView.querySelectorAll('.act-chip').forEach(chip => chip.addEventListener('click', () => {
     const a = chip.dataset.act;
     if (acts.has(a)) acts.delete(a); else acts.add(a);
@@ -8229,8 +8334,9 @@ async function renderWaitlistTab(mainView) {
     <p class="admin-note">New sign-ups wait here until you let them in. They can still buy tickets. When you let someone in, they get a "You’re in!" nudge (if they turned on notifications) and land in their Dressing Room next time they open the app.</p>
     ${waiting.length ? `<div class="post-actions wl-actions"><button class="composer-submit" data-next="10">Let in the next ${Math.min(10, waiting.length)}</button>${waiting.length > 10 ? `<button class="action-btn" data-next="${waiting.length}">Let everyone in (${waiting.length})</button>` : ''}</div>` : ''}
     <div class="door-recent">${waiting.map((w, i) => `
-      <div class="door-entry"><div><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
-        <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}</div></div>
+      <div class="door-entry wl-entry">${avatarFor(w.id, w.display_name, 48, w.avatar_url)}<div class="wl-who"><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
+        <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}</div>
+        ${w.intro ? `<div class="wl-intro"><small>📍 ${escapeHtml(w.intro.from)}${w.skills ? ` · 🎪 ${escapeHtml(w.skills)}` : ''}</small>${escapeHtml(w.intro.about)}</div>` : '<div class="wl-intro none">Hasn’t introduced themself yet.</div>'}</div>
         <button class="composer-submit" data-let="${w.id}">Let in</button></div>`).join('') || '<div class="placeholder-note">Nobody waiting. The line is clear!</div>'}</div></div>`;
   mainView.querySelector('#wlBox').addEventListener('click', async e => {
     const one = e.target.closest('[data-let]'), next = e.target.closest('[data-next]');
