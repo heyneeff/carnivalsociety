@@ -618,6 +618,9 @@ function renderShell() {
     ${profile?.is_ringleader ? `
     <div class="sheet-group">
       <div class="sheet-label">The Ringleader’s office</div>
+      <a class="sheet-link" href="#/events" data-office="event"><span>＋ Post an event</span><small class="sheet-hint">a new carnival flyer</small></a>
+      <a class="sheet-link" href="#/directory" data-office="waitlist"><span>👋 Let people in</span><small class="sheet-hint">read hellos on the waitlist</small></a>
+      <a class="sheet-link" href="#/backstage"><span>🎁 Leave a surprise</span><small class="sheet-hint">backstage: pick a room, tap Leave a surprise</small></a>
       ${sheetLink('#/blast', '📣 Holler at everyone', is('blast'))}
       ${sheetLink('#/directory', 'Directory', is('directory'), newSignupsCount ? ` <span class="nav-badge">${newSignupsCount}</span>` : '', 'members, tiers, new sign-ups')}
       ${sheetLink('#/checkin', 'The Door', is('checkin', 'checkin/'))}
@@ -1392,6 +1395,13 @@ async function renderEventsView(mainView, onlyEventId = null) {
 
   wirePhotos(mainView);
   if (canPost) {
+    if (wantEventComposer) {
+      wantEventComposer = false;
+      const f = document.getElementById('eventComposer');
+      const fold = f.closest('details'); if (fold) fold.open = true;
+      f.scrollIntoView({ block: 'center' }); f.classList.add('composer-glow'); setTimeout(() => f.classList.remove('composer-glow'), 2200);
+      document.getElementById('eventTitle')?.focus();
+    }
     document.getElementById('eventComposer').addEventListener('submit', async e => {
       e.preventDefault();
       const title = document.getElementById('eventTitle').value.trim();
@@ -1892,6 +1902,13 @@ const IMPACT_SORTS = {
 let directoryMembersCache = [];
 let directoryVenuesCache = [];
 let directoryImpactCache = []; // shared with the standalone Impact Log page (renderImpactView)
+let wantEventComposer = false; // set by the office menu's "Post an event"
+document.addEventListener('click', e => {
+  const o = e.target.closest?.('[data-office]');
+  if (!o) return;
+  if (o.dataset.office === 'event') wantEventComposer = true;
+  if (o.dataset.office === 'waitlist') directoryTab = 'waitlist';
+});
 let directoryTab = 'individuals'; // 'individuals' | 'organizations' | 'venues'
 let directorySortKey = 'name';
 let directorySearchQuery = '';

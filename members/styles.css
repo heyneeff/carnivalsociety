@@ -2648,3 +2648,4 @@ body.chat-typing .chat-panel { transition: none; }
 /* Chat stacks from the bottom like a messaging app: with only a few
    messages, the newest sits right above where you type. */
 .chat-list > :first-child { margin-top: auto; }
+.composer-glow { box-shadow: 0 0 0 3px #C8A05A, 0 0 24px rgba(255, 210, 130, 0.7) !important; transition: box-shadow 0.4s; }
