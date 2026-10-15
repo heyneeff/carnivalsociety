@@ -5801,6 +5801,82 @@ function openMercury() {
   requestAnimationFrame(() => o.classList.add('open'));
 }
 
+// ── Sunny & Daisy (2026-10-14) ── Neeff's cats, alive in the Ringmaster's
+// Office: they wander the floor (four-frame walk cycles), stop, stretch,
+// sit and squint happily; tap one and it meows. Sprites face right; walking
+// left flips them. Positions are % of the square room, feet at (x, y).
+const CAT_ART = 'assets/room/cats/';
+const CAT_WALK_W = 153; // px width of a walk frame; poses size relative to it
+const CAT_POSES = {
+  sunny: { stand: 79, stretch: 99, meow: 83, happy: 87 },
+  daisy: { stand: 86, stretch: 108, meow: 89, happy: 87 },
+};
+function mountCats(scene, theme) {
+  scene.querySelectorAll('.room-cat').forEach(c => c._stop?.());
+  if (theme !== 'office') return;
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  ['sunny', 'daisy'].forEach(name => {
+    new Image().src = `${CAT_ART}${name}_walk1.webp`;
+    const el = document.createElement('button');
+    el.className = 'room-cat';
+    el.setAttribute('aria-label', `Pet ${name === 'sunny' ? 'Sunny' : 'Daisy'}`);
+    el.innerHTML = `<img alt="" draggable="false"><span class="cat-meow" hidden>meow!</span>`;
+    scene.appendChild(el);
+    const img = el.querySelector('img'), meow = el.querySelector('.cat-meow');
+    const FLOOR = { x0: 8, x1: 84, y0: 76, y1: 93 };
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const cat = { x: name === 'sunny' ? 30 : 62, y: name === 'sunny' ? 84 : 89, dir: name === 'sunny' ? 1 : -1 };
+    let timer = null, frameTimer = null, stopped = false;
+    const BASE = 15; // a walking cat is this % of the room wide
+    const show = (art, wPx, flip = false) => {
+      img.src = `${CAT_ART}${name}_${art}.webp`;
+      const depth = 0.82 + (cat.y - FLOOR.y0) / (FLOOR.y1 - FLOOR.y0) * 0.3;
+      el.style.width = `${BASE * wPx / CAT_WALK_W * depth}%`;
+      el.style.left = `${cat.x}%`; el.style.top = `${cat.y}%`;
+      el.style.zIndex = String(Math.round(cat.y * 10));
+      img.style.transform = flip ? 'scaleX(-1)' : '';
+    };
+    const later = (fn, ms) => { clearTimeout(timer); timer = setTimeout(() => { if (!el.isConnected) return stop(); fn(); }, ms); };
+    const pose = (p, ms, next) => { clearInterval(frameTimer); show(p, CAT_POSES[name][p]); later(next, ms); };
+    const idle = () => {
+      const r = Math.random();
+      if (still) return pose('happy', 60000, idle);
+      if (r < 0.25) pose('stretch', 2600, () => pose('stand', rnd(1200, 2500), idle));
+      else if (r < 0.5) pose('happy', rnd(5000, 11000), idle);
+      else if (r < 0.65) pose('stand', rnd(2000, 4000), idle);
+      else walk();
+    };
+    const walk = () => {
+      const tx = rnd(FLOOR.x0, FLOOR.x1), ty = rnd(FLOOR.y0, FLOOR.y1);
+      const dist = Math.hypot(tx - cat.x, ty - cat.y);
+      if (dist < 6) return idle();
+      cat.dir = tx > cat.x ? 1 : -1;
+      const speed = 4.2; // % of the room per second
+      const steps = Math.max(1, Math.round(dist / speed * 1000 / 140));
+      const dx = (tx - cat.x) / steps, dy = (ty - cat.y) / steps;
+      let i = 0, f = 0;
+      clearInterval(frameTimer);
+      frameTimer = setInterval(() => {
+        if (!el.isConnected) return stop();
+        cat.x += dx; cat.y += dy;
+        show(`walk${(f++ % 4) + 1}`, CAT_WALK_W, cat.dir < 0);
+        if (++i >= steps) { clearInterval(frameTimer); pose('stand', rnd(800, 1800), idle); }
+      }, 140);
+    };
+    const stop = () => { stopped = true; clearTimeout(timer); clearInterval(frameTimer); el.remove(); };
+    el._stop = stop;
+    el.onclick = e => {
+      e.stopPropagation();
+      if (stopped) return;
+      clearInterval(frameTimer);
+      meow.hidden = false; meow.classList.remove('pop'); void meow.offsetWidth; meow.classList.add('pop');
+      pose('meow', 1500, () => { meow.hidden = true; pose('happy', rnd(2500, 4500), idle); });
+    };
+    show('happy', CAT_POSES[name].happy);
+    later(idle, rnd(1500, 4000));
+  });
+}
+
 // ── Card of the day (2026-10-14) ── Omen keeps one Mercury Oracle card a
 // day for every member (the server picks it, so no re-rolling). Face down
 // until you turn it over; after that Omen quiets down until tomorrow.
@@ -6247,7 +6323,9 @@ const ROOM_ROLES = {
   popcorn: 'Popcorn (pops)', events: 'Events list', tickets: 'My Tickets',
 };
 // ── Personal rooms (2026-10-12): themes, the item drawer, starter layout ──
-const ROOM_THEMES = { classic: 'The Classic', fire: 'Flame Breather', aerial: 'The Aerialist', celestial: 'The Fortune-Teller', original: 'The Original' };
+const ROOM_THEMES = { classic: 'The Classic', fire: 'Flame Breather', aerial: 'The Aerialist', celestial: 'The Fortune-Teller', original: 'The Original', office: 'The Ringmaster’s Office' };
+// Only the Ringleader's: the Office (where Sunny & Daisy roam) and the Original.
+const RINGLEADER_THEMES = ['office', 'original'];
 const themeSrc = t => `${ROOM}${t === 'original' ? 'room_bg' : `rooms/${t}`}.jpg`;
 // The decoration drawer: everything cut from Neeff's sheets. Specials (and
 // how to earn them) come from the server, which also enforces them.
@@ -6355,7 +6433,21 @@ const DRESSING_DEFAULT = [
   { id: 'popcorn', role: 'popcorn', img: 'popcorn', l: 81, t: 45, w: 4.5, anim: 'wobble' },
   { id: 'potion', role: 'potion', img: 'potion', l: 88.5, t: 46.5, w: 2.4, anim: 'shimmer' },
 ];
-const defaultRoom = theme => JSON.parse(JSON.stringify(theme === 'original' ? ROOM_DEFAULT : DRESSING_DEFAULT));
+// The Ringmaster's Office: door on the right, the bookshelf, the desk.
+const OFFICE_DEFAULT = [
+  { id: 'exit', role: 'exit', img: null, l: 92, t: 18, w: 8, h: 58 },
+  { id: 'book', role: 'book', img: null, l: 0, t: 6, w: 10, h: 42 },
+  { id: 'drawer', role: 'drawer', img: null, l: 56, t: 53, w: 22, h: 10 },
+  { id: 'mirror', role: 'mirror', img: null, l: 72.5, t: 14, w: 11, h: 23 },
+  { id: 'f1', role: 'flyer', n: 0, img: 'flyer_circus', l: 47, t: 23, w: 5.4, rot: -4, anim: 'flutter' },
+  { id: 'f2', role: 'flyer', n: 1, img: 'flyer_volunteer', l: 47.5, t: 37, w: 5, rot: 3, anim: 'flutter' },
+  { id: 'f3', role: 'flyer', n: 2, img: 'flyer_carnival', l: 66.5, t: 34, w: 4.6, rot: -3, anim: 'flutter' },
+  { id: 'raven', role: 'raven', img: 'raven_perched', l: 80.5, t: 40.5, w: 7, anim: 'breathe' },
+  { id: 'popcorn', role: 'popcorn', img: 'popcorn', l: 21.5, t: 49.5, w: 4, anim: 'wobble' },
+  { id: 'trunk', role: 'trunk', img: 'trunk_closed', l: 2, t: 74, w: 17 },
+  { id: 'hatbox', role: 'hatbox', img: 'hatbox_closed', l: 30, t: 87, w: 10 },
+];
+const defaultRoom = theme => JSON.parse(JSON.stringify(theme === 'original' ? ROOM_DEFAULT : theme === 'office' ? OFFICE_DEFAULT : DRESSING_DEFAULT));
 const isRoomRoute = route => ROOM_ROUTES.includes(route) || route.startsWith('room/');
 
 const ROOM_DEFAULT = [
@@ -6769,6 +6861,7 @@ async function renderRoom(mainView, ownerId = null) {
     apiFetch('/api/me/backer/deck', { method: 'POST' }).catch(() => {});
   };
   roomHooks.placeDeck = placeDeck;
+  mountCats(scene, theme);
   roomHooks.onCard = () => draw();
   if (room.backer?.welcomed && !room.backer.deck) setTimeout(placeDeck, 900);
 
@@ -6952,7 +7045,7 @@ async function renderRoom(mainView, ownerId = null) {
       + `<div class="re-cat"><b>Room stickers</b><div class="re-grid">${Object.keys(ROOM_ASSETS).filter(n => n !== 'megaphone_floor').map(n => thumb(n, n.replace(/_/g, ' '))).join('')}<button class="re-thumb re-hot" data-add="__hot" title="Invisible hotspot (for painted things)">⬚</button></div></div>`;
     editor.innerHTML = `
       <div class="re-row re-title"><strong>Arrange your room</strong><span class="re-hint">Drag to move · gold corner to resize</span></div>
-      <div class="re-row"><label class="re-wide">Your room<select id="reTheme">${Object.entries(ROOM_THEMES).map(([k, v]) => `<option value="${k}" ${k === theme ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+      <div class="re-row"><label class="re-wide">Your room<select id="reTheme">${Object.entries(ROOM_THEMES).filter(([k]) => profile.is_ringleader || !RINGLEADER_THEMES.includes(k) || k === theme).map(([k, v]) => `<option value="${k}" ${k === theme ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
       ${it ? `
         <div class="re-row"><label>It does<select data-f="role">${opt(ROOM_ROLES, it.role)}</select></label></div>
         ${it.role === 'flyer' ? `<div class="re-row"><label>Which event<select data-f="n">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === (it.n || 0) ? 'selected' : ''}>${['Next', '2nd', '3rd', '4th', '5th', '6th'][n]} upcoming</option>`).join('')}</select></label></div>` : ''}
@@ -6978,6 +7071,7 @@ async function renderRoom(mainView, ownerId = null) {
     if (e.target.id === 'reTheme') {
       theme = e.target.value;
       document.getElementById('roomBg').src = themeSrc(theme);
+      mountCats(scene, theme);
       say(`${ROOM_THEMES[theme]}. Save to keep it.`);
       return;
     }

@@ -2477,3 +2477,12 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 @keyframes dc-rise { from { opacity: 0; transform: translateY(10px); } }
 .dc-close { position: absolute; top: 8px; right: 0; }
 @media (prefers-reduced-motion: reduce) { .dc-face { transition: none; } .dc-card:not(.turned), .dc-words { animation: none; } }
+
+/* ── Sunny & Daisy (2026-10-14) ── feet at (left, top); they wander the
+   Ringmaster's Office floor. Tap one for a meow. */
+.room-cat { position: absolute; transform: translate(-50%, -100%); padding: 0; border: 0; background: none; cursor: pointer; line-height: 0; transition: width 0.25s ease; }
+.room-cat img { width: 100%; height: auto; display: block; pointer-events: none; filter: drop-shadow(0 3px 2px rgba(40, 15, 10, 0.35)); }
+.room-cat:focus-visible { outline: 2px solid #C8A05A; outline-offset: 4px; border-radius: 8px; }
+.cat-meow { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); padding: 3px 9px; border-radius: 12px; background: #FBF3DC; border: 1px solid #C8A05A; color: #9B3036; font: italic 600 clamp(11px, 1.6vw, 16px)/1.2 'Cormorant Garamond', Georgia, serif; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
+.cat-meow.pop { animation: cat-meow 1.5s ease both; }
+@keyframes cat-meow { 0% { opacity: 0; transform: translate(-50%, 6px) scale(0.7); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.05); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -8px); } }

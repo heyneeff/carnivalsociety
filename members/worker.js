@@ -2263,7 +2263,10 @@ async function crewRoutes(request, env, url, user) {
 // layout. Most decorations are free; a few specials are earned at real
 // carnivals (stamps), by meeting people (handshakes) or by rank. The
 // Ringleader's room falls back to the original shared layout.
-const ROOM_THEMES = ["classic", "fire", "aerial", "celestial", "original"];
+const ROOM_THEMES = ["classic", "fire", "aerial", "celestial", "original", "office"];
+// The Ringleader's own rooms: the Ringmaster's Office (Sunny & Daisy roam it)
+// and the Original painting. Nobody else can pick them.
+const RINGLEADER_THEMES = ["office", "original"];
 const ROOM_ITEM_ROLES = ["decor", "mirror", "trunk", "costume", "flyer", "raven", "book", "drawer", "exit", "hatbox", "potion", "stars", "popcorn", "events", "tickets", "megaphone"];
 const ROOM_ANIM = ["", "sway", "flutter", "float", "breathe", "hop", "shimmer", "wobble"];
 const ROOM_SPECIALS = {
@@ -2893,6 +2896,7 @@ async function roomRoutes(request, env, url, user) {
     if (!user) return err(401, "Sign in required.");
     const { theme, items } = await body(request);
     if (!ROOM_THEMES.includes(theme)) return err(400, "Unknown room.");
+    if (RINGLEADER_THEMES.includes(theme) && !user.is_ringleader) return err(403, "That room belongs to the Ringleader.");
     let clean;
     try { clean = cleanRoomItems(items ?? null, { ringleader: !!user.is_ringleader, unlocked: await roomUnlocks(env, user.id) }); } catch (e) { return err(400, e.message); }
     await env.DB.prepare(
