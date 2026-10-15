@@ -6187,7 +6187,9 @@ function runNeeffTour(steps, { el, host, onDone }) {
   let i = 0, timer = null, rig = null, babble = () => {}, finishNow = null;
   const fmt = str => escapeHtml(str).replace(/\*([^*]*)\*?/g, '<b>$1</b>');
   const face = f => { head.src = `${ROOM}${NT_FACES[f] || f}.png`; headBox.classList.toggle('sus', f === 'sus'); headBox.classList.toggle('cosmic', f === 'cosmic'); };
+  let ended = false;
   const end = () => {
+    if (ended) return; ended = true; // one goodbye, one explosion
     clearTimeout(timer); finishNow = null; headBox.classList.remove('talking');
     onDone?.();
     if (!still) { explodeHead(head, rig); t.classList.add('exploding'); setTimeout(() => { rig?.close?.(); t.remove(); }, 800); return; }
@@ -6282,6 +6284,7 @@ function runNeeffTour(steps, { el, host, onDone }) {
     if (finishNow) { finishNow(); return; } // first tap finishes the line
     // Sound needs a tap first: the babble starts with the first Next.
     if (!rig && !soundOff()) { rig = megaphone(); babble = makeBabbler(rig); }
+    if (ended) return;
     if (steps[i].last) { end(); inviteRaven('menu'); return; }
     if (steps[i].wait) later = true;
     steps[i].leave?.();

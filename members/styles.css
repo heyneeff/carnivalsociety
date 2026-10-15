@@ -2732,7 +2732,7 @@ body.chat-typing .chat-panel { transition: none; }
 .neeff-tour.waiting { pointer-events: none; }
 .neeff-tour.waiting .nt-bubble { pointer-events: auto; top: 84px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); width: min(420px, calc(100vw - 24px)); box-shadow: 6px 6px 0 #9B3036; }
 .neeff-tour.waiting .nt-bubble::after { display: none; }
-.neeff-tour.waiting .nt-head { width: 92px; bottom: auto; top: 66px; left: calc(50% - min(210px, 50vw - 12px) - 40px); right: auto; z-index: 4; }
+.neeff-tour.waiting .nt-head { width: 92px; bottom: auto; top: 66px; left: calc(50% - min(210px, 50vw - 12px) - 100px); right: auto; z-index: 4; }
 .neeff-tour.waiting .nt-head img { transform: none; }
 .neeff-tour.waiting .intro-spot { box-shadow: 0 0 0 4px #FFD67A, 0 0 26px 8px rgba(255, 214, 140, 0.75); animation: nt-glow 1.2s ease-in-out infinite alternate; transition: opacity 0.3s; }
 @keyframes nt-glow { to { box-shadow: 0 0 0 6px #FFE7A0, 0 0 40px 14px rgba(255, 214, 140, 0.9); } }
