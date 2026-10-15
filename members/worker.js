@@ -2002,6 +2002,7 @@ function shapeEvent(row) {
     tagline: row.tagline ?? null,
     lineup: row.lineup ?? null,
     photos_url: row.photos_url ?? null,
+    flyer_url: row.flyer_url ?? null,
     entry_tickets: row.entry_tickets ?? null,
     slug: row.slug ?? null,
     created_by: row.created_by,
@@ -2453,7 +2454,7 @@ async function roomGifts(env, ownerId, { wrappedOnly = false } = {}) {
 // system: a new account (with a claim link), or the one you already have.
 // Entry is the event's door price plus the one-time registration the first
 // time, and comes with entry_tickets paper carnival tickets.
-const EVENT_COLS = "id, title, description, location, starts_at, ends_at, capacity, door_cents, entry_tickets, ticket_cents, slug, partner_id, photos_url, tagline, lineup, (SELECT display_name FROM users WHERE id = events.partner_id) AS partner_name";
+const EVENT_COLS = "id, title, description, location, starts_at, ends_at, capacity, door_cents, entry_tickets, ticket_cents, slug, partner_id, photos_url, tagline, lineup, flyer_url, (SELECT display_name FROM users WHERE id = events.partner_id) AS partner_name";
 // SQLite and ISO times both, read as UTC.
 const whenMs = (t) => Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(t) ? t : String(t).replace(" ", "T") + "Z");
 async function findEvent(env, idOrSlug) {
@@ -2557,6 +2558,13 @@ async function publicRoutes(request, env, url) {
   const { pathname } = url;
   const method = request.method;
   const reg = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
+  const flyerImg = pathname.match(/^\/api\/public\/flyers\/([^/]+)$/);
+  if (flyerImg && method === "GET") {
+    const row = await env.DB.prepare("SELECT data FROM event_flyers WHERE event_id = ?").bind(flyerImg[1]).first();
+    if (!row) return err(404, "No poster.");
+    const [, type, b64] = row.data.match(/^data:([^;]+);base64,(.*)$/);
+    return new Response(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), { headers: { "Content-Type": type, "Cache-Control": "public, max-age=604800, immutable" } });
+  }
   const evMatch = pathname.match(/^\/api\/public\/events\/([^/]+)$/);
   if (evMatch && method === "GET") {
     const ev = await findEvent(env, evMatch[1]);
@@ -2801,6 +2809,24 @@ async function partnerRoutes(request, env, url, user, ctx) {
     ).bind(pt.id, pt.id).all();
     return json({ partner: { id: pt.id, name: pt.display_name, slug: pt.partner_slug, blurb: pt.partner_blurb, link: pt.partner_link },
       join_url: pt.partner_slug ? siteUrl(env) + "/p/" + pt.partner_slug : null, friends: await friendCount(env, pt.id), recent: friends, events });
+  }
+  // The poster (2026-10-15): hosts upload it; it hangs on every wall.
+  const fl = pathname.match(/^\/api\/events\/([^/]+)\/flyer$/);
+  if (fl && (method === "POST" || method === "DELETE")) {
+    if (!user) return err(401, "Sign in required.");
+    if (!await canHost(env, user, fl[1])) return err(403, "Only the hosts can hang the poster.");
+    if (method === "DELETE") {
+      await env.DB.prepare("DELETE FROM event_flyers WHERE event_id = ?").bind(fl[1]).run();
+      await env.DB.prepare("UPDATE events SET flyer_url = NULL WHERE id = ?").bind(fl[1]).run();
+      return json({ flyer_url: null });
+    }
+    const data = String((await body(request)).data || "");
+    if (!/^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(data)) return err(400, "That doesn't look like a picture.");
+    if (data.length > 900000) return err(400, "That poster is too big. Try a smaller one.");
+    await env.DB.prepare("INSERT INTO event_flyers (event_id, data, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(event_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at").bind(fl[1], data).run();
+    const url = `/api/public/flyers/${fl[1]}?v=${Date.now().toString(36)}`;
+    await env.DB.prepare("UPDATE events SET flyer_url = ? WHERE id = ?").bind(url, fl[1]).run();
+    return json({ flyer_url: url });
   }
   // The night's photos: set the link, and everyone who came hears about it.
   const ph = pathname.match(/^\/api\/events\/([^/]+)\/photos$/);
@@ -3827,7 +3853,7 @@ async function ticketRoutes(request, env, url) {
 function partnerAllowed(method, pathname) {
   if (pathname === "/api/events" && method === "POST") return true;
   if (/^\/api\/events\/[^/]+$/.test(pathname) && (method === "PATCH" || method === "DELETE")) return true;
-  if (/^\/api\/events\/[^/]+\/photos$/.test(pathname)) return true;
+  if (/^\/api\/events\/[^/]+\/(photos|flyer)$/.test(pathname)) return true;
   if (pathname === "/api/blasts" || pathname === "/api/blasts/preview" || pathname === "/api/partner") return true;
   if (method === "POST" && /^\/api\/events\/[^/]+\/(jobs|needs|run)$/.test(pathname)) return true;
   if (method === "DELETE" && /^\/api\/(jobs|needs|run)\/[^/]+$/.test(pathname)) return true;

@@ -2783,3 +2783,12 @@ body.chat-typing .chat-panel { transition: none; }
 .nt-how { margin: 8px 0 0; padding: 8px 12px 8px 28px; background: #FBF0D2; border: 2px dashed #C8A05A; border-radius: 8px; font-size: 15px; line-height: 1.45; }
 p.nt-how { padding-left: 12px; }
 .nt-how-why { margin: 8px 0 0; font-size: 15px; font-weight: 600; color: #9B3036; }
+
+/* Real posters (2026-10-15): pinned to the wall, and big on the event. */
+.room-obj.has-poster .room-poster { width: 100%; display: block; border: 1px solid rgba(0,0,0,0.25); box-shadow: 0 4px 8px rgba(30, 10, 5, 0.45); }
+.room-obj.has-poster .room-turn { position: relative; display: block; }
+.poster-pin { position: absolute; top: -4%; left: 50%; width: 16%; aspect-ratio: 1; margin-left: -8%; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ff8a8a, #b3262e 60%, #6e1218); box-shadow: 0 2px 3px rgba(0,0,0,0.5); }
+.room-obj.poster-thunk { animation: poster-thunk 0.45s ease; }
+@keyframes poster-thunk { 0% { transform: scale(1); } 30% { transform: scale(0.94, 1.04); } 60% { transform: scale(1.02, 0.98); } 100% { transform: none; } }
+.event-poster { display: block; margin: -4px auto 12px; max-width: 360px; }
+.event-poster img { width: 100%; display: block; border-radius: 4px; box-shadow: 0 10px 24px rgba(30, 10, 5, 0.35); transform: rotate(-1deg); }

@@ -434,6 +434,29 @@ function pickPhoto() {
     input.click();
   });
 }
+// A poster from your files, kept its shape, shrunk to ~1000px on its long side.
+function pickPoster() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 1000 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That poster wouldn’t open. Try a PNG or JPG.')); };
+      img.src = url;
+    };
+    input.click();
+  });
+}
 async function savePhoto(data) {
   const { avatar_url } = await apiFetch('/api/me/photo', { method: 'POST', body: { data } });
   profile.avatar_url = avatar_url;
@@ -1312,6 +1335,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
 
   const listHtml = (events || []).length ? events.map(e => `
     <div class="post-card" style="cursor:default;">
+      ${e.flyer_url ? `<a class="event-poster" href="${escapeHtml(e.flyer_url)}" target="_blank" rel="noopener" aria-label="See the poster full size"><img src="${escapeHtml(e.flyer_url)}" alt="${escapeHtml(e.title)} poster"></a>` : ''}
       <div class="post-title">${escapeHtml(e.title)}</div>
       <div class="post-meta">${formatEventDate(e.starts_at)}${e.ends_at ? ` – ${formatEventDate(e.ends_at)}` : ''} · ${escapeHtml(e.chapter ? e.chapter.name : 'Guild-wide')}${e.location ? ' · ' + escapeHtml(e.location) : ''}</div>
       ${e.partner_name ? `<div class="presented-with">Presented with ${e.partner_logo ? `<img src="${escapeHtml(e.partner_logo)}" alt="${escapeHtml(e.partner_name)}">` : `<b>${escapeHtml(e.partner_name)}</b>`}</div>` : ''}
@@ -1330,6 +1354,8 @@ async function renderEventsView(mainView, onlyEventId = null) {
         <div class="post-actions">
           ${canEdit || partnerHosts(e) ? `<button class="action-btn" data-edit-event="${e.id}">✎ Edit details</button>` : ''}
           ${profile?.is_ringleader ? `<a class="action-btn" href="#/checkin/${e.id}">🚪 The Door</a>` : ''}
+          <button class="action-btn" data-poster="${e.id}">🖼️ ${e.flyer_url ? 'Change the poster' : 'Hang the poster'}</button>
+          ${e.flyer_url ? `<button class="action-btn" data-poster-off="${e.id}">Take the poster down</button>` : ''}
           ${canManage && CREW_ASSIGNMENT_ENABLED ? `<button class="action-btn" data-manage-crew="${e.id}">Manage crew</button>` : ''}
           ${canManage || (partnerHosts(e) && !onlyEventId) ? `<button class="action-btn danger" data-delete-event="${e.id}">Delete</button>` : ''}
         </div>
@@ -1429,6 +1455,21 @@ async function renderEventsView(mainView, onlyEventId = null) {
     });
   });
 
+  // Posters: pick an image, shrink it (max ~1000px tall), hang it.
+  mainView.querySelectorAll('[data-poster]').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      const data = await pickPoster();
+      if (!data) return;
+      btn.disabled = true; btn.textContent = 'Hanging it…';
+      await apiFetch(`/api/events/${btn.dataset.poster}/flyer`, { method: 'POST', body: { data } });
+      flashToast('🖼️ The poster is up on everyone’s wall!');
+      renderEventsView(mainView, onlyEventId);
+    } catch (err) { flashToast(err.message); btn.disabled = false; }
+  }));
+  mainView.querySelectorAll('[data-poster-off]').forEach(btn => btn.addEventListener('click', async () => {
+    await apiFetch(`/api/events/${btn.dataset.posterOff}/flyer`, { method: 'DELETE' });
+    renderEventsView(mainView, onlyEventId);
+  }));
   mainView.querySelectorAll('[data-edit-event]').forEach(btn => {
     btn.addEventListener('click', () => {
       const evt = (events || []).find(e => e.id === btn.dataset.editEvent);
@@ -7033,8 +7074,10 @@ async function renderRoom(mainView, ownerId = null) {
       img = 'trunk_open'; t = it.t + it.w / ROOM_ASSETS.trunk_closed - it.w / ROOM_ASSETS.trunk_open; anim = 'breathe';
     }
     // Something new waiting behind it: the object perks up.
-    const cls = !roomEditing && fresh(it) ? 'is-new' : '';
-    return { img, w, t, anim, frames, cls };
+    let cls = !roomEditing && fresh(it) ? 'is-new' : '';
+    const poster = it.role === 'flyer' && flyerEvent(it)?.flyer_url;
+    if (poster) cls += ' has-poster';
+    return { img, w, t, anim, frames, cls, poster };
   };
   // What the raven is squawking about, most urgent first (null = quiet).
   const short = (t, n = 26) => t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
@@ -7116,10 +7159,31 @@ async function renderRoom(mainView, ownerId = null) {
       return `<${tag} class="room-obj ${v.anim}${live ? '' : ' decor'}${sel}${v.cls ? ' ' + v.cls : ''}" data-item="${it.id}" data-role="${it.role}" ${live ? `aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"'} style="left:${it.l}%;top:${v.t}%;width:${v.w}%">
         <span class="room-turn" style="${tf}">${v.frames
           ? `<span class="raven-frames ${v.frames}"><img class="rf-shut" src="${ROOM}raven_perched.png" alt="" draggable="false"><img class="rf-open" src="${ROOM}raven_squawk.png" alt="" draggable="false"></span>`
+          : v.poster ? `<img class="room-poster" src="${escapeHtml(v.poster)}" alt="" draggable="false"><span class="poster-pin" aria-hidden="true"></span>`
           : `<img src="${ROOM}${v.img}.png" alt="" draggable="false">`}</span>${handle}</${tag}>`;
     }).join('') + (roomEditing ? '' : extras());
     if (roomEditing) renderEditor();
     requestAnimationFrame(fitSquawk);
+    if (!roomEditing && !visiting) requestAnimationFrame(spinInPosters);
+  }
+  // A new poster arrives (2026-10-15): it spins in from off the wall and
+  // slaps on, pinned, the first time you see it (once per poster, per device).
+  function spinInPosters() {
+    host.querySelectorAll('.room-obj.has-poster').forEach(node => {
+      const it = items.find(i => i.id === node.dataset.item), e = it && flyerEvent(it);
+      if (!e?.flyer_url) return;
+      const key = `cs-poster-${e.id}-${e.flyer_url.split('v=')[1] || ''}`;
+      try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch (err) { return; }
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const turn = node.querySelector('.room-turn'), side = Math.random() < 0.5 ? -1 : 1;
+      turn.animate([
+        { transform: `translate(${side * 140}vw, -40vh) rotate(${side * 720}deg) scale(1.6)`, opacity: 0.4 },
+        { transform: `rotate(${-side * 8}deg) scale(1.12)`, opacity: 1, offset: 0.7 },
+        { transform: `rotate(${side * 4}deg) scale(0.96)`, offset: 0.82 },
+        { transform: getComputedStyle(turn).transform === 'none' ? 'none' : getComputedStyle(turn).transform },
+      ], { duration: 1300, easing: 'cubic-bezier(.2,.8,.3,1)' });
+      setTimeout(() => { node.classList.add('poster-thunk'); setTimeout(() => node.classList.remove('poster-thunk'), 500); }, 1050);
+    });
   }
   // Omen's speech bubble always stays inside the painting.
   function fitSquawk() {
