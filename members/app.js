@@ -5705,7 +5705,7 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
       c.animate([{ transform: 'none' }, { transform: `translateX(${offRight}px) rotate(20deg)` }], { duration: 800, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' });
       setTimeout(() => c.remove(), 820);
     };
-    const gone = () => { if (!o.isConnected) return; o.remove(); blastShowing = null; rollOut(); };
+    const gone = () => { if (!o.isConnected) return; o.remove(); blastShowing = null; rollOut(); if (blast.gift === 'mercury_deck' && !preview) setTimeout(() => roomHooks.placeDeck?.(), 500); };
     if (shrink && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       o.classList.add('leaving');
       shrink().onfinish = gone;
@@ -5715,7 +5715,8 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
   const answer = () => {
     if (!o.classList.contains('ringing')) return;
     stopBlare();
-    if (live && blast.id) apiFetch(`/api/me/blast/${blast.id}/seen`, { method: 'POST' }).catch(() => {});
+    if (live && blast.id === 'welcome') apiFetch('/api/me/backer/welcomed', { method: 'POST' }).catch(() => {});
+    else if (live && blast.id) apiFetch(`/api/me/blast/${blast.id}/seen`, { method: 'POST' }).catch(() => {});
     if (!preview) try { localStorage.setItem('cs-last-holler', JSON.stringify({ title: blast.title, body: blast.body, url: blast.url || null, sender: blast.sender || null, from_partner: !!blast.from_partner })); } catch (e) { /* no storage */ }
     floorCone?.classList.remove('cone-ringing');
     // A fresh rig born from this tap, so iPhones let the babble play.
@@ -5782,6 +5783,77 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
   });
 }
 
+// ── The Mercury Oracle over the room (2026-10-14): passed through our own
+// worker (/oracle/mercury/) with its backdrop made see-through, so the cards
+// float over your Dressing Room. Close (or Escape, or a tap outside) returns.
+function openMercury() {
+  if (document.querySelector('.oracle-overlay')) return;
+  const o = document.createElement('div');
+  o.className = 'oracle-overlay';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', 'The Mercury Oracle');
+  o.innerHTML = `<iframe class="oracle-frame" src="/oracle/mercury/" title="The Mercury Oracle" allowtransparency="true"></iframe>
+    <button class="oracle-close" aria-label="Put the cards away">×</button>`;
+  const close = () => { o.classList.add('leaving'); setTimeout(() => o.remove(), 300); };
+  o.querySelector('.oracle-close').onclick = close;
+  o.addEventListener('click', e => { if (e.target === o) close(); });
+  document.body.appendChild(o);
+  requestAnimationFrame(() => o.classList.add('open'));
+}
+
+// ── Card of the day (2026-10-14) ── Omen keeps one Mercury Oracle card a
+// day for every member (the server picks it, so no re-rolling). Face down
+// until you turn it over; after that Omen quiets down until tomorrow.
+let dailyCard = null;
+const cardDay = () => new Date().toLocaleDateString('en-CA');
+const cardKey = () => `cs-card-${profile?.id}`;
+async function loadDailyCard() {
+  try { dailyCard = await apiFetch(`/api/me/card?day=${cardDay()}`); } catch (e) { dailyCard = null; }
+}
+function cardWaiting() {
+  if (!dailyCard) return false;
+  try { return localStorage.getItem(cardKey()) !== dailyCard.day; } catch (e) { return false; }
+}
+function showDailyCard() {
+  if (!dailyCard || document.querySelector('.daily-card')) return;
+  const c = dailyCard.card, seen = !cardWaiting();
+  const o = document.createElement('div');
+  o.className = 'daily-card';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-label', 'Your card for today');
+  o.innerHTML = `
+    <div class="dc-stage">
+      <div class="dc-kicker">Omen’s card for ${new Date(dailyCard.day + 'T12:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <button class="dc-card${seen ? ' turned' : ''}" aria-label="${seen ? escapeHtml(c.title) : 'Turn the card over'}">
+        <span class="dc-face dc-back"><img src="${dailyCard.back}" alt=""></span>
+        <span class="dc-face dc-front">${c.image ? `<img src="${c.image}" alt="">` : ''}</span>
+      </button>
+      <div class="dc-words"${seen ? '' : ' hidden'}>
+        <h2>${escapeHtml(c.title)}</h2>
+        ${c.phrase && c.phrase.toLowerCase() !== c.title.toLowerCase() ? `<p class="dc-phrase">“${escapeHtml(c.phrase)}”</p>` : ''}
+        ${c.meaning ? `<p class="dc-meaning">${escapeHtml(c.meaning)}</p>` : ''}
+        <p class="dc-fine">${dailyCard.full_deck ? 'Want more? The whole deck is on your dresser.' : 'A new card waits with Omen tomorrow.'}</p>
+      </div>
+      <div class="dc-hint"${seen ? ' hidden' : ''}>Tap to turn it over</div>
+      <button class="oracle-close dc-close" aria-label="Put the card away">×</button>
+    </div>`;
+  const close = () => { o.classList.add('leaving'); setTimeout(() => o.remove(), 300); };
+  o.querySelector('.dc-close').onclick = close;
+  o.addEventListener('click', e => { if (e.target === o || e.target.classList.contains('dc-stage')) close(); });
+  o.querySelector('.dc-card').onclick = e => {
+    const card = e.currentTarget;
+    if (card.classList.contains('turned')) return;
+    card.classList.add('turned');
+    card.setAttribute('aria-label', c.title);
+    try { localStorage.setItem(cardKey(), dailyCard.day); } catch (err) { /* no storage */ }
+    o.querySelector('.dc-hint').hidden = true;
+    setTimeout(() => { o.querySelector('.dc-words').hidden = false; }, 650);
+    roomHooks.onCard?.();
+  };
+  document.body.appendChild(o);
+  requestAnimationFrame(() => o.classList.add('open'));
+}
+
 // ── Toasts and Escape (2026-10-12) ──
 // A message that floats in and out; screen readers hear it. Replaces alert().
 function flashToast(msg, ms = 4000) {
@@ -5797,7 +5869,7 @@ function flashToast(msg, ms = 4000) {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (mobileNavOpen && !document.querySelector('.blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal')) { mobileNavOpen = false; renderShell(); return; }
-  const tops = document.querySelectorAll('.unfold, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
+  const tops = document.querySelectorAll('.unfold, .oracle-overlay, .daily-card, .blast-overlay, .admin-edit-overlay, .forum-note-overlay, .raven-modal, .prize-pop, .intro-tour');
   const top = tops[tops.length - 1];
   if (top) {
     e.preventDefault();
@@ -6314,7 +6386,7 @@ async function renderRoom(mainView, ownerId = null) {
   const [p, { events }, room, { jobs }, { crews }] = await Promise.all([
     apiFetch('/api/me/passport'), apiFetch('/api/events'),
     apiFetch(visiting ? `/api/rooms/${ownerId}` : '/api/me/room').catch(() => ({ items: null, theme: 'classic', notes: [], unlocked: [], specials: {} })),
-    apiFetch('/api/jobs').catch(() => ({ jobs: [] })), apiFetch('/api/me/crews').catch(() => ({ crews: [] })), refreshLetters(), refreshNews(),
+    apiFetch('/api/jobs').catch(() => ({ jobs: [] })), apiFetch('/api/me/crews').catch(() => ({ crews: [] })), refreshLetters(), refreshNews(), loadDailyCard(),
   ]);
   // Crews you're on whose handshakes are open: someone waiting on you, or crewmates not met yet.
   const shakeAsk = crews.find(c => c.asks > 0), shakeOpen = crews.find(c => c.unshaken > 0);
@@ -6361,13 +6433,18 @@ async function renderRoom(mainView, ownerId = null) {
         if (nf) return [`Hear Omen (new flyer: ${flyerEvent(nf).title})`, `#/event/${flyerEvent(nf).id}`];
         if (shortHanded) return [`Hear Omen (jobs open at ${shortHanded.title})`, `#/event/${shortHanded.id}`];
         if (shakeOpen) return [`Hear Omen (shake hands with your ${shakeOpen.title} crew)`, `#/event/${shakeOpen.id}`];
+        if (!visiting && cardWaiting()) return ['Hear Omen (your card for today!)', 'card'];
         return request ? [`Hear Omen (${request.title} needs hands)`, `#/event/${request.id}`] : ['Pet Omen', null];
       }
       case 'book': return [fresh(it) ? 'Open the Big Book (new posts!)' : 'Open the Big Book', inner ? '#/guild-hall' : '#/courtyard'];
       case 'drawer': return inner ? ['Open the Drawer (your letters)', '#/dm'] : ['Try the Drawer (locked)', null];
       case 'exit': return [fresh(it) ? 'Step out to the Courtyard (something new!)' : 'Step out to the Courtyard', '#/courtyard'];
       case 'hatbox': return ['Open the Ringleader’s Hat Box', 'more'];
-      case 'potion': return [it.img === 'items/mercury_deck' ? 'Draw a card from the Mercury Oracle' : it.img === 'items/crystal_ball' ? 'Gaze into the Crystal Ball' : 'Drink the Strange Little Bottle', ORACLES.mercury];
+      case 'potion': {
+        const full = dailyCard?.full_deck;
+        const verb = it.img === 'items/mercury_deck' ? (full ? 'Draw from the Mercury Oracle' : 'Turn over today’s card') : it.img === 'items/crystal_ball' ? 'Gaze into the Crystal Ball' : 'Drink the Strange Little Bottle';
+        return [verb, full ? ORACLES.mercury : 'card'];
+      }
       case 'stars': return ['Touch the Hanging Stars', ORACLES.field];
       case 'popcorn': return ['Eat the Popcorn', null];
       case 'events': return ['See what’s coming up', '#/events'];
@@ -6404,6 +6481,7 @@ async function renderRoom(mainView, ownerId = null) {
     if (inner && isNew('guild')) return 'New in the Guild Hall!';
     if (isNew('courtyard')) return 'New in the Courtyard!';
     if (newStamp) return 'A new badge in the trunk!';
+    if (cardWaiting()) return 'Your card for today!';
     if (request) return `Hands needed: ${short(request.title)}`;
     return null;
   };
@@ -6517,6 +6595,8 @@ async function renderRoom(mainView, ownerId = null) {
   // ── Playing: hover verb, one click opens ──
   const go = (el, it, href) => {
     if (href === 'more') { mobileNavOpen = true; renderShell(); return; }
+    if (href === ORACLES.mercury) { openMercury(); return; }
+    if (href === 'card') { showDailyCard(); return; }
     if (href.startsWith('http')) { window.open(href, '_blank', 'noopener'); return; }
     // Cozy pages unfold right out of the object you tapped.
     if (unfoldKindOf(href.slice(2))) { unfoldFrom = el.getBoundingClientRect(); location.hash = href; return; }
@@ -6542,7 +6622,9 @@ async function renderRoom(mainView, ownerId = null) {
     },
     raven: () => {
       const w = wrapped()[0], parcel = w && host.querySelector(`[data-gift="${w.id}"]`);
-      if (parcel) unwrap(w, parcel); else say('Croak. Nothing to squawk about right now. It’s keeping watch.');
+      if (parcel) unwrap(w, parcel);
+      else if (!visiting && dailyCard) showDailyCard();
+      else say('Croak. Nothing to squawk about right now. It’s keeping watch.');
     },
     megaphone: () => {
       const last = lastHoller();
@@ -6662,10 +6744,40 @@ async function renderRoom(mainView, ownerId = null) {
     }
   }
 
+  // ── The backer's gift (2026-10-14): after the Ringleader's welcome, the
+  // Mercury Oracle deck drops onto the painted dresser (beside where the
+  // popcorn starts out in this theme), once; after that it's theirs to move.
+  const placeDeck = async () => {
+    if (visiting || !room.backer || room.backer.deck || roomEditing) return;
+    room.backer.deck = true;
+    if (!saved.some(i => i.img === 'items/mercury_deck')) {
+      const pop = defaultRoom(theme).find(i => i.role === 'popcorn') || { l: 81, t: 45, w: 4.5 };
+      const w = 6.4, popBottom = pop.t + pop.w * 189 / 132, deckH = w * 352 / 520;
+      const it = { id: 'mercury', role: 'potion', img: 'items/mercury_deck', l: +(pop.l - w - 1).toFixed(1), t: +(popBottom - deckH).toFixed(1), w, z: 7, anim: 'shimmer' };
+      saved.push(JSON.parse(JSON.stringify(it)));
+      items.push(it);
+      await apiFetch('/api/me/room', { method: 'PUT', body: { theme: savedTheme, items: saved } }).catch(() => {});
+      draw();
+      const node = host.querySelector('[data-item="mercury"]');
+      if (node && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        node.animate([{ transform: 'translateY(-60vh) rotate(-25deg)', opacity: 0 }, { transform: 'translateY(4%) rotate(4deg)', opacity: 1, offset: 0.75 }, { transform: 'none' }], { duration: 1300, easing: 'cubic-bezier(.3,.8,.4,1)' });
+        node.classList.add('deck-new');
+        setTimeout(() => node.classList.remove('deck-new'), 9000);
+      }
+      setTimeout(() => say('🔮 The Mercury Oracle is on your dresser. Tap it to draw a card.'), 1100);
+    }
+    apiFetch('/api/me/backer/deck', { method: 'POST' }).catch(() => {});
+  };
+  roomHooks.placeDeck = placeDeck;
+  roomHooks.onCard = () => draw();
+  if (room.backer?.welcomed && !room.backer.deck) setTimeout(placeDeck, 900);
+
   // ── The raven's tour (2026-10-12): first visit on a device, or "Take the
   // tour" in the menu. A spotlight walks the room; the raven explains.
   roomHooks.startIntro = () => {
     if (document.querySelector('.intro-tour') || roomEditing) return;
+    // A holler (a backer's welcome, say) goes first; the tour waits its turn.
+    if (blastShowing || (room.backer && !room.backer.deck)) { setTimeout(() => { if (scene.isConnected && !document.querySelector('.unfold')) roomHooks.startIntro(); }, 1500); return; }
     const first = (profile.display_name || '').split(' ')[0];
     const el = role => host.querySelector(`[data-role="${role}"]`);
     const steps = [

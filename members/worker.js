@@ -117,6 +117,21 @@ export default {
     if (short) return Response.redirect(`${url.origin}/#/get/${short[1]}`, 302);
     const join = url.pathname.match(/^\/p\/([a-z0-9-]{2,40})\/?$/);
     if (join) return Response.redirect(`${url.origin}/#/p/${join[1]}`, 302);
+    // The Mercury Oracle, inside the house: /oracle/mercury/* is passed
+    // through from its own site so it can open over a Dressing Room in a
+    // frame, with its dark backdrop made see-through (the room shows behind
+    // the cards). Members only.
+    if (url.pathname === "/oracle/mercury" || url.pathname.startsWith("/oracle/mercury/")) {
+      const viewer = await getSessionUser(request, env);
+      if (!viewer) return new Response("Sign in to draw a card.", { status: 401 });
+      const rest = url.pathname.slice("/oracle/mercury".length).replace(/^\/?/, "/");
+      if (!rest.startsWith("/images/") && !await hasFullDeck(env, viewer)) return new Response("The full deck is a gift for the Mercury Oracle's backers. Your card of the day is with Omen.", { status: 403 });
+      const res = await fetch(`${MERCURY_ORACLE}${rest}`, { cf: { cacheTtl: 3600 } });
+      const type = res.headers.get("Content-Type") || "";
+      if (!type.includes("text/html")) return new Response(res.body, { status: res.status, headers: { "Content-Type": type, "Cache-Control": "public, max-age=3600" } });
+      const html = (await res.text()).replace("</head>", `<style>html,body,#root,#root>div{background:transparent!important}.top-bar{background:none!important}</style></head>`);
+      return new Response(html, { status: res.status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store", "X-Frame-Options": "SAMEORIGIN" } });
+    }
     return env.ASSETS.fetch(request);
   },
   // Daily housekeeping (cron in wrangler.jsonc): expired sessions and reset
@@ -258,6 +273,7 @@ async function api(request, env, url, ctx) {
     await env.DB.prepare(
       `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?, datetime('now'))`
     ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
+    await letBackerIn(env, id, email);
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
     ctx.waitUntil(sendWelcomeEmail(env, user2));
@@ -2259,6 +2275,7 @@ const ROOM_SPECIALS = {
   "items/big_top": { stamp: "canvasman", how: "Lead a crew or teach a skill (Boss Canvasman)." },
   "items/gramophone": { handshakes: 3, how: "Shake hands with 3 crewmates." },
   "items/aerial_silks": { rank: true, how: "Become an Apprentice." },
+  "items/mercury_deck": { backer: true, how: "A thank-you gift for the Mercury Oracle's backers." },
 };
 async function roomUnlocks(env, userId) {
   const u = await env.DB.prepare("SELECT rank, is_ringleader FROM users WHERE id = ?").bind(userId).first();
@@ -2269,7 +2286,8 @@ async function roomUnlocks(env, userId) {
   // A special you were given as a surprise is yours, earned or not.
   const { results: gifts } = await env.DB.prepare("SELECT DISTINCT img FROM room_gifts WHERE room_user_id = ? AND opened_at IS NOT NULL").bind(userId).all();
   const given = new Set(gifts.map((g) => g.img));
-  return Object.entries(ROOM_SPECIALS).filter(([k, r]) => given.has(k) || (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
+  const backer = !!(await env.DB.prepare("SELECT 1 FROM backers b JOIN users u ON lower(u.email) = b.email WHERE u.id = ?").bind(userId).first());
+  return Object.entries(ROOM_SPECIALS).filter(([k, r]) => given.has(k) || (r.backer && backer) || (r.stamp && kinds.has(r.stamp)) || (r.handshakes && met >= r.handshakes) || (r.rank && u && u.rank !== "clown")).map(([k]) => k);
 }
 function cleanRoomItems(raw, { ringleader, unlocked }) {
   if (raw === null) return null;
@@ -2345,6 +2363,32 @@ async function hasFix(env, userId) {
 }
 // Name + email → an account: the one that email already has, or a new
 // Courtyard account with a claim link (never a claim link for an old one).
+// ── Backers (2026-10-14) ── people who backed the Mercury Oracle with extra
+// support: a private list (name + email) the Ringleader keeps. They skip the
+// waitlist and get a welcome holler + the Mercury Oracle deck on their dresser.
+const MERCURY_ORACLE = "https://mercury-oracle.vercel.app";
+// The deck's cards (title, phrase, meaning, image), straight from the
+// oracle's own cards.json; kept warm for an hour per worker.
+let mercuryCache = { at: 0, cards: [] };
+async function mercuryCards() {
+  if (mercuryCache.cards.length && Date.now() - mercuryCache.at < 3600e3) return mercuryCache.cards;
+  try {
+    const res = await fetch(`${MERCURY_ORACLE}/cards.json`, { cf: { cacheTtl: 3600 } });
+    const d = await res.json();
+    const cards = (d.tiers || []).flatMap((t) => t.cards || []).filter((c) => c.title);
+    if (cards.length) mercuryCache = { at: Date.now(), cards };
+  } catch (e) { console.error("mercury cards", e); }
+  return mercuryCache.cards;
+}
+// Backers (and the Ringleader) hold the whole deck; everyone gets a card a day.
+async function hasFullDeck(env, user) {
+  return !!user && (!!user.is_ringleader || !!(await backerOf(env, user)));
+}
+const BACKER_WELCOME = "Welcome and thank you for all of your help seeing this project get finished! I've spent a while getting this organized and would love to give you all the gift of a digital oracle.";
+const backerOf = (env, user) => user?.email ? env.DB.prepare("SELECT * FROM backers WHERE email = lower(?)").bind(user.email).first() : null;
+async function letBackerIn(env, userId, email) {
+  await env.DB.prepare("UPDATE users SET waitlisted_at = NULL WHERE id = ? AND EXISTS (SELECT 1 FROM backers WHERE email = lower(?))").bind(userId, email).run();
+}
 async function userByEmail(env, name, email, heard) {
   const user = await env.DB.prepare("SELECT id, email, display_name FROM users WHERE lower(email) = ?").bind(email).first();
   if (user) return { user, claim: null };
@@ -2352,6 +2396,7 @@ async function userByEmail(env, name, email, heard) {
   const { hash, salt } = await hashPassword(bytesToHex(crypto.getRandomValues(new Uint8Array(24))));
   await env.DB.prepare("INSERT INTO users (id, email, password_hash, salt, display_name, rank, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, 'clown', ?, datetime('now'))")
     .bind(id, email, hash, salt, name, (heard || "").trim().slice(0, 120) || null).run();
+  await letBackerIn(env, id, email);
   const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
   await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+60 days'))").bind(await sha256Hex(token), id).run();
   return { user: { id, email, display_name: name }, claim: token };
@@ -2718,6 +2763,7 @@ async function doorRoutes(request, env, url, user) {
         await env.DB.prepare(
           "INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, rank, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, datetime('now'))"
         ).bind(id, email || `${id}@${DOOR_EMAIL_DOMAIN}`, hash, salt, name, chapterId, city, phone, (b.heard || "").trim().slice(0, 120) || null).run();
+        if (email) await letBackerIn(env, id, email);
         target = { id, display_name: name };
         isNew = true;
       }
@@ -2823,7 +2869,25 @@ async function roomRoutes(request, env, url, user) {
   const method = request.method;
   if (pathname === "/api/me/room" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
-    return json({ ...(await roomFor(env, user.id)), gifts: await roomGifts(env, user.id), unlocked: await roomUnlocks(env, user.id), specials: ROOM_SPECIALS });
+    const backer = await backerOf(env, user);
+    return json({ ...(await roomFor(env, user.id)), gifts: await roomGifts(env, user.id), unlocked: await roomUnlocks(env, user.id), specials: ROOM_SPECIALS,
+      backer: backer ? { welcomed: !!backer.welcomed_at, deck: !!backer.deck_at } : null });
+  }
+  // Card of the day (2026-10-14): one Mercury Oracle card per member per
+  // day, everyone. Picked from the day + who you are, so it can't be
+  // re-rolled. The full deck (draw freely) is for backers and the Ringleader.
+  if (pathname === "/api/me/card" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    const today = new Date().toISOString().slice(0, 10);
+    let day = url.searchParams.get("day") || today;
+    // Your own calendar day, give or take a day of time zones.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Math.abs(Date.parse(day) - Date.parse(today)) > 864e5) day = today;
+    const cards = await mercuryCards();
+    if (!cards.length) return err(503, "The deck is shuffling. Try again in a moment.");
+    const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${user.id}|${day}`)));
+    const c = cards[((h[0] << 24 | h[1] << 16 | h[2] << 8 | h[3]) >>> 0) % cards.length];
+    return json({ day, full_deck: await hasFullDeck(env, user), back: "/oracle/mercury/images/card-back.jpg",
+      card: { title: c.title, phrase: c.phrase || null, meaning: c.meaning || null, image: c.imageUrl ? `/oracle/mercury/${c.imageUrl}` : null } });
   }
   if (pathname === "/api/me/room" && method === "PUT") {
     if (!user) return err(401, "Sign in required.");
@@ -3095,6 +3159,11 @@ async function blastRoutes(request, env, url, user, ctx) {
   // The newest blast you haven't picked up (the app rings for it).
   if (pathname === "/api/me/blast" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
+    const backer = await backerOf(env, user);
+    if (backer && !backer.welcomed_at) {
+      const rl = await env.DB.prepare("SELECT display_name FROM users WHERE is_ringleader = 1 ORDER BY created_at LIMIT 1").first();
+      return json({ blast: { id: "welcome", title: "Welcome, backer!", body: BACKER_WELCOME, url: null, sender: rl?.display_name || "Neeff", from_partner: false, gift: "mercury_deck" } });
+    }
     const row = await env.DB.prepare(
       `SELECT b.id, b.title, b.body, b.url, b.created_at, u.display_name AS sender, (u.is_ringleader = 0) AS from_partner FROM blast_receipts r
        JOIN blasts b ON b.id = r.blast_id LEFT JOIN users u ON u.id = b.sender_id
@@ -3102,6 +3171,14 @@ async function blastRoutes(request, env, url, user, ctx) {
        ORDER BY b.id DESC LIMIT 1`
     ).bind(user.id).first();
     return json({ blast: row || null });
+  }
+  // The backer's welcome heard / the deck placed on their dresser: once each.
+  const backerStep = pathname.match(/^\/api\/me\/backer\/(welcomed|deck)$/);
+  if (backerStep && method === "POST") {
+    if (!user) return err(401, "Sign in required.");
+    const col = backerStep[1] === "deck" ? "deck_at" : "welcomed_at";
+    await env.DB.prepare(`UPDATE backers SET ${col} = COALESCE(${col}, datetime('now')), user_id = ? WHERE email = lower(?)`).bind(user.id, user.email).run();
+    return json({ ok: true });
   }
   const seenMatch = pathname.match(/^\/api\/me\/blast\/(\d+)\/seen$/);
   if (seenMatch && method === "POST") {
@@ -3611,6 +3688,8 @@ function courtyardAllowed(method, pathname) {
   if (method === "POST" && /^\/api\/push\/(subscribe|unsubscribe|test)$/.test(pathname)) return true;
   if (method === "GET" && pathname === "/api/me/notifications/pending") return true;
   if (method === "GET" && pathname === "/api/me/blast") return true;
+  if (method === "GET" && pathname === "/api/me/card") return true;
+  if (method === "POST" && /^\/api\/me\/backer\/(welcomed|deck)$/.test(pathname)) return true;
   if (method === "POST" && /^\/api\/me\/blast\/\d+\/seen$/.test(pathname)) return true;
   if (method === "DELETE" && /^\/api\/chat\/\d+$/.test(pathname)) return true;
   // Boards/posts handlers themselves restrict courtyard members to the

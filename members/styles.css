@@ -2437,3 +2437,43 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 .wl-number { border: none; border-radius: 3px; background: #fff8e6; box-shadow: 0 0 0 1px rgba(200,160,90,0.55), 0 12px 24px rgba(90,30,36,0.08); }
 .wl-number small { font-family: 'Cormorant Garamond', serif; font-style: italic; letter-spacing: 0.26em; color: var(--gi-gold-deep); }
 @media (prefers-reduced-motion: reduce) { .gs-rotor, .gs-halo { animation: none; } }
+
+/* ── The Mercury Oracle over the room (2026-10-14) ──
+   The oracle's own backdrop is see-through (the worker strips it); a light
+   veil keeps its pale lettering readable while the room shows behind. */
+.oracle-overlay { position: fixed; inset: 0; z-index: 9000; background: linear-gradient(to bottom, rgba(18, 10, 22, 0.88), rgba(18, 10, 22, 0.4) 120px); backdrop-filter: blur(1.5px); -webkit-backdrop-filter: blur(1.5px); opacity: 0; transition: opacity 0.3s ease; }
+.oracle-overlay.open { opacity: 1; }
+.oracle-overlay.leaving { opacity: 0; }
+.oracle-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
+.oracle-close { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 14px; width: 44px; height: 44px; border-radius: 50%; border: 2px solid #C8A05A; background: rgba(251, 243, 220, 0.92); color: #9B3036; font: 600 26px/1 'Playfair Display', Georgia, serif; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); z-index: 1; }
+.oracle-close:hover { background: #FBF3DC; }
+.oracle-close:focus-visible { outline: 3px solid #C8A05A; outline-offset: 3px; }
+/* The deck, just arrived: a soft golden glow for a little while. */
+.room-obj.deck-new img { filter: drop-shadow(0 0 6px rgba(255, 214, 120, 0.95)) drop-shadow(0 0 16px rgba(200, 160, 90, 0.7)); transition: filter 1.5s ease; }
+@media (prefers-reduced-motion: reduce) { .oracle-overlay { transition: none; } }
+
+/* ── Card of the day (2026-10-14) ── face down; tap and it turns over,
+   then the words rise underneath. Sits over the room like the oracle. */
+.daily-card { position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; background: rgba(18, 10, 22, 0.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); opacity: 0; transition: opacity 0.3s ease; overflow-y: auto; padding: 16px; }
+.daily-card.open { opacity: 1; }
+.daily-card.leaving { opacity: 0; }
+.dc-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 420px; width: 100%; padding: 56px 0 24px; }
+.dc-kicker { font: italic 500 15px/1.3 'Cormorant Garamond', Georgia, serif; letter-spacing: 0.14em; text-transform: uppercase; color: #F4E8D0; text-align: center; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+.dc-card { position: relative; width: min(68vw, 280px); aspect-ratio: 1; border: 0; padding: 0; background: none; cursor: pointer; perspective: 1200px; }
+.dc-face { position: absolute; inset: 0; border-radius: 14px; overflow: hidden; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform 0.7s cubic-bezier(.3, .7, .3, 1); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 0 0 3px #C8A05A; }
+.dc-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dc-front { transform: rotateY(180deg); background: #FBF3DC; }
+.dc-card.turned .dc-back { transform: rotateY(-180deg); }
+.dc-card.turned .dc-front { transform: rotateY(0deg); }
+.dc-card:not(.turned) { animation: dc-bob 2.6s ease-in-out infinite; }
+@keyframes dc-bob { 50% { transform: translateY(-6px) rotate(-1deg); } }
+.dc-card:focus-visible { outline: 3px solid #C8A05A; outline-offset: 6px; border-radius: 16px; }
+.dc-hint { font: italic 16px 'Cormorant Garamond', Georgia, serif; color: #F4E8D0; opacity: 0.85; }
+.dc-words { background: #FBF3DC; border: 1px solid #C8A05A; border-radius: 12px; padding: 18px 20px; text-align: center; color: #3A2420; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); animation: dc-rise 0.5s ease both; }
+.dc-words h2 { margin: 0 0 6px; font: 700 26px/1.15 'Playfair Display', Georgia, serif; color: #9B3036; }
+.dc-phrase { margin: 0 0 10px; font: italic 19px/1.35 'Cormorant Garamond', Georgia, serif; color: #8F6E34; }
+.dc-meaning { margin: 0 0 12px; font: 18px/1.45 'Cormorant Garamond', Georgia, serif; }
+.dc-fine { margin: 0; font: italic 14px 'Cormorant Garamond', Georgia, serif; color: #8F6E34; }
+@keyframes dc-rise { from { opacity: 0; transform: translateY(10px); } }
+.dc-close { position: absolute; top: 8px; right: 0; }
+@media (prefers-reduced-motion: reduce) { .dc-face { transition: none; } .dc-card:not(.turned), .dc-words { animation: none; } }
