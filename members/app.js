@@ -6436,7 +6436,6 @@ function fitChatToKeyboard() {
   document.body.classList.toggle('chat-typing', typing);
   if (typing) {
     Object.assign(panel.style, { top: `${vv.offsetTop}px`, bottom: 'auto', height: `${vv.height}px` });
-    window.scrollTo(0, 0);
     chatToLatest();
   } else panel.style.removeProperty('top'), panel.style.removeProperty('bottom'), panel.style.removeProperty('height');
 }
@@ -7125,35 +7124,39 @@ async function renderRoom(mainView, ownerId = null) {
     if (blastShowing || (room.backer && !room.backer.deck)) { setTimeout(() => { if (scene.isConnected && !document.querySelector('.unfold')) roomHooks.startIntro(); }, 1500); return; }
     const first = (profile.display_name || '').split(' ')[0];
     const el = role => host.querySelector(`[data-role="${role}"]`);
+    // Neeff gives the tour himself (2026-10-14), his own ten steps.
+    // A step points at a room object (role) or anything on screen (sel).
+    const chatEl = () => document.querySelector('body.chat-docked #chatPanel') || document.getElementById('chatLauncher');
+    const forumEl = () => document.querySelector('#forumWing:not([hidden])') || document.querySelector('.topnav-link[href="#/courtyard"], .bottomtabs a[href="#/courtyard"]');
     const steps = [
-      // Why we're here, before where things are.
-      { text: `Welcome to Carnival Society, ${escapeHtml(first)}! We build <b>real carnivals together</b>: out in the world, with our hands, side by side. The shows, the builds, the games, the party.`, cta: 'Tell me more' },
-      { text: 'This app is the backstage. It finds you a night, a job and a crew, then sends you out the door to make it happen. <b>Everything you win in here, you earn out there.</b>', cta: 'Show me around' },
-      { text: 'This is your Dressing Room. I’m Omen, the raven, your guide. Everything glowing in here is something you can tap.' },
-      { role: 'flyer', text: 'These flyers are real upcoming events. Tap one to see it and <b>take a job</b> on the crew. That’s how you join in.' },
-      { role: 'trunk', text: 'Your steamer trunk. Every time you show up and help at a real carnival, you win a badge and it lands in here. <b>Two shifts and you’re an Apprentice.</b>' },
-      inner ? { role: 'book', text: 'The Big Book is the <b>Guild Hall</b>: news, plans and talk for the whole troupe.' }
-            : { role: 'exit', text: 'Step out to the <b>Courtyard</b> for guild news and calls for helping hands.' },
-      { role: 'mirror', text: 'The mirror is <b>you</b>: your photo, your acts, your profile. Friends who visit leave notes on it, too.' },
-      { role: 'raven', text: 'And me, <b>Omen</b>! When there’s a letter, a new flyer or a job that needs hands, <b>I squawk about it</b>. And every day I keep <b>a card from the Mercury Oracle</b> just for you. Tap me to turn it over.' },
-      { text: 'Through <b>Backstage</b> (up top) are everyone else’s dressing rooms. Pop into the <b>New arrivals</b> doorway, visit someone, leave a note on their mirror.' },
-      { text: 'And the <b>Green Room</b> is where the troupe hangs out and talks. Say hi any time!' },
-      { text: 'That’s the tour! Want me to find you on your phone too, with job reminders, letters and hollers?', last: true },
-    ].filter(st => !st.role || el(st.role));
+      { face: 'head_happy', text: `Hi ${escapeHtml(first)}! I’m <b>Neeff</b>, creator of the Carnival Society.`, cta: 'Hi Neeff!' },
+      { face: 'head_open', text: 'We are building <b>the world’s largest real-life circus and carnival network!</b> Real nights, real fire, real sawdust, real people.', cta: 'Tell me more' },
+      { face: 'head_happy', text: 'This is <b>your Dressing Room</b>, your home backstage. Anything that glows in here, you can tap.' },
+      { sel: chatEl, text: 'There’s a <b>real, live chat room</b> over here: the Green Room. Say hi to the troupe anytime!' },
+      { sel: forumEl, text: 'The <b>forum</b> is over here. This is how we stay organized: news, plans and calls for helping hands.' },
+      el('flyer') ? { role: 'flyer', text: '<b>Upcoming events</b> are here. These flyers are real carnivals. Tap one and take a job on the crew.' }
+                  : { sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), text: '<b>Upcoming events</b> are up here. Every one is a real carnival: tap in and take a job on the crew.' },
+      { role: 'trunk', text: 'And this trunk: <b>every time you’re part of a carnival, you win awards</b>, and they land in here.' },
+      { face: 'head_wink', text: 'This is <b>technically a guild network</b>, but don’t worry about that now. You’ve joined at the entry level of our little club.' },
+      { face: 'head_open', text: `Here’s how you move up:<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Welcome!</li><li><b>Apprentice</b>: win 3 badges, including 2 volunteer shifts. The Guild Hall, Letters and your chapter board open up.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred. The trusted heart of the guild.</li></ol>` },
+      { sel: () => document.getElementById('roomArrange'), text: 'Last thing: this room is <b>yours to make</b>. Tap <b>Arrange</b> to move things, add decorations and change the room. Prizes you win go on your shelves, and friends who visit leave notes on your mirror.' },
+      { face: 'head_wink', text: 'That’s the tour! Want me to nudge your phone too, for job reminders, letters and hollers?', last: true },
+    ].filter(st => (!st.role || el(st.role)) && (!st.sel || st.sel()));
     const tour = document.createElement('div');
     tour.className = 'intro-tour';
     tour.setAttribute('role', 'dialog');
-    tour.setAttribute('aria-label', 'A tour of your Dressing Room');
+    tour.setAttribute('aria-label', 'Neeff shows you around');
     tour.innerHTML = `<div class="intro-spot"></div>
-      <div class="intro-card"><img src="${ROOM}raven_squawk.png" alt="" class="intro-bird"><div class="intro-text" aria-live="polite"></div>
+      <div class="intro-card"><img src="${ROOM}head_happy.png" alt="Neeff" class="intro-bird intro-neeff"><div class="intro-text" aria-live="polite"></div>
         <div class="intro-btns"><span class="intro-step"></span><button class="raven-offer-no" data-skip>Skip the tour</button><button class="composer-submit" data-next>Next</button></div></div>`;
     document.body.appendChild(tour);
     const spot = tour.querySelector('.intro-spot'), card = tour.querySelector('.intro-card');
     const done = () => { try { localStorage.setItem('cs-intro-' + profile.id, '1'); } catch (e) { /* ignore */ } tour.remove(); };
     let i = 0;
     const show = () => {
-      const st = steps[i], target = st.role && el(st.role);
+      const st = steps[i], target = st.role ? el(st.role) : st.sel ? st.sel() : null;
       tour.querySelector('.intro-text').innerHTML = st.text;
+      tour.querySelector('.intro-neeff').src = `${ROOM}${st.face || 'head_happy'}.png`;
       tour.querySelector('.intro-step').textContent = `${i + 1} of ${steps.length}`;
       const next = tour.querySelector('[data-next]');
       next.textContent = st.last ? 'Yes, notify me' : st.cta || 'Next';
@@ -7162,12 +7165,13 @@ async function renderRoom(mainView, ownerId = null) {
       if (target) {
         target.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
         // Light the whole group (all three flyers), not just the first.
-        const rs = [...host.querySelectorAll(`[data-role="${st.role}"]`)].map(n => n.getBoundingClientRect());
+        const rs = (st.role ? [...host.querySelectorAll(`[data-role="${st.role}"]`)] : [target]).map(n => n.getBoundingClientRect());
         const r = { left: Math.min(...rs.map(q => q.left)), top: Math.min(...rs.map(q => q.top)), right: Math.max(...rs.map(q => q.right)), bottom: Math.max(...rs.map(q => q.bottom)) };
         r.width = r.right - r.left; r.height = r.bottom - r.top;
         const pad = 10;
         Object.assign(spot.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
         // The card sits below the object if there's room, else above.
+        if (r.height > innerHeight * 0.5) { card.style.top = ''; card.style.bottom = ''; next.focus(); return; } // a tall panel: card at the bottom
         const below = r.bottom + 16 + 190 < innerHeight;
         card.style.top = below ? `${r.bottom + 16}px` : 'auto';
         card.style.bottom = below ? 'auto' : `${innerHeight - r.top + 16}px`;

@@ -2641,3 +2641,10 @@ body.chat-docked .room-visit-plaque > span { flex-basis: 100%; text-align: cente
 /* Typing in the Green Room on a phone: the tab bar steps aside for the keyboard. */
 body.chat-typing .bottomtabs { display: none; }
 body.chat-typing .chat-panel { transition: none; }
+/* Neeff gives the tour (2026-10-14). */
+.intro-neeff { width: 76px; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.3)); }
+.intro-ranks { margin: 8px 0 0; padding-left: 1.3em; display: grid; gap: 4px; font-size: 0.95em; }
+.intro-ranks li::marker { color: #9B3036; font-weight: 700; }
+/* Chat stacks from the bottom like a messaging app: with only a few
+   messages, the newest sits right above where you type. */
+.chat-list > :first-child { margin-top: auto; }
