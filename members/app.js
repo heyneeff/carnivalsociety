@@ -5883,7 +5883,18 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
   let typing = null;
   let shrink = null;
   const finish = () => {
-    stopBlare(); clearInterval(typing); rig?.close();
+    stopBlare(); clearInterval(typing);
+    // Every holler ends with a BANG: he explodes into stars and confetti.
+    const boomHead = o.classList.contains('answered') && o.querySelector(inRoom ? '.holler-head' : '.blast-head');
+    if (boomHead && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      explodeHead(boomHead, rig);
+      const r0 = rig; setTimeout(() => r0?.close(), 900);
+      floorCone?.classList.remove('cone-ringing');
+      o.classList.add('exploding');
+      setTimeout(() => { if (!o.isConnected) return; o.remove(); blastShowing = null; if (floorCone) { const c = floorCone; floorCone = null; c.animate([{ transform: 'none' }, { transform: `translateX(${offRight}px) rotate(20deg)` }], { duration: 800, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' }); setTimeout(() => c.remove(), 820); } if (blast.gift === 'mercury_deck' && !preview) setTimeout(() => roomHooks.placeDeck?.(), 500); }, 750);
+      return;
+    }
+    rig?.close();
     floorCone?.classList.remove('cone-ringing');
     // …and rolls back out to the right when it's done.
     const rollOut = () => {
@@ -5929,9 +5940,12 @@ function showBlast(blast, { live = false, preview = false, replay = false } = {}
       head.hidden = false;
       const bell = `translate(${cr.left + cr.width * 0.08 - (left + W / 2)}px, ${cr.top + cr.height * 0.55 - (top + Hh / 2)}px) scale(${(cr.height * 0.9 / W).toFixed(3)})`;
       if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        head.animate([{ transform: bell, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 620, easing: 'cubic-bezier(.2,1.4,.4,1)' });
+        // He spins out of the bell, whirling twice before he lands.
+        head.animate([{ transform: `${bell} rotate(-720deg)`, opacity: 0.6 }, { transform: 'rotate(18deg) scale(1.08)', opacity: 1, offset: 0.8 }, { transform: 'none', opacity: 1 }], { duration: 950, easing: 'cubic-bezier(.2,.8,.3,1)' });
       }
       shrink = () => head.animate([{ transform: 'none', opacity: 1 }, { transform: bell, opacity: 0 }], { duration: 420, easing: 'cubic-bezier(.5,0,.8,.5)', fill: 'forwards' });
+    } else if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      head?.animate([{ transform: 'rotate(-720deg) scale(0.4)' }, { transform: 'rotate(15deg) scale(1.1)', offset: 0.8 }, { transform: 'none' }], { duration: 950, easing: 'cubic-bezier(.2,.8,.3,1)' });
     }
     const text = blast.body || '';
     // Neeff's own faces: pops up excited, yaks (shut / talking / shouting),
@@ -6115,6 +6129,39 @@ function showCarnieCode() {
   requestAnimationFrame(() => o.classList.add('open'));
 }
 
+// ── KABOOM (2026-10-14) ── Neeff's head swells, flashes and bursts into
+// stars, sparkles and confetti, with a little bang through the megaphone.
+function explodeHead(el, rig) {
+  if (!el) return;
+  const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height * 0.45;
+  el.animate([{ transform: 'none', opacity: 1, filter: 'brightness(1)' }, { transform: 'scale(1.25) rotate(-6deg)', opacity: 1, filter: 'brightness(2.2)', offset: 0.35 }, { transform: 'scale(0.1) rotate(25deg)', opacity: 0, filter: 'brightness(3)' }], { duration: 420, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' });
+  const flash = document.createElement('div');
+  flash.className = 'boom-flash';
+  flash.style.cssText = `left:${cx}px;top:${cy}px`;
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 700);
+  const bits = ['★', '✦', '✶', '❋', '★', '✦'], colors = ['#FFD86B', '#9B3036', '#4E8C82', '#C77B8A', '#F4E8D0', '#FF9F43', '#7E5BEF'];
+  for (let k = 0; k < 42; k++) {
+    const p = document.createElement('span');
+    const star = k % 3 !== 0;
+    p.className = 'boom-bit';
+    p.textContent = star ? bits[k % bits.length] : '';
+    p.style.cssText = `left:${cx}px;top:${cy}px;color:${colors[k % colors.length]};${star ? `font-size:${14 + (k % 4) * 7}px` : `width:${6 + k % 5}px;height:${9 + k % 4}px;background:${colors[k % colors.length]}`}`;
+    document.body.appendChild(p);
+    const a = Math.random() * Math.PI * 2, d = 120 + Math.random() * Math.min(innerWidth, innerHeight) * 0.45;
+    p.animate([{ transform: 'translate(-50%,-50%) scale(0.2)', opacity: 1 }, { transform: `translate(calc(-50% + ${Math.cos(a) * d}px), calc(-50% + ${Math.sin(a) * d + 60}px)) rotate(${Math.random() * 720 - 360}deg) scale(1)`, opacity: 0 }], { duration: 700 + Math.random() * 600, delay: 120, easing: 'cubic-bezier(.1,.8,.3,1)', fill: 'forwards' });
+    setTimeout(() => p.remove(), 1500);
+  }
+  // the bang: a burst of noise through the megaphone, falling away fast
+  try {
+    if (!rig || soundOff()) return;
+    const { ctx, input } = rig, len = ctx.sampleRate * 0.5, buf = ctx.createBuffer(1, len, ctx.sampleRate), data = buf.getChannelData(0);
+    for (let n = 0; n < len; n++) data[n] = (Math.random() * 2 - 1) * Math.pow(1 - n / len, 3);
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf; g.gain.value = 0.9; src.connect(g).connect(input); src.start(ctx.currentTime + 0.1);
+  } catch (e) { /* no sound, still a boom */ }
+}
+
 // ── Neeff's tour, holler-style (2026-10-14) ── his big head over the room,
 // a comic speech bubble that types with babble and a flapping mouth, faces
 // switching mid-line, and a spotlight on whatever he's talking about.
@@ -6140,7 +6187,12 @@ function runNeeffTour(steps, { el, host, onDone }) {
   let i = 0, timer = null, rig = null, babble = () => {}, finishNow = null;
   const fmt = str => escapeHtml(str).replace(/\*([^*]*)\*?/g, '<b>$1</b>');
   const face = f => { head.src = `${ROOM}${NT_FACES[f] || f}.png`; headBox.classList.toggle('sus', f === 'sus'); headBox.classList.toggle('cosmic', f === 'cosmic'); };
-  const end = () => { clearTimeout(timer); rig?.close?.(); t.classList.add('leaving'); setTimeout(() => t.remove(), 350); onDone?.(); };
+  const end = () => {
+    clearTimeout(timer); finishNow = null; headBox.classList.remove('talking');
+    onDone?.();
+    if (!still) { explodeHead(head, rig); t.classList.add('exploding'); setTimeout(() => { rig?.close?.(); t.remove(); }, 800); return; }
+    rig?.close?.(); t.remove();
+  };
   // One line, typed: a char every 32ms, a babble on every other letter, the
   // mouth flapping; | waits a beat; {face} swaps the face right there.
   const type = st => {
@@ -7244,8 +7296,8 @@ async function renderRoom(mainView, ownerId = null) {
     const chatEl = () => document.querySelector('body.chat-docked #chatPanel') || document.getElementById('chatLauncher');
     const forumEl = () => document.querySelector('#forumWing:not([hidden])') || document.querySelector('.topnav-link[href="#/courtyard"], .bottomtabs a[href="#/courtyard"]');
     const steps = [
-      { move: 'pop', say: `{happy}OH! HELLO, ${first.toUpperCase()}! | I'm *NEEFF*. | Creator of the Carnival Society. | Ringleader. | Cowboy. | Kind of a big deal.`, cta: 'Hi Neeff!' },
-      { move: 'sus', say: `{sus}I've got my eye on you... | | | {wink}...in a GOOD way.`, cta: 'Uh, okay!' },
+      { move: 'spin', say: `{happy}OH! HELLO, ${first.toUpperCase()}! | I'm *NEEFF*. | Creator of the Carnival Society. | Ringleader. | Cowboy. | Kind of a big deal.`, cta: 'Hi Neeff!' },
+      { move: 'sus', say: `{sus}I've got my eye on you... | | | {wink}JK... | | {sus}*But seriously!*`, cta: 'Uh, okay!' },
       { move: 'zoom', say: `{open}We are building *THE WORLD'S LARGEST REAL-LIFE CIRCUS AND CARNIVAL NETWORK!* | Real fire. | Real sawdust. | Real people.`, cta: 'Whoa' },
       { move: 'shake', say: `{open}I built this to organize our circus and carnival and keep track of EVERYONE. | | {sus}*NO BIG DEAL, JEEZ.*` },
       { move: 'boing', say: `{happy}This is *YOUR Dressing Room!* | Anything that glows, you can poke. | Go on. | {wink}Poke it. | (Later.)` },
