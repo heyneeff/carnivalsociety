@@ -40,7 +40,7 @@
   }
   .spiral-stage {
     position: absolute; top: 50%; left: 50%;
-    width: 170vmax; height: 170vmax;
+    width: 125vmax; height: 125vmax;
     transform: translate(-50%, -50%);
     z-index: 2; pointer-events: none;
     -webkit-mask-image: radial-gradient(circle at center,
@@ -65,7 +65,7 @@
   }
   @keyframes rise { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
   @keyframes fade { from { opacity:0; } to { opacity:1; } }
-  @media (orientation: landscape) { .spiral-stage { width: 150vmax; height: 150vmax; } }
+  @media (orientation: landscape) { .spiral-stage { width: 115vmax; height: 115vmax; } }
 </style>
 </head>
 <body>
@@ -111,7 +111,7 @@
   function animate(time) {
     const dt=Math.min(0.05,(time-lastTime)/1000); lastTime=time;
     kick*=Math.pow(0.12,dt);
-    rotorAngle+=dt*(2+kick); haloAngle-=dt*(1.1+kick*0.6);
+    rotorAngle+=dt*(7+kick); haloAngle-=dt*(4+kick*0.6);
     rotor.style.transform=`rotate(${rotorAngle.toFixed(2)}deg)`;
     halo.style.transform=`rotate(${haloAngle.toFixed(2)}deg)`;
     requestAnimationFrame(animate);
