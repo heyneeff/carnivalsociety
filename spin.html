@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#F4E8D0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CSI">
+<title>Carnival Society</title>
+<style>
+  :root { --burgundy-red: #9B3036; --cream: #F4E8D0; }
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body {
+    background: var(--cream);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 20%, rgba(155,48,54,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 50% 95%, rgba(143,110,52,0.05) 0%, transparent 70%);
+    pointer-events: none; z-index: 1;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    opacity: 0.08; mix-blend-mode: multiply;
+    pointer-events: none; z-index: 4;
+  }
+  .stage {
+    position: fixed; inset: 0; height: 100dvh;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .spiral-stage {
+    position: absolute; top: 50%; left: 50%;
+    width: 170vmax; height: 170vmax;
+    transform: translate(-50%, -50%);
+    z-index: 2; pointer-events: none;
+    -webkit-mask-image: radial-gradient(circle at center,
+      transparent 0%, transparent 18%,
+      rgba(0,0,0,0.4) 26%, rgba(0,0,0,0.85) 36%,
+      black 48%, black 100%);
+    mask-image: radial-gradient(circle at center,
+      transparent 0%, transparent 18%,
+      rgba(0,0,0,0.4) 26%, rgba(0,0,0,0.85) 36%,
+      black 48%, black 100%);
+    animation: fade 2s cubic-bezier(0.22,1,0.36,1) 0.15s both;
+  }
+  .spiral-stage svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .spiral-rotor, .spiral-halo { transform-origin: 0 0; will-change: transform; }
+  .wordmark {
+    position: relative; z-index: 3;
+    width: min(86vw, 62dvh, 600px);
+    aspect-ratio: 728 / 520; object-fit: contain;
+    filter: drop-shadow(0 6px 24px rgba(90,30,36,0.25));
+    animation: rise 1.5s cubic-bezier(0.22,1,0.36,1) 0.55s both;
+    pointer-events: none;
+  }
+  @keyframes rise { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+  @media (orientation: landscape) { .spiral-stage { width: 150vmax; height: 150vmax; } }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="spiral-stage">
+    <svg viewBox="-240 -240 480 480" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+      <g class="spiral-halo" id="spiralHalo"></g>
+      <g class="spiral-rotor" id="spiralRotor"><circle r="3.5" fill="#9B3036"/></g>
+    </svg>
+  </div>
+  <img class="wordmark"
+       src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png"
+       alt="Carnival Society International">
+</div>
+<script>
+  // Same swirl as the homepage hero.
+  (function() {
+    const rotor = document.getElementById('spiralRotor');
+    const N=6, maxR=188, twist=2.1, armFrac=0.55, steps=90;
+    const armW = (2*Math.PI/N)*armFrac;
+    const NS = 'http://www.w3.org/2000/svg';
+    for (let k=0; k<N; k++) {
+      const phi = k*(2*Math.PI/N); let d='';
+      for (let i=0;i<=steps;i++) { const f=i/steps,r=f*maxR,t=phi+twist*f; d+=(i===0?'M':'L')+(r*Math.cos(t)).toFixed(2)+' '+(r*Math.sin(t)).toFixed(2); }
+      for (let i=steps;i>=0;i--) { const f=i/steps,r=f*maxR,t=phi+armW*f+twist*f; d+='L'+(r*Math.cos(t)).toFixed(2)+' '+(r*Math.sin(t)).toFixed(2); }
+      d+='Z';
+      const p=document.createElementNS(NS,'path'); p.setAttribute('d',d); p.setAttribute('fill','#9B3036'); rotor.insertBefore(p,rotor.firstChild);
+    }
+  })();
+  (function() {
+    const halo=document.getElementById('spiralHalo'); const NS='http://www.w3.org/2000/svg'; const N=24,R=218;
+    for (let k=0;k<N;k++) {
+      const phi=k*(2*Math.PI/N),x=R*Math.cos(phi),y=R*Math.sin(phi);
+      if (k%2===0) { const d=document.createElementNS(NS,'circle'); d.setAttribute('cx',x.toFixed(2)); d.setAttribute('cy',y.toFixed(2)); d.setAttribute('r','2.8'); d.setAttribute('fill','#9B3036'); halo.appendChild(d); }
+      else { const g=document.createElementNS(NS,'g'); g.setAttribute('transform',`translate(${x.toFixed(2)} ${y.toFixed(2)})`); g.setAttribute('stroke','#9B3036'); g.setAttribute('stroke-width','1.1'); g.setAttribute('stroke-linecap','round'); ['M -5 0 L 5 0','M 0 -5 L 0 5','M -3.5 -3.5 L 3.5 3.5','M -3.5 3.5 L 3.5 -3.5'].forEach(d=>{const p=document.createElementNS(NS,'path');p.setAttribute('d',d);g.appendChild(p);}); halo.appendChild(g); }
+    }
+  })();
+
+  // Spins forever; a tap gives it a whirl.
+  const rotor=document.getElementById('spiralRotor');
+  const halo=document.getElementById('spiralHalo');
+  let rotorAngle=0, haloAngle=0, kick=0, lastTime=performance.now();
+  function animate(time) {
+    const dt=Math.min(0.05,(time-lastTime)/1000); lastTime=time;
+    kick*=Math.pow(0.12,dt);
+    rotorAngle+=dt*(2+kick); haloAngle-=dt*(1.1+kick*0.6);
+    rotor.style.transform=`rotate(${rotorAngle.toFixed(2)}deg)`;
+    halo.style.transform=`rotate(${haloAngle.toFixed(2)}deg)`;
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(t=>{lastTime=t;animate(t);});
+
+  // Keep the screen awake once someone taps it.
+  let lock=null;
+  async function stayAwake(){
+    try { if ('wakeLock' in navigator && !lock) { lock=await navigator.wakeLock.request('screen'); lock.addEventListener('release',()=>{lock=null;}); } } catch(e) {}
+  }
+  document.addEventListener('pointerdown',()=>{ kick=Math.min(kick+90,360); stayAwake(); });
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && lock===null) stayAwake(); });
+</script>
+</body>
+</html>
