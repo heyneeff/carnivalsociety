@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#F4E8D0">
+<title>Guild Classes · Carnival Society</title>
+<meta property="og:title" content="Guild Classes: A Season with the Carnival Society">
+<meta property="og:image" content="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --burgundy-deep: #5A1E24;
+    --burgundy:      #7A2E34;
+    --burgundy-red:  #9B3036;
+    --gold:          #C8A05A;
+    --gold-bright:   #DFBE7D;
+    --gold-deep:     #8F6E34;
+    --cream:         #F4E8D0;
+    --cream-soft:    #EADFBC;
+    --ink:           #231712;
+    --ink-soft:      #5A4238;
+  }
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--cream); color: var(--ink);
+    font-family: 'Cormorant Garamond', serif; font-size: 17px; line-height: 1.55;
+    overflow-x: hidden; -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 20%, rgba(155,48,54,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 50% 95%, rgba(143,110,52,0.05) 0%, transparent 70%);
+    pointer-events: none; z-index: 1;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    opacity: 0.08; mix-blend-mode: multiply; pointer-events: none; z-index: 2;
+  }
+  nav, main, footer { position: relative; z-index: 3; }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    padding: 0.85rem 1.8rem; display: flex; align-items: center;
+    background: rgba(244,232,208,0.88);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(139,60,64,0.15);
+  }
+  .nav-logomark { display: flex; align-items: center; gap: 0.65rem; text-decoration: none; }
+  .nav-logomark img { height: 40px; width: auto; display: block; }
+  .nav-brand-text { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1rem; letter-spacing: 0.08em; color: var(--burgundy-red); }
+  .nav-brand-text em { font-style: normal; font-family: 'Cormorant Garamond', serif; font-size: 0.68rem; letter-spacing: 0.24em; text-transform: uppercase; color: var(--gold); margin-left: 0.3rem; }
+
+  /* HERO */
+  .hero {
+    position: relative; min-height: 78vh; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    padding: 7rem 1.5rem 4rem; text-align: center;
+  }
+  .spiral-stage {
+    position: absolute; top: 50%; left: 50%;
+    width: 130vmin; height: 130vmin; transform: translate(-50%, -50%);
+    z-index: 1; pointer-events: none;
+    -webkit-mask-image: radial-gradient(circle at center, transparent 0%, transparent 18%, rgba(0,0,0,0.4) 26%, rgba(0,0,0,0.85) 36%, black 48%, black 100%);
+    mask-image: radial-gradient(circle at center, transparent 0%, transparent 18%, rgba(0,0,0,0.4) 26%, rgba(0,0,0,0.85) 36%, black 48%, black 100%);
+    animation: fade 2s cubic-bezier(0.22,1,0.36,1) 0.15s both;
+  }
+  .spiral-stage svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .spiral-rotor, .spiral-halo { transform-origin: 0 0; will-change: transform; }
+  .hero-inner { position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 1.25rem; }
+  .hero-wordmark {
+    width: clamp(220px, 38vw, 420px); aspect-ratio: 728 / 520; object-fit: contain;
+    filter: drop-shadow(0 6px 24px rgba(90,30,36,0.25));
+    animation: rise 1.5s cubic-bezier(0.22,1,0.36,1) 0.4s both;
+  }
+  .hero-title {
+    font-family: 'Playfair Display', serif; font-weight: 700; color: var(--burgundy-red);
+    font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.05; letter-spacing: -0.01em;
+    background: rgba(244,232,208,0.82); padding: 0.2rem 0.9rem; border-radius: 6px;
+    animation: rise 1.5s cubic-bezier(0.22,1,0.36,1) 0.6s both;
+  }
+  .hero-title em { font-style: italic; font-weight: 400; color: var(--gold-deep); }
+  .hero-kicker {
+    max-width: 40ch; font-style: italic; font-weight: 500; font-size: 1.15rem; color: var(--ink-soft);
+    background: rgba(244,232,208,0.82); padding: 0.3rem 0.9rem; border-radius: 6px;
+    animation: rise 1.5s cubic-bezier(0.22,1,0.36,1) 0.8s both;
+  }
+  @keyframes rise { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fade { from { opacity:0; } to { opacity:1; } }
+
+  /* SECTIONS */
+  section { padding: 5rem 1.5rem; }
+  section.soft { background: var(--cream-soft); }
+  .section-label {
+    font-style: italic; font-size: 0.78rem; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--gold-deep); margin-bottom: 1rem;
+    display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+  }
+  .section-label::before, .section-label::after { content: ''; width: 38px; height: 1px; background: currentColor; opacity: 0.5; }
+  .section-title {
+    font-family: 'Playfair Display', serif; font-weight: 700; color: var(--burgundy-red);
+    font-size: clamp(1.9rem, 4vw, 2.8rem); line-height: 1.1; text-align: center; margin-bottom: 1rem;
+  }
+  .section-title em { font-style: italic; font-weight: 400; color: var(--gold); }
+  .section-kicker {
+    text-align: center; font-style: italic; font-weight: 500; font-size: 1.1rem; line-height: 1.35;
+    color: var(--ink-soft); max-width: 46ch; margin: 0 auto 3rem;
+  }
+
+  /* CLASS CARDS */
+  .track { max-width: 1080px; margin: 0 auto 3.5rem; }
+  .track:last-child { margin-bottom: 0; }
+  .track-title {
+    font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic;
+    font-size: 1.4rem; color: var(--burgundy); text-align: center;
+    padding-bottom: 0.6rem; margin-bottom: 0.4rem; border-bottom: 1px solid rgba(200,160,90,0.5);
+  }
+  .track-blurb { text-align: center; font-style: italic; color: var(--ink-soft); margin-bottom: 1.6rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; }
+  .card {
+    position: relative; background: #FBF3DC; padding: 1.75rem 1.5rem 1.5rem;
+    box-shadow: 0 20px 40px rgba(90,30,36,0.1), 0 0 0 1px rgba(200,160,90,0.4);
+    display: flex; flex-direction: column; gap: 0.7rem;
+  }
+  .card.starter { box-shadow: 0 20px 40px rgba(90,30,36,0.14), 0 0 0 2px var(--burgundy-red); }
+  .starter-tag {
+    position: absolute; top: -0.75rem; right: 1rem;
+    background: var(--burgundy-red); color: var(--cream);
+    font-style: italic; font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 0.2rem 0.7rem; border-radius: 999px;
+  }
+  .card h3 { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.25rem; line-height: 1.2; color: var(--burgundy-red); }
+  .card .leave { font-weight: 500; font-size: 1.05rem; color: var(--ink); line-height: 1.35; }
+  .card .leave b { display: block; font-weight: 600; font-style: italic; font-size: 0.72rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold-deep); margin-bottom: 0.1rem; }
+  .card .meta { margin-top: auto; padding-top: 0.8rem; border-top: 1px dashed rgba(143,110,52,0.45); display: grid; gap: 0.3rem; font-size: 0.98rem; color: var(--ink-soft); }
+  .card .meta div { display: flex; gap: 0.5rem; }
+  .card .meta span:first-child { flex: 0 0 4.6rem; font-style: italic; color: var(--gold-deep); }
+  .card .tba { font-style: italic; opacity: 0.75; }
+
+  /* HOW IT RUNS */
+  .runs { max-width: 760px; margin: 0 auto; display: grid; gap: 1.1rem; }
+  .run { display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.9rem; align-items: start; }
+  .run-mark { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.6rem; color: var(--gold); line-height: 1; text-align: center; }
+  .run h4 { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.15rem; color: var(--burgundy); }
+  .run p { font-weight: 500; font-size: 1.08rem; color: var(--ink-soft); line-height: 1.4; }
+
+  /* ROOM */
+  .room { max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; }
+  .room h4 { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.2rem; color: var(--burgundy); margin-bottom: 0.7rem; padding-bottom: 0.4rem; border-bottom: 1px solid rgba(200,160,90,0.5); }
+  .room ul { list-style: none; display: grid; gap: 0.5rem; }
+  .room li { font-weight: 500; font-size: 1.05rem; color: var(--ink-soft); line-height: 1.35; padding-left: 1.3rem; position: relative; }
+  .room li::before { content: '✦'; position: absolute; left: 0; color: var(--gold); font-size: 0.8rem; top: 0.2rem; }
+
+  /* CONTACT */
+  .contact { text-align: center; }
+  .btn {
+    display: inline-block; padding: 0.85rem 2.4rem; margin-top: 0.5rem;
+    border: 1px solid var(--burgundy-red); color: var(--burgundy-red);
+    font-style: italic; font-weight: 500; font-size: 1.05rem; letter-spacing: 0.14em;
+    text-decoration: none; text-transform: uppercase;
+    box-shadow: 0 0 0 3px var(--burgundy-red);
+    transition: color 0.35s, background 0.35s, letter-spacing 0.4s, box-shadow 0.35s;
+  }
+  .btn:hover { background: var(--burgundy-red); color: var(--cream); letter-spacing: 0.18em; box-shadow: 0 0 0 3px var(--burgundy-red), 0 0 0 5px var(--cream), 0 0 0 7px var(--burgundy-red); }
+
+  /* FOOTER */
+  footer { padding: 4rem 2rem 3rem; background: var(--burgundy-deep); color: var(--cream); border-top: 1px solid rgba(200,160,90,0.2); text-align: center; }
+  .foot-mark { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.15rem; letter-spacing: 0.06em; color: var(--gold-bright); margin-bottom: 0.35rem; }
+  .foot-tagline { font-style: italic; font-size: 0.82rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--gold); opacity: 0.85; margin-bottom: 1.1rem; }
+  .foot-line { font-style: italic; font-size: 0.82rem; color: var(--cream-soft); letter-spacing: 0.1em; margin-bottom: 2rem; }
+  .foot-line a { color: var(--gold); text-decoration: none; }
+  .foot-logomark { height: 54px; width: auto; display: block; margin: 0 auto; opacity: 0.7; }
+
+  @media (max-width: 700px) {
+    nav { padding: 0.75rem 1rem; }
+    .nav-logomark img { height: 32px; }
+    .hero { min-height: 70vh; padding: 6rem 1rem 3rem; }
+    .spiral-stage { width: 170vmin; height: 170vmin; }
+    section { padding: 4rem 1rem; }
+    .room { grid-template-columns: 1fr; gap: 2rem; }
+  }
+  @media print {
+    nav, .spiral-stage { display: none; }
+    body::before, body::after { display: none; }
+    .hero { min-height: 0; padding-top: 2rem; }
+    .card { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logomark">
+    <img src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-07.png" alt="CSI">
+    <span class="nav-brand-text">Carnival Society<em>Intl.</em></span>
+  </a>
+</nav>
+
+<main>
+  <header class="hero">
+    <div class="spiral-stage">
+      <svg viewBox="-240 -240 480 480" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g class="spiral-halo" id="spiralHalo"></g>
+        <g class="spiral-rotor" id="spiralRotor"><circle r="3.5" fill="#9B3036"/></g>
+      </svg>
+    </div>
+    <div class="hero-inner">
+      <img class="hero-wordmark" src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png" alt="Carnival Society International">
+      <h1 class="hero-title">Guild Classes <em>for the Season</em></h1>
+      <p class="hero-kicker">Carnival trades and performance, built for a movement floor. Every series ends on stage at Society Night.</p>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-label">The Menu</div>
+    <h2 class="section-title">What We <em>Teach</em></h2>
+    <p class="section-kicker">Half the menu needs only the open floor. The trades bring their own tables and pack away.</p>
+    <div id="menu"></div>
+  </section>
+
+  <section class="soft">
+    <div class="section-label">How It Works</div>
+    <h2 class="section-title">How Classes <em>Run</em></h2>
+    <p class="section-kicker">We open with four classes, not all fourteen, and add more as the rooms fill.</p>
+    <div class="runs">
+      <div class="run"><div class="run-mark">i</div><div><h4>Four-week series</h4><p>One night a week, two hours a night. Week four ends with a showing at that month's Society Night, so every student has a reason to come back and bring friends.</p></div></div>
+      <div class="run"><div class="run-mark">ii</div><div><h4>Drop-ins welcome</h4><p>Anyone can take a single class. Members on Guild Dues take every class.</p></div></div>
+      <div class="run"><div class="run-mark">iii</div><div><h4>Small rooms</h4><p>About twelve students for movement classes and eight for trades, so everyone gets real time with the teacher.</p></div></div>
+      <div class="run"><div class="run-mark">iv</div><div><h4>Taught by guild members</h4><p>Each class has a named teacher and a named person who sets up and leaves the room as we found it.</p></div></div>
+      <div class="run"><div class="run-mark">v</div><div><h4>Price</h4><p>Single Class $25. Guild Dues and Guild Dues+ cover every class as a monthly membership.</p></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-label">The Room</div>
+    <h2 class="section-title">Care for <em>the Space</em></h2>
+    <p class="section-kicker">The floor stays clean: messy trades go on drop cloths, and nothing with fire runs indoors.</p>
+    <div class="room">
+      <div>
+        <h4>What we'd need</h4>
+        <ul>
+          <li>Storage for a few bins of props, stilts and paint between classes</li>
+          <li>Folding tables, or room to bring our own</li>
+          <li>A sink for brushes after sign painting</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Questions for you</h4>
+        <ul>
+          <li>Which nights are free, and can we use daytime hours?</li>
+          <li>How high is the ceiling? Stilts need about ten feet.</li>
+          <li>Do you have crash mats for acrobatics?</li>
+          <li>Would any of your teachers co-teach Contact Meets Clown?</li>
+          <li>Any floor-care rules we should know (shoes, paint, tape)?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="soft contact">
+    <div class="section-label">Next</div>
+    <h2 class="section-title">Let's Walk <em>the Room</em></h2>
+    <p class="section-kicker">Meet us in the space, look at the calendar together, and we'll run a pilot night to test the fit.</p>
+    <a class="btn" href="mailto:hello@carnivalsociety.org?subject=Guild%20classes">Get in touch</a>
+  </section>
+</main>
+
+<footer>
+  <div class="foot-mark">♦ Carnival Society International ♦</div>
+  <div class="foot-tagline">Pageantry &amp; Servitude</div>
+  <div class="foot-line">A <a href="https://guerrillaconcerto.com" target="_blank">Guerrilla Concerto</a> Organization</div>
+  <img class="foot-logomark" src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-07.png" alt="CSI">
+</footer>
+
+<script>
+  // ─── EDIT THE CLASSES HERE ──────────────────────────────────────────
+  // teacher: "" shows "To be announced". when: "" hides the line.
+  // starter: true puts the class in the opening lineup (red outline + tag).
+  const TRACKS = [
+    { name: "Performance", blurb: "Built for the movement floor.", classes: [
+      { name: "Clowning 101: Find Your Nose", leave: "Your own clown and a two-minute bit", room: "Open floor", teacher: "", when: "", starter: true },
+      { name: "Physical Theater & Mask", leave: "A wordless scene, built with a partner", room: "Open floor", teacher: "", when: "" },
+      { name: "Partner Acrobatics Basics", leave: "Three partner shapes and how to spot them safely", room: "Open floor, crash mats", teacher: "", when: "" },
+      { name: "Juggling & Object Play", leave: "A three-ball cascade and a few tricks", room: "Open floor; we bring props", teacher: "", when: "" },
+      { name: "Stilt Walking", leave: "Walking, turning and falling safely on stilts", room: "High ceiling; we bring stilts", teacher: "", when: "" },
+      { name: "The Barker's Spiel", leave: "A pitch that pulls a crowd, and the voice to carry it", room: "Open floor", teacher: "", when: "" },
+      { name: "Build a Cabaret Act", leave: "A three-to-five-minute act, ready for Society Night", room: "Open floor", teacher: "", when: "" },
+    ]},
+    { name: "The Bridge", blurb: "Taught together with your community.", classes: [
+      { name: "Contact Meets Clown", leave: "A shared jam where contact improv turns into play", room: "Open floor; co-taught with your teachers", teacher: "", when: "", starter: true },
+    ]},
+    { name: "The Trades", blurb: "The skills that build a carnival.", classes: [
+      { name: "Sign Painting & Hand Lettering", leave: "A finished, hand-painted sign", room: "Tables, drop cloths", teacher: "", when: "", starter: true },
+      { name: "Costume Sewing", leave: "A costume piece you made and can wear on stage", room: "Tables, outlets for machines", teacher: "", when: "" },
+      { name: "Rope Work & Tent Craft", leave: "Ten working knots and a shade structure you rigged", room: "Open floor", teacher: "", when: "" },
+      { name: "Carnival Game Building", leave: "A working midway game that goes into The Carnival", room: "Tables, hand tools, sweep-up", teacher: "", when: "" },
+      { name: "Papier-Mâché Big Heads", leave: "A giant parade head of your own", room: "Tables, drying space", teacher: "", when: "" },
+    ]},
+    { name: "The Oracle", blurb: "With the Diviners Guild.", classes: [
+      { name: "Oracle Reading: I Ching & the Mercury Oracle", leave: "A reading you can give a stranger", room: "Cushions, low tables", teacher: "", when: "", starter: true },
+    ]},
+  ];
+  // ────────────────────────────────────────────────────────────────────
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  document.getElementById('menu').innerHTML = TRACKS.map(t => `
+    <div class="track">
+      <h3 class="track-title">${esc(t.name)}</h3>
+      <p class="track-blurb">${esc(t.blurb)}</p>
+      <div class="cards">${t.classes.map(c => `
+        <article class="card${c.starter ? ' starter' : ''}">
+          ${c.starter ? '<span class="starter-tag">Opening season</span>' : ''}
+          <h3>${esc(c.name)}</h3>
+          <p class="leave"><b>You leave with</b>${esc(c.leave)}</p>
+          <div class="meta">
+            <div><span>Teacher</span><span${c.teacher ? '' : ' class="tba"'}>${esc(c.teacher || 'To be announced')}</span></div>
+            ${c.when ? `<div><span>When</span><span>${esc(c.when)}</span></div>` : ''}
+            <div><span>Room</span><span>${esc(c.room)}</span></div>
+          </div>
+        </article>`).join('')}
+      </div>
+    </div>`).join('');
+
+  // The homepage swirl.
+  (function() {
+    const rotor = document.getElementById('spiralRotor');
+    const N=6, maxR=188, twist=2.1, armFrac=0.55, steps=90;
+    const armW = (2*Math.PI/N)*armFrac;
+    const NS = 'http://www.w3.org/2000/svg';
+    for (let k=0; k<N; k++) {
+      const phi = k*(2*Math.PI/N); let d='';
+      for (let i=0;i<=steps;i++) { const f=i/steps,r=f*maxR,t=phi+twist*f; d+=(i===0?'M':'L')+(r*Math.cos(t)).toFixed(2)+' '+(r*Math.sin(t)).toFixed(2); }
+      for (let i=steps;i>=0;i--) { const f=i/steps,r=f*maxR,t=phi+armW*f+twist*f; d+='L'+(r*Math.cos(t)).toFixed(2)+' '+(r*Math.sin(t)).toFixed(2); }
+      d+='Z';
+      const p=document.createElementNS(NS,'path'); p.setAttribute('d',d); p.setAttribute('fill','#9B3036'); rotor.insertBefore(p,rotor.firstChild);
+    }
+    const halo=document.getElementById('spiralHalo'); const R=218;
+    for (let k=0;k<24;k++) {
+      const phi=k*(2*Math.PI/24),x=R*Math.cos(phi),y=R*Math.sin(phi);
+      if (k%2===0) { const d=document.createElementNS(NS,'circle'); d.setAttribute('cx',x.toFixed(2)); d.setAttribute('cy',y.toFixed(2)); d.setAttribute('r','2.8'); d.setAttribute('fill','#9B3036'); halo.appendChild(d); }
+      else { const g=document.createElementNS(NS,'g'); g.setAttribute('transform',`translate(${x.toFixed(2)} ${y.toFixed(2)})`); g.setAttribute('stroke','#9B3036'); g.setAttribute('stroke-width','1.1'); g.setAttribute('stroke-linecap','round'); ['M -5 0 L 5 0','M 0 -5 L 0 5','M -3.5 -3.5 L 3.5 3.5','M -3.5 3.5 L 3.5 -3.5'].forEach(dd=>{const p=document.createElementNS(NS,'path');p.setAttribute('d',dd);g.appendChild(p);}); halo.appendChild(g); }
+    }
+    let ra=0, ha=0, last=performance.now();
+    const hero=document.querySelector('.hero'), stage=document.querySelector('.spiral-stage');
+    (function tick(t){
+      const dt=Math.min(0.05,(t-last)/1000); last=t; ra+=dt*2; ha-=dt*1.1;
+      const p=Math.min(1,Math.max(0,window.scrollY/(hero.offsetHeight*0.95)));
+      rotor.style.transform=`rotate(${(ra+p*360).toFixed(2)}deg)`;
+      halo.style.transform=`rotate(${(ha-p*270).toFixed(2)}deg)`;
+      stage.style.opacity=Math.max(0,1-p*0.8).toFixed(3);
+      requestAnimationFrame(tick);
+    })(last);
+  })();
+</script>
+</body>
+</html>
