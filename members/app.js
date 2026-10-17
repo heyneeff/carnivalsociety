@@ -229,6 +229,10 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
           <label class="auth-org-toggle">
             <input type="checkbox" id="isOrganization">
             I'm signing up an organization
+          </label>
+          <label class="auth-org-toggle">
+            <input type="checkbox" id="wantsToVolunteer">
+            I want to volunteer
           </label>` : ''}
           ${mode === 'signup' && appConfig.turnstile_site_key ? '<div id="turnstileWidget" class="turnstile-slot"></div>' : ''}
           <p class="auth-error">${escapeHtml(errorMsg)}</p>
@@ -288,6 +292,7 @@ function renderAuthScreen(mode = 'signin', errorMsg = '') {
             method: 'POST',
             body: { email, password, display_name: document.getElementById('displayName').value.trim(), city: document.getElementById('city').value.trim(),
                     is_organization: document.getElementById('isOrganization').checked,
+                    wants_to_volunteer: document.getElementById('wantsToVolunteer').checked,
                     turnstile_token: turnstileWidgetId !== null ? window.turnstile.getResponse(turnstileWidgetId) : undefined },
           })
         : await apiFetch('/api/auth/signin', { method: 'POST', body: { email, password } });
@@ -2193,6 +2198,7 @@ function renderMemberRows() {
       m.knows_who ? ['Knows', m.knows_who] : null,
       m.heard_about_us ? ['Heard about us via', m.heard_about_us] : null,
       m.materials_to_donate ? ['Materials to donate', m.materials_to_donate] : null,
+      m.wants_to_volunteer ? ['Volunteer', 'Wants to volunteer'] : null,
     ].filter(Boolean);
     return `
     <div class="admin-row dir-row" data-user-id="${m.id}" style="border-left-color: ${memberDisplayColor(m)};">
@@ -8803,7 +8809,7 @@ async function renderWaitlistTab(mainView) {
     <p class="post-actions"><button class="action-btn" id="testEmails" type="button">✉️ Send me the test emails</button> <span class="post-meta" id="testEmailsNote"></span></p>
     ${waiting.length ? `<div class="post-actions wl-actions"><button class="composer-submit" data-next="10">Let in the next ${Math.min(10, waiting.length)}</button>${waiting.length > 10 ? `<button class="action-btn" data-next="${waiting.length}">Let everyone in (${waiting.length})</button>` : ''}</div>` : ''}
     <div class="door-recent">${waiting.map((w, i) => `
-      <div class="door-entry wl-entry">${avatarFor(w.id, w.display_name, 48, w.avatar_url)}<div class="wl-who"><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
+      <div class="door-entry wl-entry">${avatarFor(w.id, w.display_name, 48, w.avatar_url)}<div class="wl-who"><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.wants_to_volunteer ? ' <span class="door-first">🙋 wants to volunteer</span>' : ''}${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
         <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}</div>
         ${w.intro ? `<div class="wl-intro"><small>📍 ${escapeHtml(w.intro.from)}${w.skills ? ` · 🎪 ${escapeHtml(w.skills)}` : ''}</small>${escapeHtml(w.intro.about)}</div>` : '<div class="wl-intro none">Hasn’t introduced themself yet.</div>'}</div>
         <button class="composer-submit" data-let="${w.id}">Let in</button></div>`).join('') || '<div class="placeholder-note">Nobody waiting. The line is clear!</div>'}</div></div>`;

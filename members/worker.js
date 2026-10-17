@@ -259,7 +259,7 @@ async function api(request, env, url, ctx) {
   }
   if (pathname === "/api/auth/signup" && method === "POST") {
     if (await rateLimited(env, request, "signup")) return withCors(err(429, "Too many attempts. Wait a minute and try again."));
-    const { email: rawEmail, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization, materials_to_donate, heard_about_us, turnstile_token } = await body(request);
+    const { email: rawEmail, password, display_name, home_chapter_id, city, phone, instagram_handle, is_organization, materials_to_donate, heard_about_us, wants_to_volunteer, turnstile_token } = await body(request);
     const email = normalizeEmail(rawEmail);
     if (!email || !password || password.length < 6 || !display_name || !city) return withCors(err(400, "Missing or invalid fields."));
     if (!await turnstileOk(env, request, turnstile_token)) return withCors(err(400, "Couldn't verify you're human. Refresh and try again."));
@@ -271,8 +271,8 @@ async function api(request, env, url, ctx) {
     // ("Boulder, CO" → Boulder). Changeable later on My Profile.
     const chapterId = home_chapter_id || (await env.DB.prepare("SELECT id FROM chapters WHERE instr(lower(?), lower(name)) > 0 LIMIT 1").bind(city).first())?.id || null;
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?, datetime('now'))`
-    ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null).run();
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us, wants_to_volunteer, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?, ?, datetime('now'))`
+    ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null, wants_to_volunteer ? 1 : 0).run();
     await letBackerIn(env, id, email);
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
@@ -1555,7 +1555,7 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/waitlist" && method === "GET") {
     if (!user?.is_ringleader) return err(403, "Ringleaders only.");
     const { results } = await env.DB.prepare(
-      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at, u.intro, u.avatar_url, u.skills,
+      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at, u.intro, u.avatar_url, u.skills, u.wants_to_volunteer,
          (SELECT COUNT(*) FROM tickets t WHERE t.user_id = u.id AND t.status IN ('paid', 'reserved')) AS tickets,
          (SELECT COUNT(*) FROM door_entries d WHERE d.user_id = u.id AND d.voided_at IS NULL) AS came
        FROM users u WHERE u.waitlisted_at IS NOT NULL ORDER BY u.waitlisted_at, u.id`

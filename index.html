@@ -318,6 +318,8 @@ transition: border-color 0.3s ease; resize: vertical;
 .field input::placeholder, .field textarea::placeholder { color: rgba(74,56,24,0.45); font-style: italic; }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--burgundy); }
 .field textarea { min-height: 90px; line-height: 1.5; }
+.field-check { display: flex; align-items: center; gap: 0.7rem; cursor: pointer; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 1.15rem; color: var(--ink); }
+.field-check input { width: 1.15rem; height: 1.15rem; accent-color: var(--burgundy-red); cursor: pointer; flex-shrink: 0; }
 .field select { cursor: pointer; }
 .field-note { font-style: italic; font-size: 0.85rem; color: var(--ink-soft); line-height: 1.4; margin-top: -0.75rem; }
 .field-row { display: flex; gap: 1.25rem; }
@@ -749,6 +751,10 @@ nav { padding: 0.75rem 1rem; }
       <label for="materials">Got Materials to Donate?</label>
       <input type="text" id="materials" name="materials" placeholder="e.g. scrap wood, old electronics — optional">
     </div>
+    <label class="field-check">
+      <input type="checkbox" id="volunteer" name="volunteer">
+      <span>I want to volunteer</span>
+    </label>
     <div class="field">
       <label for="about">A Little About You</label>
       <textarea id="about" name="about" placeholder="Tell us something dumb about yourself." rows="4"></textarea>
@@ -1012,6 +1018,7 @@ nav { padding: 0.75rem 1rem; }
           home_chapter_id: cleanForm.querySelector('#chapter').value || null,
           materials_to_donate: cleanForm.querySelector('#materials').value.trim() || null,
           heard_about_us: cleanForm.querySelector('#about').value.trim() || null,
+          wants_to_volunteer: cleanForm.querySelector('#volunteer').checked,
         }),
       });
       const data = await res.json();
