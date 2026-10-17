@@ -143,6 +143,22 @@
   .card .meta span:first-child { flex: 0 0 4.6rem; font-style: italic; color: var(--gold-deep); }
   .card .tba { font-style: italic; opacity: 0.75; }
 
+
+  /* LATE TEA HOUSE */
+  section.tea { background: radial-gradient(ellipse 70% 50% at 50% 20%, rgba(200,160,90,0.14) 0%, transparent 70%), var(--burgundy-deep); color: var(--cream); }
+  .tea .section-label { color: var(--gold); }
+  .tea .section-title { color: var(--cream); }
+  .tea .section-title em { color: var(--gold-bright); }
+  .tea .section-kicker { color: var(--cream-soft); }
+  .tea-grid { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+  .tea-item { text-align: center; padding: 1.5rem 1.1rem; border: 1px solid rgba(200,160,90,0.35); }
+  .tea-item .glyph { font-size: 1.3rem; color: var(--gold); margin-bottom: 0.5rem; }
+  .tea-item h4 { font-family: 'Playfair Display', serif; font-weight: 600; font-style: italic; font-size: 1.15rem; color: var(--gold-bright); margin-bottom: 0.35rem; }
+  .tea-item p { font-weight: 500; font-size: 1.02rem; color: var(--cream-soft); line-height: 1.4; }
+  .tea-facts { max-width: 900px; margin: 2.5rem auto 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; }
+  .tea-facts span { font-style: italic; font-size: 0.95rem; letter-spacing: 0.06em; color: var(--cream); border: 1px solid rgba(223,190,125,0.5); border-radius: 999px; padding: 0.3rem 0.95rem; }
+  .tea-note { text-align: center; font-style: italic; color: var(--gold); margin-top: 1.8rem; font-size: 1rem; }
+
   /* HOW IT RUNS */
   .runs { max-width: 760px; margin: 0 auto; display: grid; gap: 1.1rem; }
   .run { display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.9rem; align-items: start; }
@@ -184,6 +200,7 @@
     .spiral-stage { width: 170vmin; height: 170vmin; }
     section { padding: 4rem 1rem; }
     .room { grid-template-columns: 1fr; gap: 2rem; }
+    .tea-grid { grid-template-columns: 1fr; }
   }
   @media print {
     nav, .spiral-stage { display: none; }
@@ -222,6 +239,19 @@
     <h2 class="section-title">What We <em>Teach</em></h2>
     <p class="section-kicker">Half the menu needs only the open floor. The trades bring their own tables and pack away.</p>
     <div id="menu"></div>
+  </section>
+
+  <section class="tea">
+    <div class="section-label">After Hours</div>
+    <h2 class="section-title">The Late <em>Tea House</em></h2>
+    <p class="section-kicker">One or two nights a week, the room turns into a quiet tea house. Shoes off, lights low, and the easiest way into the guild.</p>
+    <div class="tea-grid">
+      <div class="tea-item"><div class="glyph">☾</div><h4>Low &amp; slow</h4><p>Low cushions, dim light, pots of tea, and live acoustic music in the corner.</p></div>
+      <div class="tea-item"><div class="glyph">✦</div><h4>Make &amp; play</h4><p>Art supplies and games on every table. Draw, play, or just sit and talk.</p></div>
+      <div class="tea-item"><div class="glyph">☯</div><h4>The oracle table</h4><p>I Ching casts and Mercury Oracle readings, given by the readers from our Oracle class.</p></div>
+    </div>
+    <div class="tea-facts"><span>Weekly, one or two nights</span><span>Reservation only</span><span>Small &amp; capped</span><span>Sober</span><span>Late evening</span></div>
+    <p class="tea-note">Inspired by Tea at Shiloh in Los Angeles. Cheap to run, and the first night most newcomers try.</p>
   </section>
 
   <section class="soft">
