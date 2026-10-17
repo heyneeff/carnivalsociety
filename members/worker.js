@@ -80,6 +80,12 @@ function withCors(response) {
   response.headers.set("Vary", "Origin");
   return response;
 }
+// Card payments paused 2026-10-17: checkouts on the sponsor's Stripe were
+// failing, so ticket pages offer "save my spot, pay at the door" only. The
+// Ringleader's 50¢ test payment on The Door still works for checking Stripe.
+// Flip to false once a test payment goes through.
+const CARD_PAYMENTS_PAUSED = true;
+function cardPayments(env) { return !CARD_PAYMENTS_PAUSED && !!env.STRIPE_SECRET_KEY; }
 function publicUser(u) {
   if (!u) return null;
   const { password_hash, salt, ...rest } = u;
@@ -252,7 +258,7 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/config" && method === "GET") {
     return withCors(json({
       turnstile_site_key: env.TURNSTILE_SITE_KEY || null,
-      payments_enabled: !!env.STRIPE_SECRET_KEY,
+      payments_enabled: cardPayments(env),
       password_reset_enabled: !!env.RESEND_API_KEY,
       vapid_public_key: env.VAPID_PUBLIC_KEY || null
     }));
@@ -2571,7 +2577,7 @@ async function publicRoutes(request, env, url) {
     if (!ev) return err(404, "No such carnival.");
     const taken = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE event_id = ? AND status IN ('paid', 'reserved')").bind(ev.id).first();
     const host = ev.partner_id ? await env.DB.prepare("SELECT display_name, partner_slug, avatar_url FROM users WHERE id = ?").bind(ev.partner_id).first() : null;
-    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug, logo: host.avatar_url },  registration_cents: reg, payments_enabled: !!env.STRIPE_SECRET_KEY,
+    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug, logo: host.avatar_url },  registration_cents: reg, payments_enabled: cardPayments(env),
       spots_left: ev.capacity ? Math.max(0, ev.capacity - taken.n) : null, open: whenMs(ev.ends_at || ev.starts_at) > Date.now() - 6 * 3600e3 });
   }
   const getMatch = pathname.match(/^\/api\/public\/events\/([^/]+)\/get$/);
@@ -2602,7 +2608,7 @@ async function publicRoutes(request, env, url) {
     const owe = (ev.door_cents || 0) + (first ? reg : 0);
     const tierId = await entryTier(env, ev);
     const id = crypto.randomUUID(), code = ticketCode();
-    const pay = !!b.pay && !!env.STRIPE_SECRET_KEY && owe > 0;
+    const pay = !!b.pay && cardPayments(env) && owe > 0;
     await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .bind(id, ev.id, tierId, user.id, pay ? "pending" : owe === 0 ? "paid" : "reserved", ev.door_cents || 0, code).run();
     if (!pay) {
