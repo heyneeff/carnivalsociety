@@ -8413,6 +8413,10 @@ async function renderDoorReport(mainView, eventId) {
         <div><b>${r.saved.came}/${r.saved.n}</b><span>saved a spot and came</span></div>
         <div><b>${t.tickets_given + t.tickets_sold}</b><span>carnival tickets out (${t.tickets_given} with entry, ${t.tickets_sold} sold for ${doorMoney(t.ticket_sales)})</span></div>
       </div>
+      <h3>Tickets so far (${(r.tickets || []).length})</h3>
+      <div class="door-recent">${(r.tickets || []).map(x => `
+        <div class="door-entry"><div><b>${escapeHtml(x.name)}</b> ${x.status === 'paid' && x.paid_cents ? `<span class="door-first">paid ${doorMoney(x.paid_cents)} online</span>` : x.status === 'paid' ? '<span class="door-first">paid</span>' : ''}
+          <div class="post-meta">${x.status === 'reserved' ? `Saved a spot · owes ${doorMoney(x.price_cents)} at the door` : 'Paid ahead'}${x.checked_in_at ? ' · came in ✓' : ''} · ${escapeHtml(x.email || '')} · ${new Date(sqlTime(x.created_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div></div></div>`).join('') || '<div class="placeholder-note">No tickets yet.</div>'}</div>
       <h3>How they got in</h3>
       <div class="dr-vias">${Object.entries(DOOR_VIA).map(([k, v]) => `<span>${v} <b>${t.by_via[k] || 0}</b></span>`).join('')}</div>
       ${t.registrations ? `<p class="post-meta">${t.registrations} paid the one-time membership (${doorMoney(t.registration)}), included in the door total.</p>` : ''}
@@ -8558,9 +8562,10 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
             </div>
             ${free ? '' : `<div class="gi-receipt" aria-label="What you pay">
               <div class="gr-row"><span>Entry</span><b>${doorMoney(ev.door_cents)}</b></div>
+              ${profile && !profile.waitlisted ? `<div class="gr-row gr-total"><span>You’re in the troupe, so no membership fee</span><b>${doorMoney(ev.door_cents)}</b></div>` : `
               <div class="gr-row gr-mem"><span><strong>One-time membership</strong><small>your first carnival only · you win <i>The Fix Is In</i> 💰</small></span><b>+${doorMoney(reg)}</b></div>
               <div class="gr-row gr-total"><span>Your first night</span><b>${doorMoney(ev.door_cents + reg)}</b></div>
-              <p>After that, it’s ${doorMoney(ev.door_cents)} every time.</p>
+              <p>After that, it’s ${doorMoney(ev.door_cents)} every time. Already a member? Use your member email and the $5 drops off.</p>`}
             </div>`}
             <form class="gi-form" id="getinForm">
               <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>

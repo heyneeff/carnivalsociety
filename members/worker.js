@@ -2476,8 +2476,13 @@ async function entryTier(env, ev) {
   await env.DB.prepare("INSERT INTO ticket_tiers (id, event_id, name, description, price_cents, active) VALUES (?, ?, 'Entry', 'Entry, sold from the public page', ?, 0)").bind(id, ev.id, ev.door_cents || 0).run();
   return id;
 }
+// Already registered: paid the $5 once (the Fix stamp), or already let into
+// the troupe (off the waitlist: members, backers). Only waitlisted and brand
+// new accounts owe the one-time $5.
 async function hasFix(env, userId) {
-  return !!await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(userId).first();
+  return !!await env.DB.prepare(
+    "SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix' UNION SELECT 1 FROM users WHERE id = ? AND waitlisted_at IS NULL LIMIT 1"
+  ).bind(userId, userId).first();
 }
 // Name + email → an account: the one that email already has, or a new
 // Courtyard account with a claim link (never a claim link for an old one).
@@ -3049,7 +3054,13 @@ async function doorRoutes(request, env, url, user) {
     const { results: hours } = await env.DB.prepare(
       "SELECT strftime('%Y-%m-%dT%H:00:00Z', created_at) AS hour, COUNT(*) AS n FROM door_entries WHERE event_id = ? AND voided_at IS NULL GROUP BY hour ORDER BY hour"
     ).bind(eventId).all();
-    return json({ event: ev, totals: await doorTotals(env, eventId), advance: sold, saved, hours,
+    // Every ticket so far, paid online or saved for the door (newest first).
+    const { results: tickets } = await env.DB.prepare(
+      `SELECT u.display_name AS name, u.email, t.status, t.price_cents, t.created_at, t.checked_in_at, p.amount_cents AS paid_cents
+       FROM tickets t JOIN users u ON u.id = t.user_id LEFT JOIN payments p ON p.stripe_session_id = t.stripe_session_id
+       WHERE t.event_id = ? AND t.status IN ('paid', 'reserved') ORDER BY t.created_at DESC`
+    ).bind(eventId).all();
+    return json({ event: ev, totals: await doorTotals(env, eventId), advance: sold, saved, hours, tickets,
       entries: entries.map((e) => ({ ...e, user_email: e.user_email && e.user_email.endsWith("@" + DOOR_EMAIL_DOMAIN) ? null : e.user_email })) });
   }
   return null;
