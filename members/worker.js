@@ -144,6 +144,7 @@ export default {
   // tokens otherwise accumulate forever — every sign-in adds a session row.
   async scheduled(event, env, ctx) {
     await sendReminders(env);
+    await catchUpPayments(env);
     if (new Date(event.scheduledTime).getUTCHours() !== 9) return;
     await env.DB.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
     await env.DB.prepare("DELETE FROM notifications WHERE created_at < datetime('now', '-30 days')").run();
@@ -2662,10 +2663,17 @@ async function publicRoutes(request, env, url) {
   const tMatch = pathname.match(/^\/api\/public\/tickets\/([0-9a-f]{20})$/);
   if (tMatch && method === "GET") {
     const t = await env.DB.prepare(
-      `SELECT t.code, t.status, t.checked_in_at, t.price_cents, t.user_id, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.slug, e.id AS event_id
+      `SELECT t.code, t.status, t.stripe_session_id, t.checked_in_at, t.price_cents, t.user_id, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.slug, e.id AS event_id
        FROM tickets t JOIN users u ON u.id = t.user_id JOIN events e ON e.id = t.event_id WHERE t.code = ?`
     ).bind(tMatch[1]).first();
     if (!t) return err(404, "No ticket with that code.");
+    // Paid on Stripe but no webhook yet: ask Stripe ourselves.
+    if (t.status === "pending" && t.stripe_session_id && env.STRIPE_SECRET_KEY) {
+      try {
+        const s = await stripeSession(env, t.stripe_session_id);
+        if (s && await fulfillCheckout(env, s)) t.status = "paid";
+      } catch (e) { console.error(e); }
+    }
     const first = !await hasFix(env, t.user_id);
     return json({ ticket: { code: t.code, status: t.status, checked_in: !!t.checked_in_at, name: t.display_name.split(" ")[0], title: t.title, starts_at: t.starts_at, location: t.location,
       entry_tickets: t.entry_tickets || 0, entry_cents: t.price_cents, owe_cents: t.status === "reserved" ? t.price_cents + (first ? reg : 0) : 0, event: t.slug || t.event_id } });
@@ -3729,6 +3737,45 @@ function checkoutParams(env, { user, name, amountCents, metadata, successPath })
   for (const [k, v] of Object.entries(metadata)) p["metadata[" + k + "]"] = v;
   return p;
 }
+// A paid Checkout Session → its stamp or ticket. Runs from the webhook, or
+// from the ticket page asking Stripe directly when the webhook is late (or
+// missing). Idempotent: the payments row is the lock.
+async function fulfillCheckout(env, s) {
+  if (s.payment_status !== "paid") return false;
+  const md = s.metadata || {};
+  const userId = md.user_id;
+  const ins = await env.DB.prepare(
+    "INSERT OR IGNORE INTO payments (id, user_id, kind, amount_cents, stripe_session_id, stripe_payment_intent) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(crypto.randomUUID(), userId, md.kind, s.amount_total, s.id, s.payment_intent || null).run();
+  if (!ins.meta.changes) return true; // already processed
+  if (md.kind === "membership") {
+    // The $5 buys a stamp ("The Fix Is In"), not a rank or inner access —
+    // see CSI Rank and Passport Rule.
+    await grantStamp(env, { userId, kind: "fix" });
+  } else if (md.kind === "ticket") {
+    await env.DB.prepare("UPDATE tickets SET status = 'paid' WHERE id = ?").bind(md.ticket_id).run();
+    // Bought entry online for the first time: the registration was in it.
+    if (Number(md.registration) > 0) await grantStamp(env, { userId, kind: "fix" });
+    await sendTicketEmail(env, md.ticket_id, { claim: await claimLinkFor(env, userId) });
+  }
+  return true;
+}
+// Hourly: any card checkout from the last week still "pending" gets checked
+// with Stripe, so a missed webhook never strands a paid ticket.
+async function catchUpPayments(env) {
+  if (!env.STRIPE_SECRET_KEY) return;
+  const { results } = await env.DB.prepare("SELECT stripe_session_id FROM tickets WHERE status = 'pending' AND stripe_session_id IS NOT NULL AND created_at > datetime('now', '-7 days')").all();
+  for (const r of results) {
+    try { const s = await stripeSession(env, r.stripe_session_id); if (s) await fulfillCheckout(env, s); }
+    catch (e) { console.error(e); }
+  }
+}
+async function stripeSession(env, id) {
+  const res = await fetch("https://api.stripe.com/v1/checkout/sessions/" + encodeURIComponent(id), {
+    headers: { Authorization: "Bearer " + env.STRIPE_SECRET_KEY }
+  });
+  return res.ok ? res.json() : null;
+}
 async function verifyStripeSignature(env, raw, header) {
   if (!header || !env.STRIPE_WEBHOOK_SECRET) return false;
   const parts = Object.fromEntries(header.split(",").map((kv) => kv.split("=")));
@@ -3754,24 +3801,7 @@ async function ticketRoutes(request, env, url) {
     if (!await verifyStripeSignature(env, raw, request.headers.get("Stripe-Signature"))) return err(400, "Bad signature.");
     const event = JSON.parse(raw);
     if (event.type !== "checkout.session.completed") return json({ ok: true });
-    const s = event.data.object;
-    if (s.payment_status !== "paid") return json({ ok: true });
-    const md = s.metadata || {};
-    const userId = md.user_id;
-    const ins = await env.DB.prepare(
-      "INSERT OR IGNORE INTO payments (id, user_id, kind, amount_cents, stripe_session_id, stripe_payment_intent) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(crypto.randomUUID(), userId, md.kind, s.amount_total, s.id, s.payment_intent || null).run();
-    if (!ins.meta.changes) return json({ ok: true }); // already processed
-    if (md.kind === "membership") {
-      // The $5 buys a stamp ("The Fix Is In"), not a rank or inner access —
-      // see CSI Rank and Passport Rule.
-      await grantStamp(env, { userId, kind: "fix" });
-    } else if (md.kind === "ticket") {
-      await env.DB.prepare("UPDATE tickets SET status = 'paid' WHERE id = ?").bind(md.ticket_id).run();
-      // Bought entry online for the first time: the registration was in it.
-      if (Number(md.registration) > 0) await grantStamp(env, { userId, kind: "fix" });
-      await sendTicketEmail(env, md.ticket_id, { claim: await claimLinkFor(env, userId) });
-    }
+    await fulfillCheckout(env, event.data.object);
     return json({ ok: true });
   }
 
