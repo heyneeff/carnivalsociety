@@ -1767,7 +1767,7 @@ function renderVolunteerRow(eventId) {
       ${signedUp
         ? `<span class="volunteer-yes">✓ You're volunteering</span><button class="action-btn" data-unvolunteer>I can’t make it</button>`
         : `<button class="composer-submit" data-volunteer>Volunteer for this</button>`}
-      ${isModerator() ? `<button class="action-btn" data-show-volunteers>See who’s in</button>` : ''}
+      ${''/* "See who's in" hidden 2026-10-18: volunteers live on the night's report. */}
     </div>
     <form class="volunteer-form" hidden>
       <input type="text" name="note" maxlength="500" placeholder="Skills or availability (optional)">
