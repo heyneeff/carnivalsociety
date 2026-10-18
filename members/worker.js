@@ -2988,13 +2988,14 @@ async function doorRoutes(request, env, url, user) {
     if (q.length < 2) return json({ members: [] });
     const { results } = await env.DB.prepare(
       `SELECT u.id, u.display_name, u.city,
-         EXISTS (SELECT 1 FROM stamps s WHERE s.user_id = u.id AND s.kind = 'fix') AS has_fix,
+         (u.waitlisted_at IS NULL OR EXISTS (SELECT 1 FROM stamps s WHERE s.user_id = u.id AND s.kind = 'fix')) AS has_fix,
          (SELECT t.code FROM tickets t WHERE t.user_id = u.id AND t.event_id = ? AND t.status = 'paid' LIMIT 1) AS ticket_code,
          EXISTS (SELECT 1 FROM job_claims c JOIN event_jobs j ON j.id = c.job_id WHERE c.user_id = u.id AND j.event_id = ?) AS crew,
+         EXISTS (SELECT 1 FROM event_volunteers v WHERE v.user_id = u.id AND v.event_id = ?) AS volunteered,
          (SELECT d.created_at FROM door_entries d WHERE d.user_id = u.id AND d.event_id = ? AND d.voided_at IS NULL) AS admitted_at
        FROM users u WHERE lower(u.display_name) LIKE ? ORDER BY u.display_name LIMIT 8`
-    ).bind(eventId, eventId, eventId, `%${q}%`).all();
-    return json({ members: results.map((r) => ({ ...r, has_fix: !!r.has_fix, crew: !!r.crew })) });
+    ).bind(eventId, eventId, eventId, eventId, `%${q}%`).all();
+    return json({ members: results.map((r) => ({ ...r, has_fix: !!r.has_fix, crew: !!r.crew, volunteered: !!r.volunteered })) });
   }
 
   // Let someone in: a member by id, or a new face (makes their account).
@@ -3031,10 +3032,10 @@ async function doorRoutes(request, env, url, user) {
     }
     const was = await admitted(env, eventId, target.id);
     if (was) return json({ ok: false, already: true, display_name: target.display_name, checked_in_at: was.created_at });
-    const hasFix = !!await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(target.id).first();
+    const fixed = await hasFix(env, target.id);
     const regCents = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
     // The one-time registration goes on top of entry, the first time.
-    const registration = b.registration && !hasFix && via === "door" ? regCents : 0;
+    const registration = b.registration && !fixed && via === "door" ? regCents : 0;
     if (registration && !pay) return err(400, "Cash or card?");
     // Paying off a saved spot: the reserved ticket becomes a paid one.
     let ticketId = null, party = 1;

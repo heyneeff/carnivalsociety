@@ -8251,10 +8251,10 @@ async function renderCheckinView(mainView, eventId) {
     const { members } = await apiFetch(`/api/events/${eventId}/door/search?q=${encodeURIComponent(q)}`);
     $('#doorResults').innerHTML = members.map(m => `
       <div class="door-member">
-        <div><b>${escapeHtml(m.display_name)}</b><div class="post-meta">${escapeHtml(m.city || '')}${m.crew ? ' · 🔨 on the crew' : ''}${m.ticket_code ? ' · 🎟️ has a ticket' : ''}${m.has_fix ? '' : ' · hasn’t paid the $5 yet'}</div></div>
+        <div><b>${escapeHtml(m.display_name)}</b><div class="post-meta">${escapeHtml(m.city || '')}${m.crew ? ' · 🔨 on the crew' : m.volunteered ? ' · 🙋 volunteered' : ''}${m.ticket_code ? ' · 🎟️ has a ticket' : ''}${m.has_fix ? '' : ' · hasn’t paid the $5 yet'}</div></div>
         ${m.admitted_at ? '<span class="volunteer-yes">✓ In</span>'
           : m.ticket_code ? `<button class="composer-submit" data-ticket="${m.ticket_code}">Use their ticket</button>`
-          : `<button class="composer-submit" data-admit="${m.id}" data-name="${escapeHtml(m.display_name)}" data-fix="${m.has_fix ? 1 : 0}" data-crew="${m.crew ? 1 : 0}">Let in…</button>`}
+          : `<button class="composer-submit" data-admit="${m.id}" data-name="${escapeHtml(m.display_name)}" data-fix="${m.has_fix ? 1 : 0}" data-crew="${m.crew || m.volunteered ? 1 : 0}">Let in…</button>`}
       </div>`).join('') || `<div class="placeholder-note">No one by that name. <button class="raven-offer-no" data-to-new>New face?</button></div>`;
   }
   $('#doorResults').addEventListener('click', e => {
