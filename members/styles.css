@@ -2792,3 +2792,10 @@ p.nt-how { padding-left: 12px; }
 @keyframes poster-thunk { 0% { transform: scale(1); } 30% { transform: scale(0.94, 1.04); } 60% { transform: scale(1.02, 0.98); } 100% { transform: none; } }
 .event-poster { display: block; margin: -4px auto 12px; max-width: 360px; }
 .event-poster img { width: 100%; display: block; border-radius: 4px; box-shadow: 0 10px 24px rgba(30, 10, 5, 0.35); transform: rotate(-1deg); }
+/* A night's presenter under the wordmark (Wiggelruhm on Kooks), tinted to the spiral. */
+.gi-sponsor-wrap { position: relative; width: min(170px, 46%); margin: 10px auto 0; filter: drop-shadow(0 0 2px var(--gi-card)) drop-shadow(0 0 6px var(--gi-card)); }
+.gi-sponsor { aspect-ratio: 1200 / 441; background: var(--gi-ink);
+  -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
+.gi-spiral { top: 150px; width: 440px; height: 440px; margin: -220px 0 0 -220px;
+  -webkit-mask-image: radial-gradient(circle, transparent 0, transparent 21%, rgba(0,0,0,0.5) 30%, #000 42%);
+  mask-image: radial-gradient(circle, transparent 0, transparent 21%, rgba(0,0,0,0.5) 30%, #000 42%); }

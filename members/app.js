@@ -8494,11 +8494,15 @@ function frontSpiral() {
   }
   return (spiralSvgCache = `<svg viewBox="-240 -240 480 480" aria-hidden="true"><g class="gs-halo" fill="#9B3036" stroke="#9B3036" stroke-width="1.1">${halo}</g><g class="gs-rotor" fill="#9B3036">${blades}<circle r="3.5"/></g></svg>`);
 }
-function getinMarquee(kicker) {
+// Who's presenting a night alongside us, shown under the wordmark (by slug).
+const GETIN_SPONSORS = { kooks: { name: 'Wiggelruhm', logo: 'assets/partners/wiggelruhm-word.png' } };
+function getinMarquee(kicker, slug) {
+  const sp = GETIN_SPONSORS[slug];
   return `
     <header class="gi-marquee">
       <div class="gi-spiral" aria-hidden="true">${frontSpiral()}</div>
       <div class="gi-sign"><img src="assets/logo-wordmark.png" alt="Carnival Society International"></div>
+      ${sp ? `<div class="gi-sponsor-wrap"><div class="gi-sponsor" role="img" aria-label="${escapeHtml(sp.name)}" style="--logo:url('${sp.logo}')"></div></div>` : ''}
       <div class="gi-kicker">${kicker}</div>
     </header>`;
 }
@@ -8523,7 +8527,7 @@ function getinDate(iso) {
   </div>`;
 }
 async function renderGetIn(idOrSlug, errorMsg = '') {
-  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Step right up!')}<div class="gi-body"><p class="gi-fine">Unrolling the poster…</p></div></div></div>`;
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Step right up!', idOrSlug)}<div class="gi-body"><p class="gi-fine">Unrolling the poster…</p></div></div></div>`;
   let d;
   try { d = await apiFetch(`/api/public/events/${encodeURIComponent(idOrSlug)}`); }
   catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Hmm.')}<div class="gi-body"><p>${escapeHtml(err.message)}</p><a class="gi-btn" href="#/">Carnival Society</a></div></div></div>`; return; }
@@ -8534,7 +8538,7 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
   app.innerHTML = `
     <div class="getin">
       <div class="getin-card">
-        ${getinMarquee('Step right up!')}
+        ${getinMarquee('Step right up!', ev.slug || idOrSlug)}
         <div class="gi-body">
           <h1>${escapeHtml(ev.title)}</h1>
           ${getinDate(ev.starts_at)}
@@ -8579,15 +8583,15 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
       const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay, join_partner: !!f.join?.checked } });
       if (r.url) { window.location.href = r.url; return; }
       // An existing account's ticket goes to its inbox, never the screen.
-      if (!r.code) { renderTicketSent(f.email.value, r.already); return; }
+      if (!r.code) { renderTicketSent(f.email.value, r.already, ev.slug || idOrSlug); return; }
       try { if (r.emailed) sessionStorage.setItem('cs-ticket-emailed', r.code); } catch (e) { /* fine */ }
       location.hash = `#/ticket/${r.code}${r.claim ? '/' + r.claim : ''}`;
     } catch (err) { renderGetIn(idOrSlug, err.message); }
   });
 }
 // "Check your email": the ticket went to the inbox for that address.
-function renderTicketSent(email, already) {
-  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee(already ? 'You’re already in!' : 'Spot saved!')}<div class="gi-body">
+function renderTicketSent(email, already, slug) {
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee(already ? 'You’re already in!' : 'Spot saved!', slug)}<div class="gi-body">
     <h1>Check your email</h1>
     <p class="gi-desc gi-center">${already ? 'You already have a ticket for this one.' : 'Your ticket is on its way.'} We sent it to <b>${escapeHtml(email)}</b>. It has your QR code for the door.</p>
     <p class="gi-fine">Nothing there? Check spam, or just give your name at the door. We’ll find you.</p>
@@ -8611,7 +8615,7 @@ async function renderTicketPage(code, claim, tries = 0) {
   app.innerHTML = `
     <div class="getin">
       <div class="getin-card">
-        ${getinMarquee(`Admit one · ${escapeHtml(t.name)}`)}
+        ${getinMarquee(`Admit one · ${escapeHtml(t.name)}`, t.event)}
         <div class="gi-body">
           <h1>${escapeHtml(t.title)}</h1>
           ${getinDate(t.starts_at)}
