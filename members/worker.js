@@ -84,7 +84,7 @@ function withCors(response) {
 // failing, so ticket pages offer "save my spot, pay at the door" only. The
 // Ringleader's 50¢ test payment on The Door still works for checking Stripe.
 // Flip to false once a test payment goes through.
-const CARD_PAYMENTS_PAUSED = true;
+const CARD_PAYMENTS_PAUSED = false;
 function cardPayments(env) { return !CARD_PAYMENTS_PAUSED && !!env.STRIPE_SECRET_KEY; }
 function publicUser(u) {
   if (!u) return null;
