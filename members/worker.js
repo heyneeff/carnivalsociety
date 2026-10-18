@@ -211,30 +211,31 @@ ${button ? `<tr><td align="center" style="padding:14px 28px 8px;"><a href="${but
 async function sendTicketEmail(env, ticketId, { claim = null } = {}) {
   if (!env.RESEND_API_KEY) return false;
   const t = await env.DB.prepare(
-    `SELECT t.code, t.status, t.price_cents, t.user_id, u.email, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.tagline
+    `SELECT t.code, t.status, t.price_cents, t.quantity, t.user_id, u.email, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.tagline
      FROM tickets t JOIN users u ON u.id = t.user_id JOIN events e ON e.id = t.event_id WHERE t.id = ?`
   ).bind(ticketId).first();
   if (!t || !t.email || t.email.endsWith("@door.carnivalsociety.org")) return false;
   const esc = escapeEmailHtml, first = esc(t.display_name.split(" ")[0]);
-  const fix = !!await env.DB.prepare("SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix'").bind(t.user_id).first();
+  const fix = await hasFix(env, t.user_id);
   const reg = Number(env.MEMBERSHIP_PRICE_CENTS || 500);
-  const owe = t.status === "reserved" ? t.price_cents + (fix ? 0 : reg) : 0;
+  const n = t.quantity || 1, entry = t.price_cents * n;
+  const owe = t.status === "reserved" ? entry + (fix ? 0 : reg) : 0;
   const $ = (c) => "$" + (c / 100).toFixed(c % 100 ? 2 : 0);
   const link = `${siteUrl(env)}/#/ticket/${t.code}${claim ? "/" + claim : ""}`;
   const when = eventWhen(t.starts_at);
   const paid = t.status === "paid";
-  const body = `<p style="margin:0 0 12px;">Hi ${first}! ${paid ? "You're in." : "Your spot is saved."} Here's your ticket for <b>${esc(t.title)}</b>${t.tagline ? `, our ${esc(t.tagline)}` : ""}.</p>
+  const body = `<p style="margin:0 0 12px;">Hi ${first}! ${paid ? "You're in." : "Your spot is saved."} Here's your ticket for <b>${esc(t.title)}</b>${t.tagline ? `, our ${esc(t.tagline)}` : ""}.${n > 1 ? ` It lets in <b>${n} people</b>: you and ${n - 1} guest${n > 2 ? "s" : ""}. Come in together.` : ""}</p>
 <p style="margin:0 0 12px;"><b>${esc(when)}</b>${t.location ? `<br>${esc(t.location)}` : ""}</p>
 ${paid ? `<p style="margin:0 0 12px;">Show your QR code at the door. It's waiting behind the button below.</p>`
-  : `<p style="margin:0 0 12px;padding:12px 14px;background:#fff8e6;border:1px dashed #C8A05A;">Pay <b>${$(owe)}</b> at the door, cash or card${owe > t.price_cents ? `<br><span style="font-size:15px;color:#5A4238;">${$(t.price_cents)} entry + ${$(owe - t.price_cents)} one-time membership (your first carnival only)</span>` : ""}.</p>`}
-${t.entry_tickets ? `<p style="margin:0 0 12px;">Comes with <b>${t.entry_tickets} free carnival tickets</b> for games and experiences, handed to you at the door.</p>` : ""}
+  : `<p style="margin:0 0 12px;padding:12px 14px;background:#fff8e6;border:1px dashed #C8A05A;">Pay <b>${$(owe)}</b> at the door, cash or card${owe > entry ? `<br><span style="font-size:15px;color:#5A4238;">${$(entry)} entry${n > 1 ? ` (${n} × ${$(t.price_cents)})` : ""} + ${$(owe - entry)} one-time membership (your first carnival only)</span>` : ""}.</p>`}
+${t.entry_tickets ? `<p style="margin:0 0 12px;">Comes with <b>${t.entry_tickets} free carnival tickets</b>${n > 1 ? " each" : ""} for games and experiences, handed to you at the door.</p>` : ""}
 <p style="margin:0;font-size:15px;color:#5A4238;">Your ticket code: <b style="letter-spacing:1px;">${t.code}</b>. Lost your phone? Just give your name at the door.</p>
 ${claim ? `<p style="margin:14px 0 0;font-size:15px;color:#5A4238;">You're in the Carnival Society now too: the button also lets you claim your own Dressing Room.</p>` : ""}`;
   return sendEmail(env, {
     to: t.email,
     subject: `🎟️ ${paid ? "Your ticket" : "Spot saved"}: ${t.title}`,
     html: emailFrame(env, { heading: paid ? "You're in!" : "Your spot is saved!", body, button: ["Show my ticket", link] }),
-    text: `Hi ${t.display_name.split(" ")[0]}! ${paid ? "You're in" : "Your spot is saved"} for ${t.title}, ${when}${t.location ? ", " + t.location : ""}.\n${paid ? "" : `Pay ${$(owe)} at the door (cash or card).\n`}Your ticket (show the QR at the door): ${link}\nCode: ${t.code}. Lost your phone? Just give your name at the door.`,
+    text: `Hi ${t.display_name.split(" ")[0]}! ${paid ? "You're in" : "Your spot is saved"}${n > 1 ? ` (${n} people)` : ""} for ${t.title}, ${when}${t.location ? ", " + t.location : ""}.\n${paid ? "" : `Pay ${$(owe)} at the door (cash or card).\n`}Your ticket (show the QR at the door): ${link}\nCode: ${t.code}. Lost your phone? Just give your name at the door.`,
   });
 }
 // A fresh claim link for someone who has never signed in (60 days).
@@ -2581,7 +2582,7 @@ async function publicRoutes(request, env, url) {
   if (evMatch && method === "GET") {
     const ev = await findEvent(env, evMatch[1]);
     if (!ev) return err(404, "No such carnival.");
-    const taken = await env.DB.prepare("SELECT COUNT(*) AS n FROM tickets WHERE event_id = ? AND status IN ('paid', 'reserved')").bind(ev.id).first();
+    const taken = await env.DB.prepare("SELECT COALESCE(SUM(quantity), 0) AS n FROM tickets WHERE event_id = ? AND status IN ('paid', 'reserved')").bind(ev.id).first();
     const host = ev.partner_id ? await env.DB.prepare("SELECT display_name, partner_slug, avatar_url FROM users WHERE id = ?").bind(ev.partner_id).first() : null;
     return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug, logo: host.avatar_url },  registration_cents: reg, payments_enabled: cardPayments(env),
       spots_left: ev.capacity ? Math.max(0, ev.capacity - taken.n) : null, open: whenMs(ev.ends_at || ev.starts_at) > Date.now() - 6 * 3600e3 });
@@ -2600,10 +2601,13 @@ async function publicRoutes(request, env, url) {
     const { user, claim } = await userByEmail(env, name, email, b.heard);
     // "Also join <co-host>": friends now, not just once they're through the door.
     if (b.join_partner && ev.partner_id) await befriendPartner(env, ev.partner_id, user.id, ev.id);
+    // How many people this ticket lets in: the buyer plus guests.
+    const qty = Math.min(TICKET_MAX, Math.max(1, Math.round(Number(b.quantity)) || 1));
     const have = await env.DB.prepare("SELECT code, status FROM tickets WHERE event_id = ? AND user_id = ? AND status IN ('paid', 'reserved') LIMIT 1").bind(ev.id, user.id).first();
-    // Already have one: with email on, it goes to the inbox (never shown to
-    // whoever typed the address); without email, as before.
-    if (have) {
+    // Already have one and just saving a single spot again: with email on, it
+    // goes to the inbox (never shown to whoever typed the address). Paying, or
+    // bringing friends, makes a new ticket.
+    if (have && qty === 1 && !b.pay) {
       if (env.RESEND_API_KEY) {
         const t = await env.DB.prepare("SELECT id FROM tickets WHERE code = ?").bind(have.code).first();
         if (await sendTicketEmail(env, t.id, { claim })) return json({ emailed: true, already: true });
@@ -2611,12 +2615,12 @@ async function publicRoutes(request, env, url) {
       return json({ code: have.code, already: true, claim });
     }
     const first = !await hasFix(env, user.id);
-    const owe = (ev.door_cents || 0) + (first ? reg : 0);
+    const owe = (ev.door_cents || 0) * qty + (first ? reg : 0);
     const tierId = await entryTier(env, ev);
     const id = crypto.randomUUID(), code = ticketCode();
     const pay = !!b.pay && cardPayments(env) && owe > 0;
-    await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .bind(id, ev.id, tierId, user.id, pay ? "pending" : owe === 0 ? "paid" : "reserved", ev.door_cents || 0, code).run();
+    await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code, quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(id, ev.id, tierId, user.id, pay ? "pending" : owe === 0 ? "paid" : "reserved", ev.door_cents || 0, code, qty).run();
     if (!pay) {
       const emailed = await sendTicketEmail(env, id, { claim });
       // An existing account's ticket goes to its inbox, not the screen.
@@ -2626,7 +2630,7 @@ async function publicRoutes(request, env, url) {
     let session;
     try {
       session = await stripeCheckout(env, checkoutParams(env, {
-        user, name: `${ev.title}: entry + ${ev.entry_tickets || 0} free carnival tickets${first ? " + one-time $5 membership (first carnival only)" : ""}`, amountCents: owe,
+        user, name: `${ev.title}: ${qty > 1 ? qty + " entries, each with " : "entry + "}${ev.entry_tickets || 0} free carnival tickets${first ? " + one-time $5 membership (first carnival only)" : ""}`, amountCents: owe,
         metadata: { kind: "ticket", user_id: user.id, ticket_id: id, registration: first ? String(reg) : "0" },
         successPath: `/#/ticket/${code}${claim ? "/" + claim : ""}`,
       }));
@@ -2668,7 +2672,7 @@ async function publicRoutes(request, env, url) {
   const tMatch = pathname.match(/^\/api\/public\/tickets\/([0-9a-f]{20})$/);
   if (tMatch && method === "GET") {
     const t = await env.DB.prepare(
-      `SELECT t.code, t.status, t.stripe_session_id, t.checked_in_at, t.price_cents, t.user_id, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.slug, e.id AS event_id
+      `SELECT t.code, t.status, t.stripe_session_id, t.checked_in_at, t.price_cents, t.quantity, t.user_id, u.display_name, e.title, e.starts_at, e.location, e.entry_tickets, e.slug, e.id AS event_id
        FROM tickets t JOIN users u ON u.id = t.user_id JOIN events e ON e.id = t.event_id WHERE t.code = ?`
     ).bind(tMatch[1]).first();
     if (!t) return err(404, "No ticket with that code.");
@@ -2681,7 +2685,7 @@ async function publicRoutes(request, env, url) {
     }
     const first = !await hasFix(env, t.user_id);
     return json({ ticket: { code: t.code, status: t.status, checked_in: !!t.checked_in_at, name: t.display_name.split(" ")[0], title: t.title, starts_at: t.starts_at, location: t.location,
-      entry_tickets: t.entry_tickets || 0, entry_cents: t.price_cents, owe_cents: t.status === "reserved" ? t.price_cents + (first ? reg : 0) : 0, event: t.slug || t.event_id } });
+      entry_tickets: t.entry_tickets || 0, entry_cents: t.price_cents * t.quantity, quantity: t.quantity, owe_cents: t.status === "reserved" ? t.price_cents * t.quantity + (first ? reg : 0) : 0, event: t.slug || t.event_id } });
   }
   return null;
 }
@@ -2745,6 +2749,17 @@ async function befriendPartner(env, partnerId, userId, eventId) {
      ON CONFLICT(user_a, user_b) DO UPDATE SET met_at = COALESCE(handshakes.met_at, datetime('now'))`
   ).bind(a, b, eventId, partnerId).run();
 }
+// Most people one ticket lets in (the buyer plus guests).
+const TICKET_MAX = 10;
+// A group ticket's guests come through with the buyer: one door entry each,
+// no account, nothing stamped.
+async function addGuests(env, { eventId, ticketId, buyer, n, by, tickets }) {
+  const first = String(buyer || "").split(" ")[0];
+  for (let i = 1; i < n; i++) {
+    await addEntry(env, { eventId, name: `${first}'s guest${n > 2 ? " " + i : ""}`, via: "ticket", ticketId, by, tickets });
+  }
+  return Math.max(0, n - 1);
+}
 async function addEntry(env, e) {
   const id = crypto.randomUUID();
   await env.DB.prepare(
@@ -2774,13 +2789,14 @@ async function doorScan(env, user, ev, code) {
     // A saved spot: they pay at the door, through the "Let in" sheet.
     if (t.status === "reserved") {
       const fix = await hasFix(env, t.user_id);
-      return json({ ok: false, owes: true, ticket_id: t.id, user_id: t.user_id, display_name: t.display_name, entry_cents: t.price_cents, has_fix: fix });
+      return json({ ok: false, owes: true, ticket_id: t.id, user_id: t.user_id, display_name: t.display_name, entry_cents: t.price_cents * (t.quantity || 1), quantity: t.quantity || 1, has_fix: fix });
     }
     if (t.status !== "paid") return err(404, "That ticket was never paid for.");
     await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
     const first = await firstTimer(env, t.user_id);
     const { promoted } = await addEntry(env, { eventId, userId: t.user_id, name: t.display_name, via: "ticket", ticketId: t.id, firstTime: first, by: user.id, tickets: give, partnerId: ev.partner_id });
-    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name === "Entry" ? "Paid ahead" : t.tier_name, first_time: !!first, promoted, tickets_given: give });
+    const guests = await addGuests(env, { eventId, ticketId: t.id, buyer: t.display_name, n: t.quantity || 1, by: user.id, tickets: give });
+    return json({ ok: true, display_name: t.display_name, tier_name: t.tier_name === "Entry" ? "Paid ahead" : t.tier_name, first_time: !!first, promoted, tickets_given: give * (guests + 1), guests });
   }
   const g = await env.DB.prepare(
     `SELECT g.id, g.event_id, g.redeemed_at, u.display_name, e.title AS event_title FROM room_gifts g
@@ -2972,11 +2988,12 @@ async function doorRoutes(request, env, url, user) {
     const registration = b.registration && !hasFix && via === "door" ? regCents : 0;
     if (registration && !pay) return err(400, "Cash or card?");
     // Paying off a saved spot: the reserved ticket becomes a paid one.
-    let ticketId = null;
+    let ticketId = null, party = 1;
     if (b.ticket_id) {
-      const t = await env.DB.prepare("SELECT id FROM tickets WHERE id = ? AND event_id = ? AND user_id = ? AND status = 'reserved'").bind(b.ticket_id, eventId, target.id).first();
+      const t = await env.DB.prepare("SELECT id, quantity FROM tickets WHERE id = ? AND event_id = ? AND user_id = ? AND status = 'reserved'").bind(b.ticket_id, eventId, target.id).first();
       if (!t) return err(400, "That saved spot is already settled.");
       ticketId = t.id;
+      party = t.quantity || 1;
       await env.DB.prepare("UPDATE tickets SET status = 'paid', price_cents = ?, checked_in_at = datetime('now') WHERE id = ?").bind(via === "door" ? amount : 0, t.id).run();
     }
     const first = await firstTimer(env, target.id);
@@ -2986,13 +3003,14 @@ async function doorRoutes(request, env, url, user) {
       eventId, userId: target.id, partnerId: ev.partner_id, name: target.display_name, via, ticketId, amount: via === "door" ? amount + registration : 0, registration, method: pay,
       firstTime: first, note: (b.note || "").trim().slice(0, 140) || null, by: user.id, tickets: give,
     });
+    const guests = ticketId ? await addGuests(env, { eventId, ticketId, buyer: target.display_name, n: party, by: user.id, tickets: give }) : 0;
     // New faces (and anyone who never set a password) get a 30-day claim link.
     if (isNew) {
       const token = bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
       await env.DB.prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))").bind(await sha256Hex(token), target.id).run();
       claim = siteUrl(env) + "/#/claim/" + token;
     }
-    return json({ ok: true, id: entryId, display_name: target.display_name, first_time: !!first, new_account: isNew, claim, promoted, tickets_given: give });
+    return json({ ok: true, id: entryId, display_name: target.display_name, first_time: !!first, new_account: isNew, claim, promoted, tickets_given: give * (guests + 1), guests });
   }
 
   // A 50¢ test charge (Stripe's minimum) through the real checkout + webhook,
@@ -3033,6 +3051,8 @@ async function doorRoutes(request, env, url, user) {
     const e = await env.DB.prepare("SELECT id, via, gift_id, ticket_id, user_id FROM door_entries WHERE id = ? AND event_id = ? AND voided_at IS NULL").bind(arg, eventId).first();
     if (!e) return err(404, "Already undone.");
     await env.DB.prepare("UPDATE door_entries SET voided_at = datetime('now') WHERE id = ?").bind(e.id).run();
+    // A group ticket's guests came in on it too: undo them together.
+    if (e.ticket_id) await env.DB.prepare("UPDATE door_entries SET voided_at = datetime('now') WHERE event_id = ? AND ticket_id = ? AND voided_at IS NULL").bind(eventId, e.ticket_id).run();
     if (e.ticket_id) await env.DB.prepare("UPDATE tickets SET checked_in_at = NULL, status = CASE WHEN ? = 'door' THEN 'reserved' ELSE status END WHERE id = ?").bind(e.via, e.ticket_id).run();
     if (e.gift_id) await env.DB.prepare("UPDATE room_gifts SET redeemed_at = NULL, redeemed_event_id = NULL WHERE id = ?").bind(e.gift_id).run();
     if (e.user_id) await env.DB.prepare("DELETE FROM stamps WHERE user_id = ? AND kind = 'ticket' AND event_id = ?").bind(e.user_id, eventId).run();
@@ -3046,9 +3066,9 @@ async function doorRoutes(request, env, url, user) {
       `SELECT d.*, b.display_name AS by_name, u.city, u.email AS user_email FROM door_entries d
        LEFT JOIN users b ON b.id = d.by_user LEFT JOIN users u ON u.id = d.user_id WHERE d.event_id = ? ORDER BY d.created_at`
     ).bind(eventId).all();
-    const sold = await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS cents FROM tickets WHERE event_id = ? AND status = 'paid' AND stripe_session_id IS NOT NULL").bind(eventId).first();
+    const sold = await env.DB.prepare("SELECT COALESCE(SUM(quantity), 0) AS n, COALESCE(SUM(price_cents * quantity), 0) AS cents FROM tickets WHERE event_id = ? AND status = 'paid' AND stripe_session_id IS NOT NULL").bind(eventId).first();
     const saved = await env.DB.prepare(
-      `SELECT COUNT(*) AS n, COALESCE(SUM(EXISTS (SELECT 1 FROM door_entries d WHERE d.ticket_id = t.id AND d.voided_at IS NULL)), 0) AS came
+      `SELECT COALESCE(SUM(t.quantity), 0) AS n, COALESCE(SUM(t.quantity * EXISTS (SELECT 1 FROM door_entries d WHERE d.ticket_id = t.id AND d.voided_at IS NULL)), 0) AS came
        FROM tickets t JOIN ticket_tiers tt ON tt.id = t.tier_id WHERE t.event_id = ? AND tt.name = 'Entry' AND tt.active = 0 AND t.stripe_session_id IS NULL AND t.status IN ('reserved', 'paid')`
     ).bind(eventId).first();
     const { results: hours } = await env.DB.prepare(
@@ -3056,7 +3076,7 @@ async function doorRoutes(request, env, url, user) {
     ).bind(eventId).all();
     // Every ticket so far, paid online or saved for the door (newest first).
     const { results: tickets } = await env.DB.prepare(
-      `SELECT u.display_name AS name, u.email, t.status, t.price_cents, t.created_at, t.checked_in_at, p.amount_cents AS paid_cents
+      `SELECT u.display_name AS name, u.email, t.status, t.price_cents, t.quantity, t.created_at, t.checked_in_at, p.amount_cents AS paid_cents
        FROM tickets t JOIN users u ON u.id = t.user_id LEFT JOIN payments p ON p.stripe_session_id = t.stripe_session_id
        WHERE t.event_id = ? AND t.status IN ('paid', 'reserved') ORDER BY t.created_at DESC`
     ).bind(eventId).all();

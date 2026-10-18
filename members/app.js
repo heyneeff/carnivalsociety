@@ -8153,7 +8153,7 @@ async function renderCheckinView(mainView, eventId) {
     try { navigator.vibrate?.(ok === true ? 60 : [80, 60, 80]); } catch (e) { /* no buzz */ }
   };
   const said = r => r.ok
-    ? `<b>✓ ${escapeHtml(r.display_name)}</b>${r.tier_name ? ` · ${escapeHtml(r.tier_name)}` : ''}${r.first_time ? ' · <span class="door-first">first time! Welcome them in</span>' : ''}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}${r.tickets_given ? `<div class="door-give">🎟️ Hand them <b>${r.tickets_given}</b> carnival tickets</div>` : ''}`
+    ? `<b>✓ ${escapeHtml(r.display_name)}</b>${r.guests ? ` <b>+ ${r.guests} guest${r.guests > 1 ? 's' : ''}</b>` : ''}${r.tier_name ? ` · ${escapeHtml(r.tier_name)}` : ''}${r.first_time ? ' · <span class="door-first">first time! Welcome them in</span>' : ''}${r.promoted ? ' · 🎉 just became an Apprentice!' : ''}${r.tickets_given ? `<div class="door-give">🎟️ Hand them <b>${r.tickets_given}</b> carnival tickets</div>` : ''}`
     : `<b>Already in:</b> ${escapeHtml(r.display_name)} (since ${new Date(sqlTime(r.checked_in_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})`;
 
   // Lanes.
@@ -8225,8 +8225,8 @@ async function renderCheckinView(mainView, eventId) {
     try {
       const r = await apiFetch(`/api/events/${eventId}/door/scan`, { method: 'POST', body: { code } });
       if (r.owes) {
-        flash(false, `<b>${escapeHtml(r.display_name)}</b> saved a spot. Take their entry below.`);
-        openAdmit({ user_id: r.user_id, name: r.display_name, hasFix: r.has_fix, ticket_id: r.ticket_id, entry: r.entry_cents }, result);
+        flash(false, `<b>${escapeHtml(r.display_name)}</b> saved ${r.quantity > 1 ? `${r.quantity} spots (them + ${r.quantity - 1})` : 'a spot'}. Take their entry below.`);
+        openAdmit({ user_id: r.user_id, name: r.display_name, hasFix: r.has_fix, ticket_id: r.ticket_id, entry: r.entry_cents, party: r.quantity }, result);
         return;
       }
       flash(r.ok, said(r)); refresh();
@@ -8280,7 +8280,7 @@ async function renderCheckinView(mainView, eventId) {
     sheet = document.createElement('form');
     sheet.className = 'door-admit';
     sheet.innerHTML = `
-      <div class="da-who">Letting in <b>${escapeHtml(who.name)}</b>${who.fresh ? ' <span class="door-first">new face</span>' : ''}</div>
+      <div class="da-who">Letting in <b>${escapeHtml(who.name)}</b>${who.party > 1 ? ` + ${who.party - 1} guest${who.party > 2 ? 's' : ''}` : ''}${who.fresh ? ' <span class="door-first">new face</span>' : ''}</div>
       <div class="da-seg" data-seg="via">
         <button type="button" data-v="door" aria-pressed="${!who.crew}">💵 Paying</button>
         <button type="button" data-v="comp" aria-pressed="false">🌟 Comp</button>
@@ -8305,7 +8305,7 @@ async function renderCheckinView(mainView, eventId) {
       sheet.querySelectorAll('[data-seg="method"] [data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === state.method));
       sheet.querySelector('.da-pay').hidden = state.via !== 'door';
       const amt = Math.round(Number(sheet.amount.value || 0) * 100) + (sheet.registration?.checked ? reg : 0);
-      sheet.querySelector('[data-total]').innerHTML = `Take <b>${doorMoney(amt)}</b>${ev.entry_tickets ? ` · hand them ${ev.entry_tickets} carnival tickets` : ''}`;
+      sheet.querySelector('[data-total]').innerHTML = `Take <b>${doorMoney(amt)}</b>${ev.entry_tickets ? ` · hand them ${ev.entry_tickets * (who.party || 1)} carnival tickets` : ''}`;
     };
     sheet.addEventListener('input', sync);
     sync();
@@ -8415,8 +8415,8 @@ async function renderDoorReport(mainView, eventId) {
       </div>
       <h3>Tickets so far (${(r.tickets || []).length})</h3>
       <div class="door-recent">${(r.tickets || []).map(x => `
-        <div class="door-entry"><div><b>${escapeHtml(x.name)}</b> ${x.status === 'paid' && x.paid_cents ? `<span class="door-first">paid ${doorMoney(x.paid_cents)} online</span>` : x.status === 'paid' ? '<span class="door-first">paid</span>' : ''}
-          <div class="post-meta">${x.status === 'reserved' ? `Saved a spot · owes ${doorMoney(x.price_cents)} at the door` : 'Paid ahead'}${x.checked_in_at ? ' · came in ✓' : ''} · ${escapeHtml(x.email || '')} · ${new Date(sqlTime(x.created_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div></div></div>`).join('') || '<div class="placeholder-note">No tickets yet.</div>'}</div>
+        <div class="door-entry"><div><b>${escapeHtml(x.name)}</b>${x.quantity > 1 ? ` <b>× ${x.quantity}</b>` : ''} ${x.status === 'paid' && x.paid_cents ? `<span class="door-first">paid ${doorMoney(x.paid_cents)} online</span>` : x.status === 'paid' ? '<span class="door-first">paid</span>' : ''}
+          <div class="post-meta">${x.status === 'reserved' ? `Saved ${x.quantity > 1 ? x.quantity + ' spots' : 'a spot'} · owes ${doorMoney(x.price_cents * x.quantity)}${x.quantity > 1 ? ' entry' : ''} at the door` : 'Paid ahead'}${x.checked_in_at ? ' · came in ✓' : ''} · ${escapeHtml(x.email || '')} · ${new Date(sqlTime(x.created_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div></div></div>`).join('') || '<div class="placeholder-note">No tickets yet.</div>'}</div>
       <h3>How they got in</h3>
       <div class="dr-vias">${Object.entries(DOOR_VIA).map(([k, v]) => `<span>${v} <b>${t.by_via[k] || 0}</b></span>`).join('')}</div>
       ${t.registrations ? `<p class="post-meta">${t.registrations} paid the one-time membership (${doorMoney(t.registration)}), included in the door total.</p>` : ''}
@@ -8561,11 +8561,13 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
               </div>
             </div>
             ${free ? '' : `<div class="gi-receipt" aria-label="What you pay">
-              <div class="gr-row"><span>Entry</span><b>${doorMoney(ev.door_cents)}</b></div>
-              ${profile && !profile.waitlisted ? `<div class="gr-row gr-total"><span>You’re in the troupe, so no membership fee</span><b>${doorMoney(ev.door_cents)}</b></div>` : `
+              <div class="gr-row gr-qty"><span>How many people?<small>you plus your friends, one QR for all of you</small></span>
+                <span class="gi-stepper"><button type="button" data-qty="-1" aria-label="One fewer">−</button><output data-qty-n>1</output><button type="button" data-qty="1" aria-label="One more">+</button></span></div>
+              <div class="gr-row"><span>Entry<small data-qty-each hidden></small></span><b data-qty-entry>${doorMoney(ev.door_cents)}</b></div>
+              ${profile && !profile.waitlisted ? `<div class="gr-row gr-total"><span>You’re in the troupe, so no membership fee</span><b data-qty-total="0">${doorMoney(ev.door_cents)}</b></div>` : `
               <div class="gr-row gr-mem"><span><strong>One-time membership</strong><small>your first carnival only · you win <i>The Fix Is In</i> 💰</small></span><b>+${doorMoney(reg)}</b></div>
-              <div class="gr-row gr-total"><span>Your first night</span><b>${doorMoney(ev.door_cents + reg)}</b></div>
-              <p>After that, it’s ${doorMoney(ev.door_cents)} every time. Already a member? Use your member email and the $5 drops off.</p>`}
+              <div class="gr-row gr-total"><span>Your first night</span><b data-qty-total="${reg}">${doorMoney(ev.door_cents + reg)}</b></div>
+              <p>After that, it’s ${doorMoney(ev.door_cents)} every time. Already a member? Use your member email and the $5 drops off. Your guests just pay entry.</p>`}
             </div>`}
             <form class="gi-form" id="getinForm">
               <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
@@ -8579,13 +8581,27 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
         </div>
       </div>
     </div>`;
+  // Bring friends: one ticket, one QR, the whole group gets in.
+  let qty = 1;
+  const spotsCap = d.spots_left != null ? Math.max(1, d.spots_left) : 10;
+  app.querySelector('.gi-receipt')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-qty]');
+    if (!b) return;
+    qty = Math.min(10, spotsCap, Math.max(1, qty + Number(b.dataset.qty)));
+    app.querySelector('[data-qty-n]').textContent = qty;
+    const each = app.querySelector('[data-qty-each]');
+    each.hidden = qty < 2; each.textContent = `${qty} × ${doorMoney(ev.door_cents)}`;
+    app.querySelector('[data-qty-entry]').textContent = doorMoney(ev.door_cents * qty);
+    const tot = app.querySelector('[data-qty-total]');
+    if (tot) tot.textContent = doorMoney(ev.door_cents * qty + Number(tot.dataset.qtyTotal));
+  });
   document.getElementById('getinForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target, pay = e.submitter?.dataset.pay === '1';
     f.querySelectorAll('button').forEach(b => { b.disabled = true; });
     if (e.submitter) e.submitter.textContent = pay ? 'Off to pay…' : 'Punching your ticket…';
     try {
-      const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay, join_partner: !!f.join?.checked } });
+      const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay, quantity: qty, join_partner: !!f.join?.checked } });
       if (r.url) { window.location.href = r.url; return; }
       // An existing account's ticket goes to its inbox, never the screen.
       if (!r.code) { renderTicketSent(f.email.value, r.already, ev.slug || idOrSlug); return; }
@@ -8614,8 +8630,8 @@ async function renderTicketPage(code, claim, tries = 0) {
     return;
   }
   const status = t.checked_in ? '<div class="gi-status in">✓ You’re in. Have fun!</div>'
-    : t.status === 'paid' ? '<div class="gi-status paid">✓ Paid. Show this at the door.</div>'
-    : t.status === 'reserved' ? `<div class="gi-status owe">Spot saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time membership (your first carnival only)</small>` : ''}</div>`
+    : t.status === 'paid' ? `<div class="gi-status paid">✓ Paid. Show this at the door.${t.quantity > 1 ? `<small>Lets in ${t.quantity}: you and ${t.quantity - 1} guest${t.quantity > 2 ? 's' : ''}. Come in together!</small>` : ''}</div>`
+    : t.status === 'reserved' ? `<div class="gi-status owe">Spot${t.quantity > 1 ? 's' : ''} saved! Pay <b>${doorMoney(t.owe_cents)}</b> at the door, cash or card${t.owe_cents > t.entry_cents ? `<small>${doorMoney(t.entry_cents)} entry + ${doorMoney(t.owe_cents - t.entry_cents)} one-time membership (your first carnival only)</small>` : ''}</div>`
     : '<div class="gi-status owe">Payment didn’t go through. Try again, or pay at the door.</div>';
   app.innerHTML = `
     <div class="getin">

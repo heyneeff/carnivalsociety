@@ -691,3 +691,6 @@ CREATE TABLE event_flyers (
 
 -- Waitlist signup: "I want to volunteer" checkbox.
 ALTER TABLE users ADD COLUMN wants_to_volunteer INTEGER NOT NULL DEFAULT 0;
+
+-- 2026-10-18: one ticket admits a group (buyer + guests).
+ALTER TABLE tickets ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1;

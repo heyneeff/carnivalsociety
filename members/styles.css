@@ -2799,3 +2799,10 @@ p.nt-how { padding-left: 12px; }
 .gi-spiral { top: 150px; width: 440px; height: 440px; margin: -220px 0 0 -220px;
   -webkit-mask-image: radial-gradient(circle, transparent 0, transparent 21%, rgba(0,0,0,0.5) 30%, #000 42%);
   mask-image: radial-gradient(circle, transparent 0, transparent 21%, rgba(0,0,0,0.5) 30%, #000 42%); }
+/* Bring friends: the people stepper on the ticket page. */
+.gr-qty { align-items: center; }
+.gr-qty small, .gr-row small { font-size: 0.82rem; font-style: italic; color: var(--gi-soft); }
+.gi-stepper { flex: 0 0 auto !important; flex-direction: row !important; align-items: center; gap: 4px; }
+.gi-stepper button { width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--gi-red); background: transparent; color: var(--gi-red); font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.gi-stepper button:active { background: var(--gi-red); color: var(--gi-card); }
+.gi-stepper output { min-width: 2ch; text-align: center; font-family: 'Playfair Display', serif; font-weight: 700; font-size: 1.35rem; color: var(--gi-ink); }
