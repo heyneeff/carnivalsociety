@@ -40,7 +40,7 @@
   }
   .spiral-stage {
     position: absolute; top: 50%; left: 50%;
-    width: 125vmax; height: 125vmax;
+    width: 170vmax; height: 170vmax;
     transform: translate(-50%, -50%);
     z-index: 2; pointer-events: none;
     -webkit-mask-image: radial-gradient(circle at center,
@@ -55,17 +55,33 @@
   }
   .spiral-stage svg { width: 100%; height: 100%; display: block; overflow: visible; }
   .spiral-rotor, .spiral-halo { transform-origin: 0 0; will-change: transform; }
-  .wordmark {
+  .marks {
     position: relative; z-index: 3;
-    width: min(86vw, 62dvh, 600px);
+    display: flex; flex-direction: column; align-items: center;
+    pointer-events: none;
+  }
+  .wordmark {
+    position: relative;
+    width: min(86vw, 52dvh, 600px);
     aspect-ratio: 728 / 520; object-fit: contain;
     filter: drop-shadow(0 6px 24px rgba(90,30,36,0.25));
     animation: rise 1.5s cubic-bezier(0.22,1,0.36,1) 0.55s both;
     pointer-events: none;
   }
+  /* Wiggelruhm, tinted burgundy to sit with the wordmark. */
+  .wiggle {
+    width: min(52vw, 32dvh, 340px);
+    aspect-ratio: 1200 / 441;
+    margin-top: min(2dvh, 16px);
+    background: var(--burgundy-red);
+    -webkit-mask: url(/wiggelruhm.png) center / contain no-repeat;
+    mask: url(/wiggelruhm.png) center / contain no-repeat;
+    filter: drop-shadow(0 4px 14px rgba(90,30,36,0.2));
+    animation: rise 1.5s cubic-bezier(0.22,1,0.36,1) 0.9s both;
+  }
   @keyframes rise { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
   @keyframes fade { from { opacity:0; } to { opacity:1; } }
-  @media (orientation: landscape) { .spiral-stage { width: 115vmax; height: 115vmax; } }
+  @media (orientation: landscape) { .spiral-stage { width: 155vmax; height: 155vmax; } }
 </style>
 </head>
 <body>
@@ -76,9 +92,12 @@
       <g class="spiral-rotor" id="spiralRotor"><circle r="3.5" fill="#9B3036"/></g>
     </svg>
   </div>
+  <div class="marks">
   <img class="wordmark"
        src="https://pub-2dbb7654dec74c5694402d3930de7a9a.r2.dev/carnival%20society%20logo%20(2)-03.png"
        alt="Carnival Society International">
+  <div class="wiggle" role="img" aria-label="Wiggelruhm"></div>
+  </div>
 </div>
 <script>
   // Same swirl as the homepage hero.
