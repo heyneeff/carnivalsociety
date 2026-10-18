@@ -2806,3 +2806,14 @@ p.nt-how { padding-left: 12px; }
 .gi-stepper button { width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--gi-red); background: transparent; color: var(--gi-red); font-size: 1.3rem; line-height: 1; cursor: pointer; }
 .gi-stepper button:active { background: var(--gi-red); color: var(--gi-card); }
 .gi-stepper output { min-width: 2ch; text-align: center; font-family: 'Playfair Display', serif; font-weight: 700; font-size: 1.35rem; color: var(--gi-ink); }
+/* Volunteer sign-up (/v/<slug>): pick-any chips. */
+.gi-help-lede { margin: 6px 0 4px; font-style: italic; color: var(--gi-soft); text-align: center; }
+.gi-form label small, .gi-help legend small { font-family: 'Cormorant Garamond', serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: 0.95rem; color: var(--gi-soft); }
+.gi-form textarea { font: inherit; font-family: 'Libre Franklin', sans-serif; font-size: 16px; letter-spacing: 0; text-transform: none; padding: 12px 14px; border: 2px solid var(--gi-ink); border-radius: 12px; background: #fff; color: var(--gi-ink); resize: vertical; }
+.gi-help { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.gi-help legend { padding: 0 0 8px; font-family: 'Rye', serif; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gi-deep); }
+.gi-form .gi-chip { display: inline-flex; font-family: 'Libre Franklin', sans-serif; font-size: 14px; letter-spacing: 0; text-transform: none; cursor: pointer; }
+.gi-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.gi-chip span { padding: 8px 13px; border: 1.5px solid var(--gi-red); border-radius: 999px; color: var(--gi-red); background: transparent; }
+.gi-chip input:checked + span { background: var(--gi-red); color: var(--gi-card); }
+.gi-chip input:focus-visible + span { outline: 3px solid var(--gi-gold); outline-offset: 1px; }

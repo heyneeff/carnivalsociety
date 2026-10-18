@@ -147,6 +147,8 @@ function render() {
   // Anyone, signed in or not: a carnival's "Get in" page, and a ticket.
   const joinMatch = window.location.hash.match(/^#\/p\/([a-z0-9-]+)$/);
   if (joinMatch) { dropForumWing(); renderJoinPage(joinMatch[1]); return; }
+  const helpMatch = window.location.hash.match(/^#\/help\/([a-z0-9-]+)$/);
+  if (helpMatch) { dropForumWing(); renderHelpPage(helpMatch[1]); return; }
   const getMatch = window.location.hash.match(/^#\/get\/([a-z0-9-]+)$/);
   if (getMatch) { dropForumWing(); renderGetIn(getMatch[1]); return; }
   const ticketMatch = window.location.hash.match(/^#\/ticket\/([0-9a-f]{20})(?:\/([0-9a-f]+))?$/);
@@ -8417,6 +8419,10 @@ async function renderDoorReport(mainView, eventId) {
       <div class="door-recent">${(r.tickets || []).map(x => `
         <div class="door-entry"><div><b>${escapeHtml(x.name)}</b>${x.quantity > 1 ? ` <b>× ${x.quantity}</b>` : ''} ${x.status === 'paid' && x.paid_cents ? `<span class="door-first">paid ${doorMoney(x.paid_cents)} online</span>` : x.status === 'paid' ? '<span class="door-first">paid</span>' : ''}
           <div class="post-meta">${x.status === 'reserved' ? `Saved ${x.quantity > 1 ? x.quantity + ' spots' : 'a spot'} · owes ${doorMoney(x.price_cents * x.quantity)}${x.quantity > 1 ? ' entry' : ''} at the door` : 'Paid ahead'}${x.checked_in_at ? ' · came in ✓' : ''} · ${escapeHtml(x.email || '')} · ${new Date(sqlTime(x.created_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div></div></div>`).join('') || '<div class="placeholder-note">No tickets yet.</div>'}</div>
+      <h3>Volunteers (${(r.volunteers || []).length})</h3>
+      <div class="door-recent">${(r.volunteers || []).map(v => `
+        <div class="door-entry"><div><b>${escapeHtml(v.name)}</b>${v.jobs ? ` <span class="door-first">${escapeHtml(v.jobs)}</span>` : ''}
+          <div class="post-meta">${v.note ? escapeHtml(v.note) + ' · ' : ''}${escapeHtml(v.email || '')}${v.phone ? ` · <a href="tel:${escapeHtml(v.phone)}">${escapeHtml(v.phone)}</a>` : ''}</div></div></div>`).join('') || '<div class="placeholder-note">No volunteers yet. Share /v/' + escapeHtml(r.event.slug || '') + '</div>'}</div>
       <h3>How they got in</h3>
       <div class="dr-vias">${Object.entries(DOOR_VIA).map(([k, v]) => `<span>${v} <b>${t.by_via[k] || 0}</b></span>`).join('')}</div>
       ${t.registrations ? `<p class="post-meta">${t.registrations} paid the one-time membership (${doorMoney(t.registration)}), included in the door total.</p>` : ''}
@@ -8608,6 +8614,56 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
       try { if (r.emailed) sessionStorage.setItem('cs-ticket-emailed', r.code); } catch (e) { /* fine */ }
       location.hash = `#/ticket/${r.code}${r.claim ? '/' + r.claim : ''}`;
     } catch (err) { renderGetIn(idOrSlug, err.message); }
+  });
+}
+// Volunteer for a carnival (/v/<slug>): name, email, phone, what you'd help
+// with. Lands on that night's crew list; the Ringleader hands out jobs.
+async function renderHelpPage(slug, errorMsg = '') {
+  app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Join the crew!', slug)}<div class="gi-body"><p class="gi-fine">One moment…</p></div></div></div>`;
+  let d;
+  try { d = await apiFetch(`/api/public/events/${encodeURIComponent(slug)}`); }
+  catch (err) { app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee('Hmm.')}<div class="gi-body"><p>${escapeHtml(err.message)}</p></div></div></div>`; return; }
+  const ev = d.event;
+  app.innerHTML = `
+    <div class="getin">
+      <div class="getin-card">
+        ${getinMarquee('Join the crew!', ev.slug || slug)}
+        <div class="gi-body">
+          <h1>Help make ${escapeHtml(ev.title)}</h1>
+          ${getinDate(ev.starts_at)}
+          ${ev.location ? `<p class="gi-where">📍 ${escapeHtml(ev.location)}</p>` : ''}
+          <p class="gi-help-lede">Carnivals are built by carnies. Tell us what you’d like to help with and the Ringleader will be in touch with your job and when to show up.</p>
+          <form class="gi-form" id="helpForm">
+            <label>Your name<input name="name" required maxlength="60" autocomplete="name" value="${escapeHtml(profile?.display_name || '')}"></label>
+            <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" value="${escapeHtml(profile?.email || '')}"></label>
+            <label>Phone <small>(so we can text you on the night)</small><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="30"></label>
+            <fieldset class="gi-help"><legend>I could help with… <small>(pick any)</small></legend>
+              ${(d.volunteer_help || []).map(h => `<label class="gi-chip"><input type="checkbox" name="help" value="${escapeHtml(h)}"><span>${escapeHtml(h)}</span></label>`).join('')}
+            </fieldset>
+            <label>Anything else? <small>(skills, a game you want to build, when you’re free)</small><textarea name="note" rows="3" maxlength="300"></textarea></label>
+            ${errorMsg ? `<p class="gi-error" role="alert">${escapeHtml(errorMsg)}</p>` : ''}
+            <button class="gi-btn" type="submit">Sign me up</button>
+            <p class="gi-fine">Coming as a guest instead? <a href="#/get/${escapeHtml(ev.slug || slug)}">Get a ticket</a>.</p>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('helpForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector('[type=submit]');
+    btn.disabled = true; btn.textContent = 'Signing you up…';
+    try {
+      const r = await apiFetch(`/api/public/events/${ev.id}/volunteer`, { method: 'POST', body: {
+        name: f.name.value, email: f.email.value, phone: f.phone.value, note: f.note.value,
+        help: [...f.querySelectorAll('[name=help]:checked')].map(x => x.value),
+      } });
+      app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee(r.already ? 'Still on the crew!' : 'You’re on the crew!', ev.slug || slug)}<div class="gi-body">
+        <h1>Thank you!</h1>
+        <p>You’re signed up to help at <b>${escapeHtml(ev.title)}</b>. ${r.already ? 'We updated what you can help with.' : 'Check your email; the Ringleader will be in touch with your job and when to show up.'}</p>
+        <p class="gi-fine">Ask how you can be of service, not for a role. (Rule 10 of the Carnie Code.)</p>
+        <a class="gi-btn gi-btn-2" href="#/get/${escapeHtml(ev.slug || slug)}">See the carnival</a>
+      </div></div></div>`;
+    } catch (err) { renderHelpPage(slug, err.message); }
   });
 }
 // "Check your email": the ticket went to the inbox for that address.

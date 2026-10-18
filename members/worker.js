@@ -121,6 +121,9 @@ export default {
     // Short public links for flyers: /t/kooks → that carnival's page.
     const short = url.pathname.match(/^\/t\/([a-z0-9-]{2,40})\/?$/);
     if (short) return Response.redirect(`${url.origin}/#/get/${short[1]}`, 302);
+    // /v/kooks → that carnival's volunteer sign-up.
+    const vol = url.pathname.match(/^\/v\/([a-z0-9-]{2,40})\/?$/);
+    if (vol) return Response.redirect(`${url.origin}/#/help/${vol[1]}`, 302);
     const join = url.pathname.match(/^\/p\/([a-z0-9-]{2,40})\/?$/);
     if (join) return Response.redirect(`${url.origin}/#/p/${join[1]}`, 302);
     // The Mercury Oracle, inside the house: /oracle/mercury/* is passed
@@ -2584,8 +2587,48 @@ async function publicRoutes(request, env, url) {
     if (!ev) return err(404, "No such carnival.");
     const taken = await env.DB.prepare("SELECT COALESCE(SUM(quantity), 0) AS n FROM tickets WHERE event_id = ? AND status IN ('paid', 'reserved')").bind(ev.id).first();
     const host = ev.partner_id ? await env.DB.prepare("SELECT display_name, partner_slug, avatar_url FROM users WHERE id = ?").bind(ev.partner_id).first() : null;
-    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug, logo: host.avatar_url },  registration_cents: reg, payments_enabled: cardPayments(env),
+    return json({ event: ev, partner: host && { name: host.display_name, slug: host.partner_slug, logo: host.avatar_url },  registration_cents: reg, payments_enabled: cardPayments(env), volunteer_help: VOLUNTEER_HELP,
       spots_left: ev.capacity ? Math.max(0, ev.capacity - taken.n) : null, open: whenMs(ev.ends_at || ev.starts_at) > Date.now() - 6 * 3600e3 });
+  }
+  // Volunteer for a carnival (2026-10-18): name + email + what you'd help
+  // with → on that night's crew list (event_volunteers). Nobody claims a job
+  // from here (the Door job unlocks the door screen); the Ringleader hands
+  // jobs out.
+  const volMatch = pathname.match(/^\/api\/public\/events\/([^/]+)\/volunteer$/);
+  if (volMatch && method === "POST") {
+    if (await rateLimited(env, request, "signup")) return err(429, "Too many tries. Wait a minute and try again.");
+    const ev = await findEvent(env, volMatch[1]);
+    if (!ev) return err(404, "No such carnival.");
+    const b = await body(request);
+    const name = (b.name || "").trim().slice(0, 60);
+    const email = normalizeEmail(b.email || "");
+    if (!name) return err(400, "What's your name?");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "That email doesn't look right.");
+    const phone = (b.phone || "").trim().slice(0, 30);
+    const help = (Array.isArray(b.help) ? b.help : []).filter((h) => VOLUNTEER_HELP.includes(h));
+    const extra = (b.note || "").trim().slice(0, 300);
+    const note = [help.join(", "), extra].filter(Boolean).join(" · ").slice(0, 400) || null;
+    const { user, claim } = await userByEmail(env, name, email, "Volunteered for " + ev.title);
+    await env.DB.prepare("UPDATE users SET wants_to_volunteer = 1, phone = COALESCE(NULLIF(phone, ''), ?) WHERE id = ?").bind(phone || null, user.id).run();
+    const was = await env.DB.prepare("SELECT 1 FROM event_volunteers WHERE event_id = ? AND user_id = ?").bind(ev.id, user.id).first();
+    await env.DB.prepare(
+      `INSERT INTO event_volunteers (event_id, user_id, note) VALUES (?, ?, ?)
+       ON CONFLICT(event_id, user_id) DO UPDATE SET note = COALESCE(excluded.note, event_volunteers.note)`
+    ).bind(ev.id, user.id, note).run();
+    if (!was) {
+      const first = escapeEmailHtml(name.split(" ")[0]);
+      const link = claim ? `${siteUrl(env)}/#/claim/${claim}` : siteUrl(env);
+      await sendEmail(env, {
+        to: user.email,
+        subject: `🔨 You're on the crew: ${ev.title}`,
+        html: emailFrame(env, { heading: "You're on the crew!", button: [claim ? "Claim your Dressing Room" : "Open the Carnival Society", link],
+          body: `<p style="margin:0 0 12px;">Thank you, ${first}! You signed up to help at <b>${escapeEmailHtml(ev.title)}</b>, ${escapeEmailHtml(eventWhen(ev.starts_at))}.</p>
+<p style="margin:0 0 12px;">${help.length ? `You said: <b>${escapeEmailHtml(help.join(", "))}</b>. ` : ""}The Ringleader will be in touch with your job and when to show up.</p>
+<p style="margin:0;font-size:15px;color:#5A4238;">Rule 10 of the Carnie Code: ask how you can be of service, not for a role.</p>` }),
+        text: `Thank you, ${name.split(" ")[0]}! You signed up to help at ${ev.title}, ${eventWhen(ev.starts_at)}. The Ringleader will be in touch with your job and when to show up.\n${link}`,
+      });
+    }
+    return json({ ok: true, already: !!was });
   }
   const getMatch = pathname.match(/^\/api\/public\/events\/([^/]+)\/get$/);
   if (getMatch && method === "POST") {
@@ -2749,6 +2792,12 @@ async function befriendPartner(env, partnerId, userId, eventId) {
      ON CONFLICT(user_a, user_b) DO UPDATE SET met_at = COALESCE(handshakes.met_at, datetime('now'))`
   ).bind(a, b, eventId, partnerId).run();
 }
+// What a volunteer can offer on the public sign-up.
+const VOLUNTEER_HELP = [
+  "Setup", "Teardown & cleanup", "Door & tickets", "Barker (greet & hype)", "Run a carnival game", "Prize booth",
+  "Perform", "Fortune telling", "Face paint & makeup", "Costumes", "Decor & signs", "Lights & sound",
+  "Photos & video", "Food & snacks", "Runner (fetch & fix)", "Safety & first aid", "Anything!",
+];
 // Most people one ticket lets in (the buyer plus guests).
 const TICKET_MAX = 10;
 // A group ticket's guests come through with the buyer: one door entry each,
@@ -3080,7 +3129,12 @@ async function doorRoutes(request, env, url, user) {
        FROM tickets t JOIN users u ON u.id = t.user_id LEFT JOIN payments p ON p.stripe_session_id = t.stripe_session_id
        WHERE t.event_id = ? AND t.status IN ('paid', 'reserved') ORDER BY t.created_at DESC`
     ).bind(eventId).all();
-    return json({ event: ev, totals: await doorTotals(env, eventId), advance: sold, saved, hours, tickets,
+    const { results: volunteers } = await env.DB.prepare(
+      `SELECT u.display_name AS name, u.email, u.phone, v.note, v.created_at,
+              (SELECT GROUP_CONCAT(j.title, ' · ') FROM job_claims c JOIN event_jobs j ON j.id = c.job_id WHERE c.user_id = u.id AND j.event_id = v.event_id) AS jobs
+       FROM event_volunteers v JOIN users u ON u.id = v.user_id WHERE v.event_id = ? ORDER BY v.created_at DESC`
+    ).bind(eventId).all();
+    return json({ event: ev, totals: await doorTotals(env, eventId), advance: sold, saved, hours, tickets, volunteers,
       entries: entries.map((e) => ({ ...e, user_email: e.user_email && e.user_email.endsWith("@" + DOOR_EMAIL_DOMAIN) ? null : e.user_email })) });
   }
   return null;
