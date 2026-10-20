@@ -48,7 +48,7 @@ async function getSessionUser(request, env) {
   const token = parseCookie(request.headers.get("Cookie"), "session");
   if (!token) return null;
   return env.DB.prepare(
-    `SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id
+    `SELECT users.*, NOT EXISTS (SELECT 1 FROM stamps WHERE stamps.user_id = users.id) AS no_stamps FROM sessions JOIN users ON users.id = sessions.user_id
      WHERE sessions.id = ?1 AND sessions.expires_at > datetime('now')`
   ).bind(token).first();
 }
@@ -88,9 +88,15 @@ const CARD_PAYMENTS_PAUSED = false;
 function cardPayments(env) { return !CARD_PAYMENTS_PAUSED && !!env.STRIPE_SECRET_KEY; }
 function publicUser(u) {
   if (!u) return null;
-  const { password_hash, salt, ...rest } = u;
-  return { ...rest, is_ringleader: !!rest.is_ringleader, dues_paid: !!rest.dues_paid, onboarded: !!rest.onboarded };
+  const { password_hash, salt, no_stamps, ...rest } = u;
+  const rank = rest.rank === "clown" && no_stamps && !rest.is_organization ? "first_of_may" : rest.rank;
+  return { ...rest, rank, is_ringleader: !!rest.is_ringleader, dues_paid: !!rest.dues_paid, onboarded: !!rest.onboarded };
 }
+// "First of May" (circus slang: someone in their first season) is where
+// everyone starts: a Clown with no stamps yet. It's never stored (users.rank's
+// CHECK can't take a new value, see Gotchas); the first stamp makes a Clown.
+// Display only: logic that checks rank keeps reading the raw column.
+const rankOf = (a) => `CASE WHEN ${a}.rank = 'clown' AND COALESCE(${a}.is_organization, 0) = 0 AND NOT EXISTS (SELECT 1 FROM stamps WHERE stamps.user_id = ${a}.id) THEN 'first_of_may' ELSE ${a}.rank END`;
 async function body(request) {
   try {
     return await request.json();
@@ -325,7 +331,7 @@ async function api(request, env, url, ctx) {
     await letBackerIn(env, id, email);
     if (invitedBy) ctx.waitUntil(creditInviter(env, id));
     const token = await createSession(env, id);
-    const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
+    const user2 = { ...(await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first()), no_stamps: 1 };
     ctx.waitUntil(sendWelcomeEmail(env, user2));
     // Signup from the public site (a different origin) can't use this cookie
     // anyway — cookies aren't shared cross-domain — so the CORS header is
@@ -336,7 +342,7 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/auth/signin" && method === "POST") {
     if (await rateLimited(env, request, "signin")) return err(429, "Too many attempts. Wait a minute and try again.");
     const { email, password } = await body(request);
-    const user2 = await env.DB.prepare("SELECT * FROM users WHERE lower(email) = ?").bind(normalizeEmail(email)).first();
+    const user2 = await env.DB.prepare("SELECT *, NOT EXISTS (SELECT 1 FROM stamps WHERE stamps.user_id = users.id) AS no_stamps FROM users WHERE lower(email) = ?").bind(normalizeEmail(email)).first();
     if (!user2 || !await verifyPassword(password || "", user2.password_hash, user2.salt)) return err(401, "Invalid email or password.");
     const token = await createSession(env, user2.id);
     return json({ user: publicUser(user2) }, { headers: { "Set-Cookie": sessionCookie(token, SESSION_DAYS * 86400) } });
@@ -584,7 +590,7 @@ async function api(request, env, url, ctx) {
     // Forum list: reply count, last activity (bumps busy threads up) and who
     // replied last, alongside the usual post + author fields.
     const { results } = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo,
+      `SELECT posts.*, users.display_name AS a_name, ${rankOf("users")} AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo,
               (SELECT COUNT(*) FROM posts r WHERE r.parent_id = posts.id) AS reply_count,
               COALESCE((SELECT MAX(r.created_at) FROM posts r WHERE r.parent_id = posts.id), posts.created_at) AS last_activity,
               (SELECT u2.display_name FROM posts r JOIN users u2 ON u2.id = r.author_id WHERE r.parent_id = posts.id ORDER BY r.created_at DESC LIMIT 1) AS last_replier
@@ -613,13 +619,13 @@ async function api(request, env, url, ctx) {
     if (authErr) return authErr;
     const postId = postMatch[1];
     const post = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo
+      `SELECT posts.*, users.display_name AS a_name, ${rankOf("users")} AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo
        FROM posts JOIN users ON users.id = posts.author_id WHERE posts.id = ?`
     ).bind(postId).first();
     if (!post) return err(404, "Not found.");
     if (!isInner(user) && !await isCourtyardBoard(env, post.board_id)) return err(403, "Inner members only.");
     const { results: replyRows } = await env.DB.prepare(
-      `SELECT posts.*, users.display_name AS a_name, users.rank AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo
+      `SELECT posts.*, users.display_name AS a_name, ${rankOf("users")} AS a_rank, users.is_ringleader AS a_ring, users.avatar_url AS a_photo
        FROM posts JOIN users ON users.id = posts.author_id
        WHERE posts.parent_id = ? ORDER BY posts.created_at ASC`
     ).bind(postId).all();
@@ -751,7 +757,7 @@ async function api(request, env, url, ctx) {
     if (authErr) return authErr;
     if (!await isCrew(env, user, crewMatch[1])) return err(403, "Crew only.");
     const { results } = await env.DB.prepare(
-      `SELECT event_crew.event_id, users.id, users.display_name, users.rank, users.is_ringleader
+      `SELECT event_crew.event_id, users.id, users.display_name, ${rankOf("users")} AS rank, users.is_ringleader
        FROM event_crew JOIN users ON users.id = event_crew.user_id
        WHERE event_crew.event_id = ? ORDER BY users.display_name`
     ).bind(crewMatch[1]).all();
@@ -1798,7 +1804,7 @@ async function api(request, env, url, ctx) {
     if (authErr) return authErr;
     if (!user.is_ringleader) return err(403, "Ringleaders only.");
     const { results: members } = await env.DB.prepare(
-      `SELECT users.id, users.display_name, users.rank, users.is_ringleader, users.skills, users.birthday,
+      `SELECT users.id, users.display_name, ${rankOf("users")} AS rank, users.is_ringleader, users.skills, users.birthday,
               users.home_chapter_id, chapters.name AS c_name
        FROM users LEFT JOIN chapters ON chapters.id = users.home_chapter_id
        ORDER BY users.display_name`
@@ -1943,7 +1949,7 @@ async function api(request, env, url, ctx) {
     if (!convIds.length) return json({ conversations: [] });
     const placeholders = convIds.map(() => "?").join(",");
     const { results: others } = await env.DB.prepare(
-      `SELECT conversation_participants.conversation_id, users.id, users.display_name, users.rank, users.is_ringleader
+      `SELECT conversation_participants.conversation_id, users.id, users.display_name, ${rankOf("users")} AS rank, users.is_ringleader
        FROM conversation_participants JOIN users ON users.id = conversation_participants.user_id
        WHERE conversation_participants.conversation_id IN (${placeholders}) AND conversation_participants.user_id != ?`
     ).bind(...convIds, user.id).all();
@@ -2333,7 +2339,7 @@ async function crewRoutes(request, env, url, user) {
     const mine = await env.DB.prepare("SELECT 1 FROM event_volunteers WHERE event_id = ? AND user_id = ?").bind(evt.id, user.id).first();
     if (!mine && !isModerator(user)) return json({ am_crew: false });
     const { results: crew } = await env.DB.prepare(
-      `SELECT u.id, u.display_name, u.rank, u.is_ringleader,
+      `SELECT u.id, u.display_name, ${rankOf("u")} AS rank, u.is_ringleader,
               (SELECT GROUP_CONCAT(j.title, ' · ') FROM job_claims c JOIN event_jobs j ON j.id = c.job_id WHERE c.user_id = u.id AND j.event_id = v.event_id) AS jobs,
               h.met_at, h.asked_by
        FROM event_volunteers v JOIN users u ON u.id = v.user_id
@@ -2393,7 +2399,7 @@ async function crewRoutes(request, env, url, user) {
   if (pathname === "/api/me/album" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const { results } = await env.DB.prepare(
-      `SELECT u.id, u.display_name, u.rank, u.is_ringleader, u.city, h.met_at, e.title AS event_title
+      `SELECT u.id, u.display_name, ${rankOf("u")} AS rank, u.is_ringleader, u.city, h.met_at, e.title AS event_title
        FROM handshakes h JOIN users u ON u.id = CASE WHEN h.user_a = ? THEN h.user_b ELSE h.user_a END
        LEFT JOIN events e ON e.id = h.event_id
        WHERE (h.user_a = ? OR h.user_b = ?) AND h.met_at IS NOT NULL ORDER BY h.met_at DESC`
@@ -3684,8 +3690,10 @@ async function grantStamp(env, { userId, kind, eventId = null, note = null, gran
   const promoted = granted ? await checkPromotion(env, userId) : false;
   if (granted) {
     const b = BADGE_NAMES[kind];
+    const clowned = !promoted && (await stampCounts(env, userId)).total === 1 && !!(await env.DB.prepare("SELECT 1 FROM users WHERE id = ? AND rank = 'clown' AND COALESCE(is_organization, 0) = 0").bind(userId).first());
     await notifyUser(env, userId, promoted
       ? { kind: "rank", title: "You're an Apprentice!", body: "Two shifts worked, the Threshold crossed. Step inside the guild.", url: "#/dressing-room" }
+      : clowned ? { kind: "rank", title: "Honk! You're a Clown now!", body: `Your first badge${b ? `, ${b[0]},` : ""} made you a real carnie. Open your trunk to see it.`, url: "#/dressing-room" }
       : { kind: "prize", title: `You won a prize: ${b ? b[0] : "a stamp"}!`, body: b ? `“${b[1]}” Open your trunk to see it.` : "Open your trunk to see it.", url: "#/dressing-room" }, "notify_prizes");
   }
   return { granted, promoted };
@@ -3713,12 +3721,13 @@ async function passportFor(env, userId) {
      WHERE stamps.user_id = ? ORDER BY stamps.created_at, stamps.rowid`
   ).bind(userId).all();
   const c = await stampCounts(env, userId);
-  const next = u.rank === "clown" && !u.is_organization ? {
+  const fresh = u.rank === "clown" && !u.is_organization && !c.total;
+  const next = fresh ? { rank: "clown", stamps_needed: 1, roustabouts_needed: 0 } : u.rank === "clown" && !u.is_organization ? {
     rank: "apprentice",
     stamps_needed: Math.max(0, APPRENTICE_STAMPS - c.total),
     roustabouts_needed: Math.max(0, APPRENTICE_ROUSTABOUTS - c.roustabouts)
   } : null;
-  return { user: { id: u.id, display_name: u.display_name, rank: u.rank, is_ringleader: !!u.is_ringleader }, stamps: results, counts: c, next };
+  return { user: { id: u.id, display_name: u.display_name, rank: fresh ? "first_of_may" : u.rank, is_ringleader: !!u.is_ringleader }, stamps: results, counts: c, next };
 }
 async function passportRoutes(request, env, url, user) {
   const { pathname } = url;
@@ -3763,7 +3772,7 @@ async function passportRoutes(request, env, url, user) {
     if (!user) return err(401, "Sign in required.");
     const after = parseInt(url.searchParams.get("after") || "0", 10) || 0;
     await env.DB.prepare("INSERT INTO chat_presence (user_id, seen_at) VALUES (?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET seen_at = excluded.seen_at").bind(user.id).run();
-    const sel = `SELECT m.id, m.user_id, m.body, m.created_at, u.display_name, u.rank, u.is_ringleader
+    const sel = `SELECT m.id, m.user_id, m.body, m.created_at, u.display_name, ${rankOf("u")} AS rank, u.is_ringleader
       FROM chat_messages m JOIN users u ON u.id = m.user_id`;
     const { results } = after
       ? await env.DB.prepare(`${sel} WHERE m.id > ? ORDER BY m.id ASC LIMIT 100`).bind(after).all()
@@ -3823,7 +3832,7 @@ async function passportRoutes(request, env, url, user) {
   if (pathname === "/api/me/troupe" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
     const { results } = await env.DB.prepare(
-      `SELECT u.id, u.display_name, u.rank, u.is_ringleader, COUNT(DISTINCT s2.event_id) AS shared
+      `SELECT u.id, u.display_name, ${rankOf("u")} AS rank, u.is_ringleader, COUNT(DISTINCT s2.event_id) AS shared
        FROM stamps s1
        JOIN stamps s2 ON s2.event_id = s1.event_id AND s2.user_id != s1.user_id
        JOIN users u ON u.id = s2.user_id

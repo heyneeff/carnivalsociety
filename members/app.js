@@ -937,9 +937,11 @@ const RANK_COLORS = {
   journeyman: 'var(--accent-2)',
   master: 'var(--gold-bright)',
   clown: 'var(--accent-4)',
+  first_of_may: 'var(--cream-soft)',
 };
 const ORGANIZATION_COLOR = 'var(--accent-3)';
 function rankLabel(rank) {
+  if (rank === 'first_of_may') return 'First of May';
   return rank.charAt(0).toUpperCase() + rank.slice(1);
 }
 function rankColor(rank) {
@@ -2249,7 +2251,7 @@ function renderMemberRows() {
         ${m.is_organization
           ? `<span class="org-badge">Organization</span>`
           : `<select class="admin-rank" data-field="rank" style="color: ${rankColor(m.rank)};">
-               ${RANKS.map(r => `<option value="${r}" ${m.rank === r ? 'selected' : ''}>${rankLabel(r)}</option>`).join('')}
+               ${RANKS.map(r => `<option value="${r}" ${(m.rank === 'first_of_may' ? 'clown' : m.rank) === r ? 'selected' : ''}>${rankLabel(r)}</option>`).join('')}
              </select>`}
         <label class="admin-ringleader-toggle">
           <input type="checkbox" data-field="is_organization" ${m.is_organization ? 'checked' : ''}>
@@ -7356,9 +7358,10 @@ async function renderRoom(mainView, ownerId = null) {
     layer.className = 'trunk-display';
     const progress = p.next ? `
       <div class="td-progress" role="img" aria-label="${p.counts.total} of 3 stamps, ${p.counts.roustabouts} of 2 shifts toward Apprentice">
-        <span class="td-rank">${escapeHtml(rankLabel(p.user.rank))}</span><span class="td-arrow">→ Apprentice</span>
+        <span class="td-rank">${escapeHtml(rankLabel(p.user.rank))}</span><span class="td-arrow">→ ${p.next.rank === 'clown' ? 'Clown' : 'Apprentice'}</span>
+        ${p.next.rank === 'clown' ? '<span class="td-pips"><i></i><em>win your first badge</em></span>' : `
         <span class="td-pips">${[0, 1, 2].map(i => `<i class="${i < p.counts.total ? 'on' : ''}"></i>`).join('')}<em>stamps</em></span>
-        <span class="td-pips">${[0, 1].map(i => `<i class="${i < p.counts.roustabouts ? 'on' : ''}"></i>`).join('')}<em>shifts</em></span>
+        <span class="td-pips">${[0, 1].map(i => `<i class="${i < p.counts.roustabouts ? 'on' : ''}"></i>`).join('')}<em>shifts</em></span>`}
       </div>` : `<div class="td-progress"><span class="td-rank">${escapeHtml(p.user.is_ringleader ? 'Ringleader' : rankLabel(p.user.rank))}</span><span class="td-arrow">${p.counts.total} stamps won</span></div>`;
     layer.innerHTML = `<div class="td-dim"></div>${progress}` + kinds.map((k, i) => {
       const [x, y] = slots[BADGE_ORDER.concat('mystery').indexOf(k)];
@@ -7496,7 +7499,7 @@ async function renderRoom(mainView, ownerId = null) {
       { office: true, sel: forumEl, move: 'lean', say: `{open}And the *FORUM!* | This is how we stay organized. | News! Plans! Calls for helping hands! | {sus}Very official. | Very important.` },
       { office: true, sel: () => document.querySelector('.topnav-link[href="#/events"], .bottomtabs a[href="#/events"]'), move: 'boing', say: `{happy}*UPCOMING EVENTS* live up here! | Every one is a real carnival. | Take a job on the crew and come make it happen!` },
       { office: true, move: 'cosmic', say: `{cosmic}Technically... | this is a *GUILD NETWORK.* | Ancient. | Mysterious. | {happy}Don't worry about that now! | You've joined at the entry level of our little club.` },
-      { office: true, move: 'boing', say: `{open}Every time you take part in one of our carnivals, you earn *BADGES* and move up the *CARNIVAL RANKS.* | These have *real-life consequences,* | and eventually get you *a real seat at the table.*`, html: `<ol class="intro-ranks"><li><b>Clown</b>: where everyone starts. Honk!</li><li><b>Apprentice</b>: 3 badges, including 2 volunteer shifts.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred.</li></ol>` },
+      { office: true, move: 'boing', say: `{open}Every time you take part in one of our carnivals, you earn *BADGES* and move up the *CARNIVAL RANKS.* | These have *real-life consequences,* | and eventually get you *a real seat at the table.*`, html: `<ol class="intro-ranks"><li><b>First of May</b>: where everyone starts.</li><li><b>Clown</b>: win your first badge. Honk!</li><li><b>Apprentice</b>: 3 badges, including 2 volunteer shifts.</li><li><b>Journeyman</b>: 10 badges, crews led, and a nod from a Master.</li><li><b>Master</b>: never counted, only conferred.</li></ol>` },
       { office: true, side: 'right', move: 'lean', say: `{happy}Check out all my *COOL BADGES!*`, cta: 'Ooh, show me',
         afterType: () => { trunk.src = `${ROOM}trunk_open.png`; trunk.classList.add('open'); badge = popBadge('badge_fart', 'translate(-200%, 120%) scale(0.2) rotate(-60deg)'); } },
       { office: true, side: 'right', move: 'shake', say: `{gasp}WHOOPS! | {shout}*NOT THAT ONE!*`, cta: '...',
@@ -7896,11 +7899,12 @@ async function openPassportModal(userId) {
 
 // "Welcome inside" moment — shown once per new rank (users.celebrated_rank).
 function needsRankCelebration() {
-  return !!profile && !profile.is_ringleader && profile.rank !== 'clown' && profile.celebrated_rank !== profile.rank;
+  return !!profile && !profile.is_ringleader && profile.rank !== 'first_of_may' && !(profile.is_organization && profile.rank === 'clown') && profile.celebrated_rank !== profile.rank;
 }
 function renderRankCelebration() {
   const rank = profile.rank;
   const lines = {
+    clown: 'Your first badge is won. You’re a real carnie now. Honk honk!',
     apprentice: "You've worked the shifts and earned your stamps. The Threshold is crossed. Welcome inside the guild.",
     journeyman: 'Your craft has been seen by those who practice it. Welcome, Journeyman.',
     master: 'The guild names you Master. Raise the big top.',
