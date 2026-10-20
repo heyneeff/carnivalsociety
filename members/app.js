@@ -1598,20 +1598,18 @@ async function renderAlbum(mainView) {
 }
 
 // ── Bring a friend (2026-10-22): your own invite link. A friend counts once
-// they're in; 1 = Shill, 5 = Ballyhoo (passport stamps, toward Apprentice).
+// they're in; 1, 3 and 5 friends are badges (passport stamps, toward Apprentice).
 async function renderInvite(mainView) {
   mainView.innerHTML = '<h2>Bring a friend</h2><div class="placeholder-note">Finding your link…</div>';
   const inv = await apiFetch('/api/me/invite');
-  const goal = inv.joined < 1 ? 1 : inv.ballyhoo_at;
-  const left = Math.max(0, goal - inv.joined);
+  const next = inv.badges.find(at => at > inv.joined);
   mainView.innerHTML = `
     <h2>Bring a friend</h2>
     <p class="album-sub">A carnival is only as good as its crowd. Send your people this link: when a friend you invited gets in, you win a badge for your trunk, and it counts toward Apprentice.</p>
     <div class="invite-badges">
-      <div class="invite-badge ${inv.joined >= 1 ? 'won' : ''}">${badgePatch('shill')}<b>${BADGES.shill.name}</b><small>1 friend</small></div>
-      <div class="invite-badge ${inv.joined >= inv.ballyhoo_at ? 'won' : ''}">${badgePatch('ballyhoo')}<b>${BADGES.ballyhoo.name}</b><small>${inv.ballyhoo_at} friends</small></div>
+      ${inv.badges.map(at => `<div class="invite-badge ${inv.joined >= at ? 'won' : ''}">${badgePatch('invite' + at)}<small>${inv.joined >= at ? 'Won!' : `${at} friend${at === 1 ? '' : 's'}`}</small></div>`).join('')}
     </div>
-    <p class="invite-count"><b>${inv.joined}</b> friend${inv.joined === 1 ? '' : 's'} in${inv.waiting ? ` · ${inv.waiting} waiting to be let in` : ''}${left && inv.joined < inv.ballyhoo_at ? ` · ${left} more for ${goal === 1 ? 'Shill' : 'Ballyhoo'}` : ''}</p>
+    <p class="invite-count"><b>${inv.joined}</b> friend${inv.joined === 1 ? '' : 's'} in${inv.waiting ? ` · ${inv.waiting} waiting to be let in` : ''}${next ? ` · ${next - inv.joined} more for the next badge` : ''}</p>
     <div class="ds-link"><div class="ticket-qr">${qrSvg(inv.url)}</div><div>
       <a href="${escapeHtml(inv.url)}" target="_blank" rel="noopener">${escapeHtml(inv.url)}</a><br>
       <button class="composer-submit" data-copy>Copy my link</button>${navigator.share ? ' <button class="composer-submit" data-share>Share…</button>' : ''}
@@ -5650,15 +5648,16 @@ const BADGES = {
   // "Kinker": old circus slang for a performer.
   kinker:     { name: 'Kinker',          motto: 'I took the ring.',         glyph: '🎭', color: '#C9A227', how: 'Perform at a Carnival: an act, a set, a show.', icon: 'M5 5c4 2 10 2 14 0v6a7 7 0 0 1-14 0z M9 10h.01 M15 10h.01 M9 14c2 2 4 2 6 0 M12 2v1 M4 2l1 1 M20 2l-1 1' },
   // Bring a friend (automatic): a friend from your invite link gets in.
-  shill:      { name: 'Shill',           motto: "Psst. It's the real deal.", glyph: '🤫', color: '#B0603A', how: 'Invite a friend with your link, and they get in.', icon: 'M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M2 20c0-3 3-5 6-5s6 2 6 5 M16 8h6 M19 5v6' },
-  ballyhoo:   { name: 'Ballyhoo',        motto: "The whole town's coming.", glyph: '🥁', color: '#A8323E', how: 'Bring in 5 friends with your invite link.', icon: 'M7 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M12 13a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M2 19c0-3 2-5 5-5 M22 19c0-3-2-5-5-5 M6 21c0-3 3-5 6-5s6 2 6 5' },
+  invite1:    { name: '1 Friend Invited',  motto: 'Step right up, pal.',     glyph: '🎟️', color: '#2E3F6B', how: 'Invite a friend with your link, and they get in.', icon: 'M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M2 20c0-3 3-5 6-5s6 2 6 5 M16 8h6 M19 5v6' },
+  invite3:    { name: '3 Friends Invited', motto: 'Bring the whole gang.',  glyph: '🎟️', color: '#A8323E', how: 'Bring in 3 friends with your invite link.', icon: 'M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M2 20c0-3 3-5 6-5s6 2 6 5 M16 8h6 M19 5v6' },
+  invite5:    { name: '5 Friends Invited', motto: "The whole town's coming.", glyph: '🎟️', color: '#A8323E', how: 'Bring in 5 friends with your invite link.', icon: 'M7 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M12 13a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M2 19c0-3 2-5 5-5 M22 19c0-3-2-5-5-5 M6 21c0-3 3-5 6-5s6 2 6 5' },
 };
-const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker', 'shill', 'ballyhoo'];
+const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker', 'invite1', 'invite3', 'invite5'];
 const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout', 'kinker'];
 
 // Neeff's painted badge patches (assets/badges/badge_<kind>.webp): the whole
 // round patch, name and motto included, used wherever a badge is shown big.
-// Badges without a painted patch yet (shill, ballyhoo) show the mystery one.
+// A badge without a painted patch yet shows the mystery one.
 const badgePatch = (kind, cls = 'badge-art-img') => `<img class="${cls}" src="assets/badges/badge_${kind}.webp" alt="" draggable="false" onerror="this.onerror=null;this.src='assets/badges/badge_mystery.webp'">`;
 function badgeIcon(kind, size = 28) {
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
@@ -7348,7 +7347,7 @@ async function renderRoom(mainView, ownerId = null) {
       trunkEl.style.top = `${trunkItem.t + trunkItem.w / ROOM_ASSETS.trunk_closed - trunkItem.w / ROOM_ASSETS.trunk_open}%`;
     }
     // Two gentle rows across the middle of the room; newest flies last.
-    const slots = [[12.5, 25], [27.5, 22], [42.5, 21], [57.5, 21], [72.5, 22], [87.5, 25], [20, 49], [35, 47], [50, 46], [65, 47], [80, 49]];
+    const slots = [[12.5, 25], [27.5, 22], [42.5, 21], [57.5, 21], [72.5, 22], [87.5, 25], [12.5, 49], [27.5, 47], [42.5, 46], [57.5, 46], [72.5, 47], [87.5, 49]];
     const kinds = [...BADGE_ORDER, 'mystery'];
     if (newest) { kinds.splice(kinds.indexOf(newest), 1); kinds.push(newest); }
     const sr = scene.getBoundingClientRect(), tr = trunkEl.getBoundingClientRect();
@@ -7386,7 +7385,7 @@ async function renderRoom(mainView, ownerId = null) {
       const title = b ? b.name : '???';
       const line = !b ? 'Some prizes are a surprise. Keep showing up.'
         : st ? `“${b.motto}” — ${st.event_title ? escapeHtml(st.event_title) + ', ' : ''}${new Date(sqlTime(st.created_at)).toLocaleDateString()}${counts[k] > 1 ? ` · won ${counts[k]} times` : ''}`
-        : `Not won yet. ${b.how}${k === 'shill' || k === 'ballyhoo' ? ' <a href="#/invite">Get your invite link →</a>' : ''}`;
+        : `Not won yet. ${b.how}${k.startsWith('invite') ? ' <a href="#/invite">Get your invite link →</a>' : ''}`;
       plaque.querySelector('.room-plaque-title').textContent = title;
       plaque.querySelector('.room-plaque-line').innerHTML = line;
     };

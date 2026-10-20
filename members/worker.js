@@ -2142,8 +2142,9 @@ async function sendWelcomeEmail(env, u) {
 // Bring a friend. Each member's link is /i/<code> (code made on first ask).
 // A friend counts once they're IN (let in off the waitlist, or a backer who
 // walks straight in), so made-up signups never earn anything. 1 friend =
-// Shill, 5 = Ballyhoo: passport stamps, so they count toward Apprentice.
-var BALLYHOO_FRIENDS = 5;
+// 1, 3 and 5 friends are badges (invite1/3/5, Neeff's "Friends Invited"
+// patches): passport stamps, so they count toward Apprentice.
+var INVITE_BADGES = [1, 3, 5];
 async function inviteCodeFor(env, userId) {
   const row = await env.DB.prepare("SELECT invite_code FROM users WHERE id = ?").bind(userId).first();
   if (row?.invite_code) return row.invite_code;
@@ -2161,7 +2162,7 @@ async function inviteCodeFor(env, userId) {
 async function inviteFor(env, userId) {
   const code = await inviteCodeFor(env, userId);
   const c = await env.DB.prepare("SELECT COALESCE(SUM(waitlisted_at IS NULL), 0) AS joined, COALESCE(SUM(waitlisted_at IS NOT NULL), 0) AS waiting FROM users WHERE invited_by = ?").bind(userId).first();
-  return { code, url: `${siteUrl(env)}/i/${code}`, joined: c.joined, waiting: c.waiting, ballyhoo_at: BALLYHOO_FRIENDS };
+  return { code, url: `${siteUrl(env)}/i/${code}`, joined: c.joined, waiting: c.waiting, badges: INVITE_BADGES };
 }
 async function creditInviter(env, friendId) {
   const f = await env.DB.prepare("SELECT invited_by, display_name, waitlisted_at FROM users WHERE id = ?").bind(friendId).first();
@@ -2169,11 +2170,12 @@ async function creditInviter(env, friendId) {
   const by = f.invited_by;
   const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE invited_by = ? AND waitlisted_at IS NULL").bind(by).first()).n;
   const note = `${n} friend${n === 1 ? "" : "s"} brought in`;
-  const shill = n >= 1 && (await grantStamp(env, { userId: by, kind: "shill", note })).granted;
-  const bally = n >= BALLYHOO_FRIENDS && (await grantStamp(env, { userId: by, kind: "ballyhoo", note })).granted;
+  let won = false;
+  for (const at of INVITE_BADGES) if (n >= at && (await grantStamp(env, { userId: by, kind: "invite" + at, note })).granted) won = true;
   // No new stamp this time? Still tell them their friend made it.
-  if (!shill && !bally) await notifyUser(env, by, { kind: "prize", title: `🎪 ${String(f.display_name || "Your friend").split(" ")[0]} is in!`,
-    body: n < BALLYHOO_FRIENDS ? `That's ${n} friend${n === 1 ? "" : "s"} you've brought in. ${BALLYHOO_FRIENDS - n} more for Ballyhoo.` : `That's ${n} friends you've brought in.`, url: "#/invite", ref: "invite-" + friendId }, "notify_prizes");
+  const next = INVITE_BADGES.find((at) => at > n);
+  if (!won) await notifyUser(env, by, { kind: "prize", title: `🎪 ${String(f.display_name || "Your friend").split(" ")[0]} is in!`,
+    body: `That's ${n} friend${n === 1 ? "" : "s"} you've brought in.${next ? ` ${next - n} more for the ${next} Friends badge.` : ""}`, url: "#/invite", ref: "invite-" + friendId }, "notify_prizes");
 }
 // "You're in!" when the Ringleader lets someone in from the waitlist.
 async function sendYoureInEmail(env, id) {
@@ -2182,8 +2184,8 @@ async function sendYoureInEmail(env, id) {
   const claim = await claimLinkFor(env, id);
   const invite = (await inviteFor(env, id)).url;
   return sendEmail(env, { to: who.email, subject: "🎪 You're in! Welcome to Carnival Society",
-    html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in, and your hello is up in the <b>Introduce yourself!</b> thread for the troupe to see.</p><p style="margin:0 0 12px;">Your Dressing Room is ready: decorate it, turn over your card of the day, wander backstage and visit someone's room, find a carnival, take a job.</p><p style="margin:0 0 12px;">Everything you win in there, you earn out here, at real carnivals.</p><p style="margin:0;padding:12px 14px;background:#fff8e6;border:1px dashed #C8A05A;"><b>Bring your people.</b> A carnival is only as good as its crowd. Send your friends your own invite link: when one gets in, you win the <b>Shill</b> badge, and five friends wins <b>Ballyhoo</b>. Both count toward Apprentice.<br><a href="${invite}" style="color:#9B3036;font-weight:bold;">${invite}</a></p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
-    text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}\n\nBring your people: send friends your invite link, ${invite} . One friend in wins the Shill badge, five wins Ballyhoo.` });
+    html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in, and your hello is up in the <b>Introduce yourself!</b> thread for the troupe to see.</p><p style="margin:0 0 12px;">Your Dressing Room is ready: decorate it, turn over your card of the day, wander backstage and visit someone's room, find a carnival, take a job.</p><p style="margin:0 0 12px;">Everything you win in there, you earn out here, at real carnivals.</p><p style="margin:0;padding:12px 14px;background:#fff8e6;border:1px dashed #C8A05A;"><b>Bring your people.</b> A carnival is only as good as its crowd. Send your friends your own invite link: you win a badge when 1, 3 and 5 of your friends get in, and they count toward Apprentice.<br><a href="${invite}" style="color:#9B3036;font-weight:bold;">${invite}</a></p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
+    text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}\n\nBring your people: send friends your invite link, ${invite} . You win a badge when 1, 3 and 5 friends get in.` });
 }
 async function volunteerRoutes(request, env, url, user) {
   const { pathname } = url;
@@ -3669,8 +3671,8 @@ async function pushRoutes(request, env, url, user) {
 // 3 stamps incl. 2 Roustabouts, and crosses the Threshold (tier = inner).
 // Journeyman needs a human nod; Master is conferred. Never ranked/compared.
 // ---------------------------------------------------------------------
-var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman", "kinker", "shill", "ballyhoo"];
-var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."], kinker: ["Kinker", "I took the ring."], shill: ["Shill", "Psst. It's the real deal."], ballyhoo: ["Ballyhoo", "The whole town's coming."] };
+var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman", "kinker", "invite1", "invite3", "invite5"];
+var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."], kinker: ["Kinker", "I took the ring."], invite1: ["1 Friend Invited", "Step right up, pal."], invite3: ["3 Friends Invited", "Bring the whole gang."], invite5: ["5 Friends Invited", "The whole town's coming."] };
 var APPRENTICE_STAMPS = 3;
 var APPRENTICE_ROUSTABOUTS = 2;
 // Unique indexes make repeats (same kind+event, or a second Fix) no-ops.

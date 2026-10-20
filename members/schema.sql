@@ -695,9 +695,9 @@ ALTER TABLE users ADD COLUMN wants_to_volunteer INTEGER NOT NULL DEFAULT 0;
 -- 2026-10-18: one ticket admits a group (buyer + guests).
 ALTER TABLE tickets ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1;
 
--- 2026-10-22: bring a friend (invite links; Shill + Ballyhoo stamps).
+-- 2026-10-22: bring a friend (invite links; invite1/3/5 stamps).
 ALTER TABLE users ADD COLUMN invite_code TEXT;
 ALTER TABLE users ADD COLUMN invited_by TEXT REFERENCES users(id) ON DELETE SET NULL;
 CREATE UNIQUE INDEX idx_users_invite_code ON users(invite_code);
 CREATE INDEX idx_users_invited_by ON users(invited_by);
-CREATE UNIQUE INDEX idx_stamps_invite_once ON stamps(user_id, kind) WHERE kind IN ('shill', 'ballyhoo');
+CREATE UNIQUE INDEX idx_stamps_invite_once ON stamps(user_id, kind) WHERE kind IN ('invite1', 'invite3', 'invite5');
