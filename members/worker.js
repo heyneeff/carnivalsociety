@@ -127,14 +127,15 @@ export default {
     // Short public links for flyers: /t/kooks → that carnival's page, and
     // /v/kooks → its volunteer sign-up. Each serves its own link preview
     // (texts, Instagram) before hopping into the app.
-    const short = url.pathname.match(/^\/([tv])\/([a-z0-9-]{2,40})\/?$/);
+    // /e/<id> is the Share button on an event card: the event's own page.
+    const short = url.pathname.match(/^\/([tve])\/([a-z0-9-]{2,40})\/?$/);
     if (short) return sharePage(env, url, short[1], short[2]);
     const join = url.pathname.match(/^\/p\/([a-z0-9-]{2,40})\/?$/);
-    if (join) return Response.redirect(`${url.origin}/#/p/${join[1]}`, 302);
+    if (join) return partnerSharePage(env, url, join[1]);
     // A member's invite link (/i/<code>): remember who sent you for 30 days,
     // then open the join form. Signing up credits them (creditInviter).
     const invite = url.pathname.match(/^\/i\/([a-z0-9]{4,16})\/?$/);
-    if (invite) return new Response(null, { status: 302, headers: { Location: `${url.origin}/#/join`, "Set-Cookie": `cs_ref=${invite[1]}; Path=/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax` } });
+    if (invite) return inviteSharePage(env, url, invite[1]);
     // The Mercury Oracle, inside the house: /oracle/mercury/* is passed
     // through from its own site so it can open over a Dressing Room in a
     // frame, with its dark backdrop made see-through (the room shows behind
@@ -190,19 +191,12 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 // The share card a link unfurls with: per-carnival art, else its poster,
-// else the wordmark.
+// else the swirl card. Links into the app are #/routes, which a texting app's
+// preview bot never sees (it stops at the #), so anything we hand out to be
+// shared gets a real path that serves its own preview, then hops in.
 const SHARE_IMAGES = { kooks: "/assets/share-kooks.png" };
-async function sharePage(env, url, kind, slug) {
-  const to = `${url.origin}/#/${kind === "v" ? "help" : "get"}/${slug}`;
-  const ev = await findEvent(env, slug).catch(() => null);
-  if (!ev) return Response.redirect(to, 302);
-  const when = eventWhen(ev.starts_at);
-  const acts = ev.tagline ? ev.tagline + (ev.lineup ? ": " + ev.lineup.split(",").map((x) => x.trim()).filter(Boolean).join(", ") : "") : "";
-  const title = kind === "v" ? `🔨 Volunteer: ${ev.title}` : `🎟️ ${ev.title}`;
-  const desc = kind === "v"
-    ? `Join the crew for ${ev.title}, ${when}. Setup, games, the prize booth, food and more. Carnivals are built by carnies!`
-    : [when, acts, ev.door_cents ? `$${(ev.door_cents / 100).toFixed(ev.door_cents % 100 ? 2 : 0)} entry` : ""].filter(Boolean).join(" · ");
-  const img = new URL(SHARE_IMAGES[ev.slug] || ev.flyer_url || "/assets/logo-wordmark.png", url.origin).toString();
+const SHARE_DEFAULT = "/assets/share-default.png";
+function previewPage(url, { title, desc, img = SHARE_DEFAULT, to, headers = {} }) {
   const e = escapeEmailHtml;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -213,14 +207,44 @@ async function sharePage(env, url, kind, slug) {
 <meta property="og:title" content="${e(title)}">
 <meta property="og:description" content="${e(desc)}">
 <meta property="og:url" content="${e(url.origin + url.pathname)}">
-<meta property="og:image" content="${e(img)}">
+<meta property="og:image" content="${e(new URL(img, url.origin).toString())}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#5A1E24">
 <meta http-equiv="refresh" content="0;url=${e(to)}">
 <style>body{margin:0;background:#F4E8D0;color:#9B3036;font:italic 18px Georgia,serif;display:grid;place-items:center;min-height:100vh}</style>
 </head><body><a href="${e(to)}" style="color:inherit">Step right up…</a>
 <script>location.replace(${JSON.stringify(to)});</script></body></html>`;
-  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300" } });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300", ...headers } });
+}
+async function inviteSharePage(env, url, code) {
+  const by = await env.DB.prepare("SELECT display_name FROM users WHERE invite_code = ?").bind(code).first();
+  const first = by ? String(by.display_name || "").trim().split(" ")[0] : "";
+  return previewPage(url, {
+    title: first ? `🎪 ${first} invited you to Carnival Society` : "🎪 You're invited to Carnival Society",
+    desc: "We build real carnivals together: real nights, real fire, real sawdust, real people. Step right up and join the troupe.",
+    to: `${url.origin}/#/join`,
+    headers: by ? { "Set-Cookie": `cs_ref=${code}; Path=/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax`, "Cache-Control": "private, no-store" } : {},
+  });
+}
+async function partnerSharePage(env, url, slug) {
+  const pt = await env.DB.prepare("SELECT display_name FROM users WHERE partner_slug = ? AND COALESCE(is_partner, 0) = 1").bind(slug).first();
+  return previewPage(url, {
+    title: pt ? `🎪 ${pt.display_name} × Carnival Society` : "🎪 Carnival Society",
+    desc: pt ? `Join ${pt.display_name}'s friends at Carnival Society: hear first about their carnivals, nights and shows.` : "We build real carnivals together.",
+    to: `${url.origin}/#/p/${slug}`,
+  });
+}
+async function sharePage(env, url, kind, slug) {
+  const to = `${url.origin}/#/${kind === "v" ? "help" : kind === "e" ? "event" : "get"}/${slug}`;
+  const ev = await findEvent(env, slug).catch(() => null);
+  if (!ev) return Response.redirect(to, 302);
+  const when = eventWhen(ev.starts_at);
+  const acts = ev.tagline ? ev.tagline + (ev.lineup ? ": " + ev.lineup.split(",").map((x) => x.trim()).filter(Boolean).join(", ") : "") : "";
+  const title = kind === "v" ? `🔨 Volunteer: ${ev.title}` : kind === "e" ? `🎪 ${ev.title}` : `🎟️ ${ev.title}`;
+  const desc = kind === "v"
+    ? `Join the crew for ${ev.title}, ${when}. Setup, games, the prize booth, food and more. Carnivals are built by carnies!`
+    : [when, acts, ev.door_cents ? `$${(ev.door_cents / 100).toFixed(ev.door_cents % 100 ? 2 : 0)} entry` : ""].filter(Boolean).join(" · ");
+  return previewPage(url, { title, desc, img: SHARE_IMAGES[ev.slug] || ev.flyer_url || SHARE_DEFAULT, to });
 }
 function siteUrl(env) {
   return env.SITE_URL || "https://members.carnivalsociety.org";

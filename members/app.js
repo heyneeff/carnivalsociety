@@ -1420,7 +1420,7 @@ async function renderEventsView(mainView, onlyEventId = null) {
 
   // Share: native share sheet on phones, copy-link fallback elsewhere.
   mainView.querySelectorAll('[data-share-event]').forEach(btn => btn.addEventListener('click', async () => {
-    const url = `${location.origin}/#/event/${btn.dataset.shareEvent}`;
+    const url = `${location.origin}/e/${btn.dataset.shareEvent}`; // its own link preview
     try {
       if (navigator.share) await navigator.share({ title: btn.dataset.title, text: `Come volunteer at ${btn.dataset.title} with Carnival Society`, url });
       else { await navigator.clipboard.writeText(url); btn.textContent = '✓ Link copied'; }
