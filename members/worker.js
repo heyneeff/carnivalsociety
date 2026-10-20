@@ -125,6 +125,10 @@ export default {
     if (short) return sharePage(env, url, short[1], short[2]);
     const join = url.pathname.match(/^\/p\/([a-z0-9-]{2,40})\/?$/);
     if (join) return Response.redirect(`${url.origin}/#/p/${join[1]}`, 302);
+    // A member's invite link (/i/<code>): remember who sent you for 30 days,
+    // then open the join form. Signing up credits them (creditInviter).
+    const invite = url.pathname.match(/^\/i\/([a-z0-9]{4,16})\/?$/);
+    if (invite) return new Response(null, { status: 302, headers: { Location: `${url.origin}/#/join`, "Set-Cookie": `cs_ref=${invite[1]}; Path=/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax` } });
     // The Mercury Oracle, inside the house: /oracle/mercury/* is passed
     // through from its own site so it can open over a Dressing Room in a
     // frame, with its dark backdrop made see-through (the room shows behind
@@ -310,13 +314,16 @@ async function api(request, env, url, ctx) {
     if (existing) return withCors(err(400, "That email is already registered."));
     const { hash, salt } = await hashPassword(password);
     const id = crypto.randomUUID();
+    const ref = parseCookie(request.headers.get("Cookie"), "cs_ref");
+    const invitedBy = ref ? (await env.DB.prepare("SELECT id FROM users WHERE invite_code = ?").bind(ref).first())?.id || null : null;
     // The short join form doesn't ask for a chapter; match it from the city
     // ("Boulder, CO" → Boulder). Changeable later on My Profile.
     const chapterId = home_chapter_id || (await env.DB.prepare("SELECT id FROM chapters WHERE instr(lower(?), lower(name)) > 0 LIMIT 1").bind(city).first())?.id || null;
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us, wants_to_volunteer, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?, ?, datetime('now'))`
-    ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null, wants_to_volunteer ? 1 : 0).run();
+      `INSERT INTO users (id, email, password_hash, salt, display_name, home_chapter_id, city, phone, instagram_handle, rank, is_organization, materials_to_donate, heard_about_us, wants_to_volunteer, invited_by, waitlisted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'clown', ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(id, email, hash, salt, display_name, chapterId, city, phone || null, instagram_handle || null, is_organization ? 1 : 0, materials_to_donate || null, heard_about_us || null, wants_to_volunteer ? 1 : 0, invitedBy).run();
     await letBackerIn(env, id, email);
+    if (invitedBy) ctx.waitUntil(creditInviter(env, id));
     const token = await createSession(env, id);
     const user2 = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first();
     ctx.waitUntil(sendWelcomeEmail(env, user2));
@@ -536,6 +543,10 @@ async function api(request, env, url, ctx) {
     const [, type, b64] = row.data.match(/^data:([^;]+);base64,(.*)$/);
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     return new Response(bytes, { headers: { "Content-Type": type, "Cache-Control": "private, max-age=604800, immutable" } });
+  }
+  if (pathname === "/api/me/invite" && method === "GET") {
+    if (!user) return err(401, "Sign in required.");
+    return json(await inviteFor(env, user.id));
   }
   if (pathname === "/api/me/waitlist" && method === "GET") {
     if (!user) return err(401, "Sign in required.");
@@ -1598,7 +1609,7 @@ async function api(request, env, url, ctx) {
   if (pathname === "/api/waitlist" && method === "GET") {
     if (!user?.is_ringleader) return err(403, "Ringleaders only.");
     const { results } = await env.DB.prepare(
-      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at, u.intro, u.avatar_url, u.skills, u.wants_to_volunteer,
+      `SELECT u.id, u.display_name, u.email, u.city, u.heard_about_us, u.waitlisted_at, (SELECT r.display_name FROM users r WHERE r.id = u.invited_by) AS invited_by_name, u.intro, u.avatar_url, u.skills, u.wants_to_volunteer,
          (SELECT COUNT(*) FROM tickets t WHERE t.user_id = u.id AND t.status IN ('paid', 'reserved')) AS tickets,
          (SELECT COUNT(*) FROM door_entries d WHERE d.user_id = u.id AND d.voided_at IS NULL) AS came
        FROM users u WHERE u.waitlisted_at IS NOT NULL ORDER BY u.waitlisted_at, u.id`
@@ -1618,6 +1629,7 @@ async function api(request, env, url, ctx) {
       await publishIntro(env, id);
       await notifyUser(env, id, { kind: "rank", title: "🎪 You're in! Welcome to Carnival Society", body: "The Ringleader let you in. Your Dressing Room is ready.", url: "#/dressing-room" });
       await sendYoureInEmail(env, id);
+      await creditInviter(env, id);
     }
     return json({ ok: true, admitted: n });
   }
@@ -2127,14 +2139,51 @@ async function sendWelcomeEmail(env, u) {
     html: emailFrame(env, { heading: "You're on the list!", body: `<p style="margin:0 0 12px;">Hi ${first}! Carnival Society is a real carnival we're building together: real nights, real fire, real sawdust, real people. The app is the backstage.</p><p style="margin:0 0 12px;">We open the doors a few carnies at a time, and <b>the Ringleader reads every hello by hand</b>. If you haven't introduced yourself yet, that's your first step: it's how we get to know you.</p><p style="margin:0;">You don't have to wait to come to a carnival. Grab a ticket anytime, and we'll email you the moment you're in.</p>`, button: ["Say hello", `${site}/#/dressing-room`] }),
     text: `Hi ${u.display_name}! You're on the list. Introduce yourself at ${site} and the Ringleader will let you in by hand. You can grab a carnival ticket anytime.` });
 }
+// Bring a friend. Each member's link is /i/<code> (code made on first ask).
+// A friend counts once they're IN (let in off the waitlist, or a backer who
+// walks straight in), so made-up signups never earn anything. 1 friend =
+// Shill, 5 = Ballyhoo: passport stamps, so they count toward Apprentice.
+var BALLYHOO_FRIENDS = 5;
+async function inviteCodeFor(env, userId) {
+  const row = await env.DB.prepare("SELECT invite_code FROM users WHERE id = ?").bind(userId).first();
+  if (row?.invite_code) return row.invite_code;
+  const abc = "abcdefghjkmnpqrstuvwxyz23456789";
+  for (let i = 0; i < 5; i++) {
+    const code = [...crypto.getRandomValues(new Uint8Array(6))].map((b) => abc[b % abc.length]).join("");
+    try {
+      const res = await env.DB.prepare("UPDATE users SET invite_code = ? WHERE id = ? AND invite_code IS NULL").bind(code, userId).run();
+      if (res.meta.changes) return code;
+      return (await env.DB.prepare("SELECT invite_code FROM users WHERE id = ?").bind(userId).first()).invite_code;
+    } catch (e) { /* taken: roll again */ }
+  }
+  throw new Error("Couldn't make an invite code.");
+}
+async function inviteFor(env, userId) {
+  const code = await inviteCodeFor(env, userId);
+  const c = await env.DB.prepare("SELECT COALESCE(SUM(waitlisted_at IS NULL), 0) AS joined, COALESCE(SUM(waitlisted_at IS NOT NULL), 0) AS waiting FROM users WHERE invited_by = ?").bind(userId).first();
+  return { code, url: `${siteUrl(env)}/i/${code}`, joined: c.joined, waiting: c.waiting, ballyhoo_at: BALLYHOO_FRIENDS };
+}
+async function creditInviter(env, friendId) {
+  const f = await env.DB.prepare("SELECT invited_by, display_name, waitlisted_at FROM users WHERE id = ?").bind(friendId).first();
+  if (!f?.invited_by || f.waitlisted_at) return;
+  const by = f.invited_by;
+  const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE invited_by = ? AND waitlisted_at IS NULL").bind(by).first()).n;
+  const note = `${n} friend${n === 1 ? "" : "s"} brought in`;
+  const shill = n >= 1 && (await grantStamp(env, { userId: by, kind: "shill", note })).granted;
+  const bally = n >= BALLYHOO_FRIENDS && (await grantStamp(env, { userId: by, kind: "ballyhoo", note })).granted;
+  // No new stamp this time? Still tell them their friend made it.
+  if (!shill && !bally) await notifyUser(env, by, { kind: "prize", title: `🎪 ${String(f.display_name || "Your friend").split(" ")[0]} is in!`,
+    body: n < BALLYHOO_FRIENDS ? `That's ${n} friend${n === 1 ? "" : "s"} you've brought in. ${BALLYHOO_FRIENDS - n} more for Ballyhoo.` : `That's ${n} friends you've brought in.`, url: "#/invite", ref: "invite-" + friendId }, "notify_prizes");
+}
 // "You're in!" when the Ringleader lets someone in from the waitlist.
 async function sendYoureInEmail(env, id) {
   const who = await env.DB.prepare("SELECT email, display_name FROM users WHERE id = ?").bind(id).first();
   if (!who || who.email.endsWith("@door.carnivalsociety.org")) return false;
   const claim = await claimLinkFor(env, id);
+  const invite = (await inviteFor(env, id)).url;
   return sendEmail(env, { to: who.email, subject: "🎪 You're in! Welcome to Carnival Society",
-    html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in, and your hello is up in the <b>Introduce yourself!</b> thread for the troupe to see.</p><p style="margin:0 0 12px;">Your Dressing Room is ready: decorate it, turn over your card of the day, wander backstage and visit someone's room, find a carnival, take a job.</p><p style="margin:0;">Everything you win in there, you earn out here, at real carnivals.</p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
-    text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}` });
+    html: emailFrame(env, { heading: "You're in!", body: `<p style="margin:0 0 12px;">Hi ${escapeEmailHtml(who.display_name.split(" ")[0])}! The Ringleader just let you in, and your hello is up in the <b>Introduce yourself!</b> thread for the troupe to see.</p><p style="margin:0 0 12px;">Your Dressing Room is ready: decorate it, turn over your card of the day, wander backstage and visit someone's room, find a carnival, take a job.</p><p style="margin:0 0 12px;">Everything you win in there, you earn out here, at real carnivals.</p><p style="margin:0;padding:12px 14px;background:#fff8e6;border:1px dashed #C8A05A;"><b>Bring your people.</b> A carnival is only as good as its crowd. Send your friends your own invite link: when one gets in, you win the <b>Shill</b> badge, and five friends wins <b>Ballyhoo</b>. Both count toward Apprentice.<br><a href="${invite}" style="color:#9B3036;font-weight:bold;">${invite}</a></p>`, button: [claim ? "Claim my Dressing Room" : "Open my Dressing Room", claim ? `${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`] }),
+    text: `The Ringleader just let you in to Carnival Society! ${claim ? `Claim your Dressing Room: ${siteUrl(env)}/#/claim/${claim}` : `${siteUrl(env)}/#/dressing-room`}\n\nBring your people: send friends your invite link, ${invite} . One friend in wins the Shill badge, five wins Ballyhoo.` });
 }
 async function volunteerRoutes(request, env, url, user) {
   const { pathname } = url;
@@ -3620,8 +3669,8 @@ async function pushRoutes(request, env, url, user) {
 // 3 stamps incl. 2 Roustabouts, and crosses the Threshold (tier = inner).
 // Journeyman needs a human nod; Master is conferred. Never ranked/compared.
 // ---------------------------------------------------------------------
-var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman", "kinker"];
-var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."], kinker: ["Kinker", "I took the ring."] };
+var STAMP_KINDS = ["fix", "ticket", "roustabout", "sawdust", "barker", "junk", "canvasman", "kinker", "shill", "ballyhoo"];
+var BADGE_NAMES = { fix: ["The Fix Is In", "I bribed my way in."], ticket: ["Ticket Punched", "I was there."], roustabout: ["Roustabout", "Hauled the canvas."], sawdust: ["Sawdust", "Made it with my hands."], barker: ["Barker", "Step right up!"], junk: ["Junk Saint", "One carnie's trash…"], canvasman: ["Boss Canvasman", "Raised the big top."], kinker: ["Kinker", "I took the ring."], shill: ["Shill", "Psst. It's the real deal."], ballyhoo: ["Ballyhoo", "The whole town's coming."] };
 var APPRENTICE_STAMPS = 3;
 var APPRENTICE_ROUSTABOUTS = 2;
 // Unique indexes make repeats (same kind+event, or a second Fix) no-ops.

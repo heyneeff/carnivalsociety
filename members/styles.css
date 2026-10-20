@@ -2817,3 +2817,11 @@ p.nt-how { padding-left: 12px; }
 .gi-chip span { padding: 8px 13px; border: 1.5px solid var(--gi-red); border-radius: 999px; color: var(--gi-red); background: transparent; }
 .gi-chip input:checked + span { background: var(--gi-red); color: var(--gi-card); }
 .gi-chip input:focus-visible + span { outline: 3px solid var(--gi-gold); outline-offset: 1px; }
+
+/* Bring a friend (#/invite): the two badges you're working toward. */
+.invite-badges { display: flex; justify-content: center; gap: 28px; margin: 4px 0 10px; }
+.invite-badge { width: 120px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.invite-badge .badge-art-img { width: 100%; height: auto; filter: grayscale(1) brightness(0.6); opacity: 0.55; }
+.invite-badge.won .badge-art-img { filter: drop-shadow(0 6px 0 rgba(0,0,0,0.45)); opacity: 1; }
+.invite-badge small { color: var(--cream-soft); }
+.invite-count { text-align: center; margin: 0 0 16px; }

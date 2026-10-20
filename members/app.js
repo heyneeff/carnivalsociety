@@ -629,6 +629,7 @@ function renderShell() {
       ${sheetLink('#/profile', 'My profile', is('profile'), '', 'the mirror')}
       ${sheetLink('#/badges', 'Badges', is('badges', 'passport'), '', 'the steamer trunk')}
       ${sheetLink('#/album', 'Troupe album', is('album'), '', 'the people you’ve met')}
+      ${sheetLink('#/invite', '🎟️ Bring a friend', is('invite'), '', 'your invite link')}
       ${profile?.is_partner ? sheetLink('#/partner', '🤝 Partner desk', is('partner'), '', 'your friends, hollers, join page') : ''}
       ${lastHoller() ? '<button class="sheet-link sheet-raven" id="sheetHoller"><span>📣 Hear the last holler</span><small class="sheet-hint">it rolls back in</small></button>' : ''}
       <button class="sheet-link sheet-raven" id="sheetTour"><span>🐦‍⬛ Take the tour</span><small class="sheet-hint">the raven shows you around</small></button>
@@ -741,7 +742,7 @@ function pageKind(route) {
 // The room stays mounted behind every cozy page. A page grows out of the
 // object it belongs to (forum from the book, events from the corkboard…)
 // and folds back into it on close. Ringleader tools stay full pages.
-const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], album: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
+const UNFOLD_FROM = { forum: ['book'], courtyard: ['exit', 'book'], events: ['flyer', 'events'], letters: ['drawer', 'raven'], profile: ['mirror', 'costume'], passport: ['trunk'], album: ['trunk'], invite: ['trunk'], tickets: ['tickets'], blast: ['hatbox'] };
 let roomStage = null, roomStageAt = 0, roomStageOwner = null, unfoldKind = null, unfoldFrom = null;
 // Routes that are the room itself; #/badges (old #/passport) opens the trunk.
 const ROOM_ROUTES = ['dressing-room', 'badges', 'passport'];
@@ -749,6 +750,7 @@ let wantTrunk = false;
 function unfoldKindOf(route) {
   if (route === 'tickets') return 'tickets';
   if (route === 'album') return 'album';
+  if (route === 'invite') return 'invite';
   if (route === 'blast') return 'blast';
   if (route === 'courtyard') return 'courtyard';
   const k = pageKind(route);
@@ -856,6 +858,7 @@ function renderPage(mainView, route) {
   if (route === 'partner' || route.startsWith('partner/')) { renderPartnerDesk(mainView, route.split('/')[1] || null); return; }
   if (route === 'courtyard') { renderCourtyardView(mainView); return; }
   if (route === 'album') { renderAlbum(mainView); return; }
+  if (route === 'invite') { renderInvite(mainView); return; }
   if (route === 'profile') { renderProfileView(mainView); return; }
   if (route === 'blast') { renderBlastView(mainView); return; }
   if (route.startsWith('event/')) { renderEventsView(mainView, route.slice(6)); return; }
@@ -1592,6 +1595,32 @@ async function renderAlbum(mainView) {
         <div class="polaroid-face ${m.is_ringleader ? 'rl' : ''}">${escapeHtml((m.display_name || '?').trim().slice(0, 1).toUpperCase())}</div>
         <figcaption><b>${escapeHtml(m.display_name)}</b><small>${escapeHtml(m.is_ringleader ? 'Ringleader' : rankLabel(m.rank))}${m.city ? ` · ${escapeHtml(m.city)}` : ''}</small><small>Met at ${escapeHtml(m.event_title || 'the carnival')} · ${new Date(sqlTime(m.met_at)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small><small class="polaroid-visit">Visit their room →</small></figcaption>
       </a></figure>`).join('') : `<div class="album-empty"><img src="${ROOM}raven_perched.png" alt=""><span>Volunteer for an event, take a job, and on the day tap <b>🤝 Shake hands</b> at your crew table.</span><a class="composer-submit" href="#/events">See what’s coming up</a></div>`}</div>`;
+}
+
+// ── Bring a friend (2026-10-22): your own invite link. A friend counts once
+// they're in; 1 = Shill, 5 = Ballyhoo (passport stamps, toward Apprentice).
+async function renderInvite(mainView) {
+  mainView.innerHTML = '<h2>Bring a friend</h2><div class="placeholder-note">Finding your link…</div>';
+  const inv = await apiFetch('/api/me/invite');
+  const goal = inv.joined < 1 ? 1 : inv.ballyhoo_at;
+  const left = Math.max(0, goal - inv.joined);
+  mainView.innerHTML = `
+    <h2>Bring a friend</h2>
+    <p class="album-sub">A carnival is only as good as its crowd. Send your people this link: when a friend you invited gets in, you win a badge for your trunk, and it counts toward Apprentice.</p>
+    <div class="invite-badges">
+      <div class="invite-badge ${inv.joined >= 1 ? 'won' : ''}">${badgePatch('shill')}<b>${BADGES.shill.name}</b><small>1 friend</small></div>
+      <div class="invite-badge ${inv.joined >= inv.ballyhoo_at ? 'won' : ''}">${badgePatch('ballyhoo')}<b>${BADGES.ballyhoo.name}</b><small>${inv.ballyhoo_at} friends</small></div>
+    </div>
+    <p class="invite-count"><b>${inv.joined}</b> friend${inv.joined === 1 ? '' : 's'} in${inv.waiting ? ` · ${inv.waiting} waiting to be let in` : ''}${left && inv.joined < inv.ballyhoo_at ? ` · ${left} more for ${goal === 1 ? 'Shill' : 'Ballyhoo'}` : ''}</p>
+    <div class="ds-link"><div class="ticket-qr">${qrSvg(inv.url)}</div><div>
+      <a href="${escapeHtml(inv.url)}" target="_blank" rel="noopener">${escapeHtml(inv.url)}</a><br>
+      <button class="composer-submit" data-copy>Copy my link</button>${navigator.share ? ' <button class="composer-submit" data-share>Share…</button>' : ''}
+      <br><span class="post-meta">Text it, post it, or let them scan the code off your phone.</span>
+    </div></div>`;
+  mainView.querySelector('[data-copy]').onclick = async () => {
+    try { await navigator.clipboard.writeText(inv.url); flashToast('Copied! Go round up your crowd.'); } catch (e) { flashToast(inv.url, 8000); }
+  };
+  mainView.querySelector('[data-share]')?.addEventListener('click', () => navigator.share({ title: 'Carnival Society', text: 'Come join me at Carnival Society: we build real carnivals together.', url: inv.url }).catch(() => {}));
 }
 
 // ── Run of show (2026-10-12): the event's timeline on its flyer. While the
@@ -5620,13 +5649,17 @@ const BADGES = {
   canvasman:  { name: 'Boss Canvasman',  motto: 'Raised the big top.',      glyph: '🎪', color: '#8B5FA3', how: 'Lead a crew, teach a skill, or host newcomers.', icon: 'M3 20 12 4l9 16z M12 4v16 M12 4l3-2' },
   // "Kinker": old circus slang for a performer.
   kinker:     { name: 'Kinker',          motto: 'I took the ring.',         glyph: '🎭', color: '#C9A227', how: 'Perform at a Carnival: an act, a set, a show.', icon: 'M5 5c4 2 10 2 14 0v6a7 7 0 0 1-14 0z M9 10h.01 M15 10h.01 M9 14c2 2 4 2 6 0 M12 2v1 M4 2l1 1 M20 2l-1 1' },
+  // Bring a friend (automatic): a friend from your invite link gets in.
+  shill:      { name: 'Shill',           motto: "Psst. It's the real deal.", glyph: '🤫', color: '#B0603A', how: 'Invite a friend with your link, and they get in.', icon: 'M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M2 20c0-3 3-5 6-5s6 2 6 5 M16 8h6 M19 5v6' },
+  ballyhoo:   { name: 'Ballyhoo',        motto: "The whole town's coming.", glyph: '🥁', color: '#A8323E', how: 'Bring in 5 friends with your invite link.', icon: 'M7 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M12 13a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M2 19c0-3 2-5 5-5 M22 19c0-3-2-5-5-5 M6 21c0-3 3-5 6-5s6 2 6 5' },
 };
-const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker'];
+const BADGE_ORDER = ['fix', 'ticket', 'roustabout', 'sawdust', 'barker', 'junk', 'canvasman', 'kinker', 'shill', 'ballyhoo'];
 const HAND_GRANTED_BADGES = ['sawdust', 'barker', 'junk', 'canvasman', 'roustabout', 'kinker'];
 
 // Neeff's painted badge patches (assets/badges/badge_<kind>.webp): the whole
 // round patch, name and motto included, used wherever a badge is shown big.
-const badgePatch = (kind, cls = 'badge-art-img') => `<img class="${cls}" src="assets/badges/badge_${kind}.webp" alt="" draggable="false">`;
+// Badges without a painted patch yet (shill, ballyhoo) show the mystery one.
+const badgePatch = (kind, cls = 'badge-art-img') => `<img class="${cls}" src="assets/badges/badge_${kind}.webp" alt="" draggable="false" onerror="this.onerror=null;this.src='assets/badges/badge_mystery.webp'">`;
 function badgeIcon(kind, size = 28) {
   return `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${BADGES[kind].icon}"/></svg>`;
 }
@@ -7315,7 +7348,7 @@ async function renderRoom(mainView, ownerId = null) {
       trunkEl.style.top = `${trunkItem.t + trunkItem.w / ROOM_ASSETS.trunk_closed - trunkItem.w / ROOM_ASSETS.trunk_open}%`;
     }
     // Two gentle rows across the middle of the room; newest flies last.
-    const slots = [[16, 25], [33, 22], [50, 21], [67, 22], [84, 25], [24.5, 49], [41.5, 47], [58.5, 47], [75.5, 49]];
+    const slots = [[12.5, 25], [27.5, 22], [42.5, 21], [57.5, 21], [72.5, 22], [87.5, 25], [20, 49], [35, 47], [50, 46], [65, 47], [80, 49]];
     const kinds = [...BADGE_ORDER, 'mystery'];
     if (newest) { kinds.splice(kinds.indexOf(newest), 1); kinds.push(newest); }
     const sr = scene.getBoundingClientRect(), tr = trunkEl.getBoundingClientRect();
@@ -7353,7 +7386,7 @@ async function renderRoom(mainView, ownerId = null) {
       const title = b ? b.name : '???';
       const line = !b ? 'Some prizes are a surprise. Keep showing up.'
         : st ? `“${b.motto}” — ${st.event_title ? escapeHtml(st.event_title) + ', ' : ''}${new Date(sqlTime(st.created_at)).toLocaleDateString()}${counts[k] > 1 ? ` · won ${counts[k]} times` : ''}`
-        : `Not won yet. ${b.how}`;
+        : `Not won yet. ${b.how}${k === 'shill' || k === 'ballyhoo' ? ' <a href="#/invite">Get your invite link →</a>' : ''}`;
       plaque.querySelector('.room-plaque-title').textContent = title;
       plaque.querySelector('.room-plaque-line').innerHTML = line;
     };
@@ -8891,7 +8924,7 @@ async function renderWaitlistTab(mainView) {
     ${waiting.length ? `<div class="post-actions wl-actions"><button class="composer-submit" data-next="10">Let in the next ${Math.min(10, waiting.length)}</button>${waiting.length > 10 ? `<button class="action-btn" data-next="${waiting.length}">Let everyone in (${waiting.length})</button>` : ''}</div>` : ''}
     <div class="door-recent">${waiting.map((w, i) => `
       <div class="door-entry wl-entry">${avatarFor(w.id, w.display_name, 48, w.avatar_url)}<div class="wl-who"><b>#${i + 1} ${escapeHtml(w.display_name)}</b>${w.wants_to_volunteer ? ' <span class="door-first">🙋 wants to volunteer</span>' : ''}${w.came ? ' <span class="door-first">came to a carnival</span>' : w.tickets ? ' <span class="door-first">has a ticket</span>' : ''}
-        <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}</div>
+        <div class="post-meta">${escapeHtml(w.city || '')}${w.email ? `${w.city ? ' · ' : ''}${escapeHtml(w.email)}` : ''} · waiting since ${new Date(sqlTime(w.waitlisted_at)).toLocaleDateString()}${w.heard_about_us ? ` · heard: ${escapeHtml(w.heard_about_us)}` : ''}${w.invited_by_name ? ` · invited by ${escapeHtml(w.invited_by_name)}` : ''}</div>
         ${w.intro ? `<div class="wl-intro"><small>📍 ${escapeHtml(w.intro.from)}${w.skills ? ` · 🎪 ${escapeHtml(w.skills)}` : ''}</small>${escapeHtml(w.intro.about)}</div>` : '<div class="wl-intro none">Hasn’t introduced themself yet.</div>'}</div>
         <button class="composer-submit" data-let="${w.id}">Let in</button></div>`).join('') || '<div class="placeholder-note">Nobody waiting. The line is clear!</div>'}</div></div>`;
   document.getElementById('testEmails').onclick = async ev => {
