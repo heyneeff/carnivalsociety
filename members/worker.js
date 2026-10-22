@@ -2596,6 +2596,14 @@ async function entryTier(env, ev) {
 // Already registered: paid the $5 once (the Fix stamp), or already let into
 // the troupe (off the waitlist: members, backers). Only waitlisted and brand
 // new accounts owe the one-time $5.
+// The hidden tier guest-list tickets hang off (free, never on sale).
+async function guestTier(env, ev) {
+  const t = await env.DB.prepare("SELECT id FROM ticket_tiers WHERE event_id = ? AND name = 'Guest list'").bind(ev.id).first();
+  if (t) return t.id;
+  const id = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO ticket_tiers (id, event_id, name, description, price_cents, active) VALUES (?, ?, 'Guest list', 'Free, from the Ringleader', 0, 0)").bind(id, ev.id).run();
+  return id;
+}
 async function hasFix(env, userId) {
   return !!await env.DB.prepare(
     "SELECT 1 FROM stamps WHERE user_id = ? AND kind = 'fix' UNION SELECT 1 FROM users WHERE id = ? AND waitlisted_at IS NULL LIMIT 1"
@@ -3106,6 +3114,55 @@ async function doorRoutes(request, env, url, user) {
   }
   if (part === "scan" && method === "POST") return doorScan(env, user, ev, (await body(request)).code);
 
+  // The guest list (2026-10-22): free tickets the Ringleader hands out by
+  // name, +N for their friends. Email optional; no email = a door-only
+  // account, found by name at the door.
+  if (part === "guestlist" && !arg) {
+    if (!isModerator(user)) return err(403, "Ringleaders only.");
+    if (method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT t.id, t.code, t.quantity, t.checked_in_at, t.created_at, u.display_name AS name, u.email FROM tickets t
+         JOIN ticket_tiers tt ON tt.id = t.tier_id JOIN users u ON u.id = t.user_id
+         WHERE t.event_id = ? AND tt.name = 'Guest list' ORDER BY u.display_name`
+      ).bind(eventId).all();
+      return json({ guests: results.map((g) => ({ ...g, email: g.email && g.email.endsWith("@" + DOOR_EMAIL_DOMAIN) ? null : g.email, link: `${siteUrl(env)}/#/ticket/${g.code}` })) });
+    }
+    if (method === "POST") {
+      const b = await body(request);
+      const qty = Math.min(TICKET_MAX, Math.max(1, Math.round(Number(b.quantity)) || 1));
+      let guest = null;
+      if (b.user_id) guest = await env.DB.prepare("SELECT id, display_name FROM users WHERE id = ?").bind(b.user_id).first();
+      if (!guest) {
+        const name = (b.name || "").trim().slice(0, 60);
+        if (!name) return err(400, "What's their name?");
+        const email = normalizeEmail(b.email || "");
+        if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, "That email doesn't look right.");
+        if (email) guest = await env.DB.prepare("SELECT id, display_name FROM users WHERE lower(email) = ?").bind(email).first();
+        if (!guest) {
+          const id = crypto.randomUUID();
+          const { hash, salt } = await hashPassword(bytesToHex(crypto.getRandomValues(new Uint8Array(24))));
+          await env.DB.prepare("INSERT INTO users (id, email, password_hash, salt, display_name, rank, heard_about_us, waitlisted_at) VALUES (?, ?, ?, ?, ?, 'clown', ?, datetime('now'))")
+            .bind(id, email || `${id}@${DOOR_EMAIL_DOMAIN}`, hash, salt, name, "Guest list: " + ev.title).run();
+          if (email) await letBackerIn(env, id, email);
+          guest = { id, display_name: name };
+        }
+      }
+      const tier = await guestTier(env, ev);
+      const id = crypto.randomUUID(), code = ticketCode();
+      await env.DB.prepare("INSERT INTO tickets (id, event_id, tier_id, user_id, status, price_cents, code, quantity) VALUES (?, ?, ?, ?, 'paid', 0, ?, ?)")
+        .bind(id, eventId, tier, guest.id, code, qty).run();
+      return json({ ok: true, id, code, name: guest.display_name, quantity: qty, link: `${siteUrl(env)}/#/ticket/${code}` });
+    }
+  }
+  if (part === "guestlist" && arg && method === "DELETE") {
+    if (!isModerator(user)) return err(403, "Ringleaders only.");
+    await env.DB.prepare(
+      `DELETE FROM tickets WHERE id = ? AND event_id = ? AND checked_in_at IS NULL
+       AND tier_id IN (SELECT id FROM ticket_tiers WHERE event_id = ? AND name = 'Guest list')`
+    ).bind(arg, eventId, eventId).run();
+    return json({ ok: true });
+  }
+
   // Find a member by name: just enough to let them in.
   if (part === "search" && method === "GET") {
     const q = (url.searchParams.get("q") || "").trim().toLowerCase();
@@ -3113,7 +3170,7 @@ async function doorRoutes(request, env, url, user) {
     const { results } = await env.DB.prepare(
       `SELECT u.id, u.display_name, u.city,
          (u.waitlisted_at IS NULL OR EXISTS (SELECT 1 FROM stamps s WHERE s.user_id = u.id AND s.kind = 'fix')) AS has_fix,
-         (SELECT t.code FROM tickets t WHERE t.user_id = u.id AND t.event_id = ? AND t.status = 'paid' LIMIT 1) AS ticket_code,
+         (SELECT t.code FROM tickets t WHERE t.user_id = u.id AND t.event_id = ? AND t.status IN ('paid', 'reserved') AND t.checked_in_at IS NULL LIMIT 1) AS ticket_code,
          EXISTS (SELECT 1 FROM job_claims c JOIN event_jobs j ON j.id = c.job_id WHERE c.user_id = u.id AND j.event_id = ?) AS crew,
          EXISTS (SELECT 1 FROM event_volunteers v WHERE v.user_id = u.id AND v.event_id = ?) AS volunteered,
          (SELECT d.created_at FROM door_entries d WHERE d.user_id = u.id AND d.event_id = ? AND d.voided_at IS NULL) AS admitted_at
@@ -3260,7 +3317,7 @@ async function doorRoutes(request, env, url, user) {
     ).bind(eventId).all();
     // Every ticket so far, paid online or saved for the door (newest first).
     const { results: tickets } = await env.DB.prepare(
-      `SELECT u.display_name AS name, u.email, t.status, t.price_cents, t.quantity, t.created_at, t.checked_in_at, p.amount_cents AS paid_cents
+      `SELECT u.display_name AS name, u.email, t.status, t.price_cents, t.quantity, t.created_at, (SELECT name FROM ticket_tiers WHERE id = t.tier_id) AS tier, t.checked_in_at, p.amount_cents AS paid_cents
        FROM tickets t JOIN users u ON u.id = t.user_id LEFT JOIN payments p ON p.stripe_session_id = t.stripe_session_id
        WHERE t.event_id = ? AND t.status IN ('paid', 'reserved') ORDER BY t.created_at DESC`
     ).bind(eventId).all();

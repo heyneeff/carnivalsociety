@@ -8104,7 +8104,7 @@ async function renderCheckinView(mainView, eventId) {
     <div class="door">
       <div class="door-head">
         <div><div class="door-kicker">🚪 The Door</div><h2>${escapeHtml(ev.title)}</h2></div>
-        ${d.ringleader ? `<div class="door-head-btns"><button class="action-btn" data-door-settings>⚙ Door settings</button><a class="action-btn" href="#/door-report/${eventId}">The night’s report</a></div>` : ''}
+        ${d.ringleader ? `<div class="door-head-btns"><button class="action-btn" data-guestlist>📋 Guest list</button><button class="action-btn" data-door-settings>⚙ Door settings</button><a class="action-btn" href="#/door-report/${eventId}">The night’s report</a></div>` : ''}
       </div>
       <div class="door-count" id="doorCount" aria-live="polite"></div>
       <form class="door-settings" id="doorSettings" hidden>
@@ -8120,6 +8120,15 @@ async function renderCheckinView(mainView, eventId) {
         <button class="action-btn" type="button" data-testpay>💳 Test a 50¢ payment</button>
         <div class="ds-link" id="doorLink"></div>
       </form>
+      ${d.ringleader ? `<div class="door-guestlist" id="doorGuests" hidden>
+        <form class="door-settings gl-form" id="glForm">
+          <label class="ds-wide">Name <input name="name" required maxlength="60" autocomplete="off" placeholder="Cha Cha"></label>
+          <label>Email <small>(optional)</small><input name="email" type="email" autocomplete="off" placeholder="sends nothing"></label>
+          <label>+ friends <input name="plus" type="number" min="0" max="9" value="0" inputmode="numeric"></label>
+          <button class="composer-submit" type="submit">Add to the guest list</button>
+        </form>
+        <div class="door-recent" id="glList"></div>
+      </div>` : ''}
       <div class="door-lanes" role="tablist">
         <button role="tab" data-lane="scan" aria-selected="true">📷 Scan</button>
         <button role="tab" data-lane="find" aria-selected="false">🔎 Find a member</button>
@@ -8204,6 +8213,31 @@ async function renderCheckinView(mainView, eventId) {
     if (lane === 'new') $('#doorNew [name=name]').focus();
   }));
   $('[data-door-settings]')?.addEventListener('click', () => { $('#doorSettings').hidden = !$('#doorSettings').hidden; });
+  // The guest list: free tickets by name, +friends. Copy the link to send it.
+  async function drawGuests() {
+    const { guests } = await apiFetch(`/api/events/${eventId}/door/guestlist`);
+    $('#glList').innerHTML = guests.length ? `<div class="post-meta">${guests.reduce((n, g) => n + g.quantity, 0)} on the guest list</div>` + guests.map(g => `
+      <div class="door-entry"><div><b>${escapeHtml(g.name)}</b>${g.quantity > 1 ? ` <b>+${g.quantity - 1}</b>` : ''}${g.checked_in_at ? ' <span class="volunteer-yes">✓ In</span>' : ''}
+        <div class="post-meta">${g.email ? escapeHtml(g.email) : 'no email · find them by name'}</div></div>
+        <div class="gl-btns"><button class="action-btn" data-gl-copy="${escapeHtml(g.link)}">Copy ticket link</button>${g.checked_in_at ? '' : `<button class="raven-offer-no" data-gl-del="${g.id}">Remove</button>`}</div></div>`).join('')
+      : '<div class="placeholder-note">Nobody on the guest list yet.</div>';
+  }
+  $('[data-guestlist]')?.addEventListener('click', () => { const g = $('#doorGuests'); g.hidden = !g.hidden; if (!g.hidden) drawGuests(); });
+  $('#glForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      await apiFetch(`/api/events/${eventId}/door/guestlist`, { method: 'POST', body: { name: f.name.value, email: f.email.value, quantity: 1 + (Number(f.plus.value) || 0) } });
+      f.reset(); drawGuests();
+    } catch (err) { flashToast(err.message); }
+    btn.disabled = false;
+  });
+  $('#glList')?.addEventListener('click', async e => {
+    const c = e.target.closest('[data-gl-copy]');
+    if (c) { try { await navigator.clipboard.writeText(c.dataset.glCopy); flashToast('Ticket link copied'); } catch (err) { prompt('Ticket link', c.dataset.glCopy); } return; }
+    const x = e.target.closest('[data-gl-del]');
+    if (x) { x.disabled = true; try { await apiFetch(`/api/events/${eventId}/door/guestlist/${x.dataset.glDel}`, { method: 'DELETE' }); drawGuests(); } catch (err) { flashToast(err.message); x.disabled = false; } }
+  });
   // Prove Stripe works for 50¢: the same checkout and webhook as a real ticket.
   $('[data-testpay]')?.addEventListener('click', async e => {
     e.target.disabled = true;
@@ -8290,8 +8324,8 @@ async function renderCheckinView(mainView, eventId) {
     $('#doorResults').innerHTML = members.map(m => `
       <div class="door-member">
         <div><b>${escapeHtml(m.display_name)}</b><div class="post-meta">${escapeHtml(m.city || '')}${m.crew ? ' · 🔨 on the crew' : m.volunteered ? ' · 🙋 volunteered' : ''}${m.ticket_code ? ' · 🎟️ has a ticket' : ''}${m.has_fix ? '' : ' · hasn’t paid the $5 yet'}</div></div>
-        ${m.admitted_at ? '<span class="volunteer-yes">✓ In</span>'
-          : m.ticket_code ? `<button class="composer-submit" data-ticket="${m.ticket_code}">Use their ticket</button>`
+        ${m.ticket_code ? `<button class="composer-submit" data-ticket="${m.ticket_code}">${m.admitted_at ? 'Use their other ticket' : 'Use their ticket'}</button>`
+          : m.admitted_at ? '<span class="volunteer-yes">✓ In</span>'
           : `<button class="composer-submit" data-admit="${m.id}" data-name="${escapeHtml(m.display_name)}" data-fix="${m.has_fix ? 1 : 0}" data-crew="${m.crew || m.volunteered ? 1 : 0}">Let in…</button>`}
       </div>`).join('') || `<div class="placeholder-note">No one by that name. <button class="raven-offer-no" data-to-new>New face?</button></div>`;
   }
@@ -8455,8 +8489,8 @@ async function renderDoorReport(mainView, eventId) {
       </div>
       <h3>Tickets so far (${(r.tickets || []).length})</h3>
       <div class="door-recent">${(r.tickets || []).map(x => `
-        <div class="door-entry"><div><b>${escapeHtml(x.name)}</b>${x.quantity > 1 ? ` <b>× ${x.quantity}</b>` : ''} ${x.status === 'paid' && x.paid_cents ? `<span class="door-first">paid ${doorMoney(x.paid_cents)} online</span>` : x.status === 'paid' ? '<span class="door-first">paid</span>' : ''}
-          <div class="post-meta">${x.status === 'reserved' ? `Saved ${x.quantity > 1 ? x.quantity + ' spots' : 'a spot'} · owes ${doorMoney(x.price_cents * x.quantity)}${x.quantity > 1 ? ' entry' : ''} at the door` : 'Paid ahead'}${x.checked_in_at ? ' · came in ✓' : ''} · ${escapeHtml(x.email || '')} · ${new Date(sqlTime(x.created_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div></div></div>`).join('') || '<div class="placeholder-note">No tickets yet.</div>'}</div>
+        <div class="door-entry"><div><b>${escapeHtml(x.name)}</b>${x.quantity > 1 ? ` <b>× ${x.quantity}</b>` : ''} ${x.tier === 'Guest list' ? '<span class="door-first">guest list</span>' : x.status === 'paid' && x.paid_cents ? `<span class="door-first">paid ${doorMoney(x.paid_cents)} online</span>` : x.status === 'paid' ? '<span class="door-first">paid</span>' : ''}
+          <div class="post-meta">${x.status === 'reserved' ? `Saved ${x.quantity > 1 ? x.quantity + ' spots' : 'a spot'} · owes ${doorMoney(x.price_cents * x.quantity)}${x.quantity > 1 ? ' entry' : ''} at the door` : x.tier === 'Guest list' ? 'Free' : 'Paid ahead'}${x.checked_in_at ? ' · came in ✓' : ''} · ${escapeHtml(x.email || '')} · ${new Date(sqlTime(x.created_at)).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div></div></div>`).join('') || '<div class="placeholder-note">No tickets yet.</div>'}</div>
       <h3>Volunteers (${(r.volunteers || []).length})</h3>
       <div class="door-recent">${(r.volunteers || []).map(v => `
         <div class="door-entry"><div><b>${escapeHtml(v.name)}</b>${v.jobs ? ` <span class="door-first">${escapeHtml(v.jobs)}</span>` : ''}

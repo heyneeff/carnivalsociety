@@ -2825,3 +2825,8 @@ p.nt-how { padding-left: 12px; }
 .invite-badge.won .badge-art-img { filter: drop-shadow(0 6px 0 rgba(0,0,0,0.45)); opacity: 1; }
 .invite-badge small { color: var(--cream-soft); }
 .invite-count { text-align: center; margin: 0 0 16px; }
+/* The guest list on The Door. */
+.door-guestlist { margin: 0 0 14px; }
+.door-guestlist .door-entry { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gl-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.gl-form small { text-transform: none; letter-spacing: 0; font-style: italic; opacity: 0.75; }
