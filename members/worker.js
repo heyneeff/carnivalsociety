@@ -2763,7 +2763,7 @@ async function publicRoutes(request, env, url) {
     // Already have one and just saving a single spot again: with email on, it
     // goes to the inbox (never shown to whoever typed the address). Paying, or
     // bringing friends, makes a new ticket.
-    if (have && qty === 1 && !b.pay) {
+    if (have && qty === 1 && !b.pay && !b.more) {
       if (env.RESEND_API_KEY) {
         const t = await env.DB.prepare("SELECT id FROM tickets WHERE code = ?").bind(have.code).first();
         if (await sendTicketEmail(env, t.id, { claim })) return json({ emailed: true, already: true });
@@ -2915,10 +2915,12 @@ const VOLUNTEER_HELP = [
 const TICKET_MAX = 10;
 // A group ticket's guests come through with the buyer: one door entry each,
 // no account, nothing stamped.
-async function addGuests(env, { eventId, ticketId, buyer, n, by, tickets }) {
+async function addGuests(env, { eventId, ticketId, buyer, n, by, tickets, amount = 0, method = null }) {
   const first = String(buyer || "").split(" ")[0];
   for (let i = 1; i < n; i++) {
-    await addEntry(env, { eventId, name: `${first}'s guest${n > 2 ? " " + i : ""}`, via: "ticket", ticketId, by, tickets });
+    // Money taken at the door for a saved spot rides on the first guest.
+    await addEntry(env, { eventId, name: `${first}'s guest${n > 2 ? " " + i : ""}`, via: amount ? "door" : "ticket", ticketId, by, tickets,
+      amount: i === 1 ? amount : 0, method: i === 1 ? method : null });
   }
   return Math.max(0, n - 1);
 }
@@ -2946,8 +2948,17 @@ async function doorScan(env, user, ev, code) {
      WHERE tickets.code = ? AND tickets.event_id = ?`
   ).bind(code || "", eventId).first();
   if (t) {
-    const was = await admitted(env, eventId, t.user_id);
-    if (was || t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: was?.created_at || t.checked_in_at });
+    if (t.checked_in_at) return json({ ok: false, already: true, display_name: t.display_name, checked_in_at: t.checked_in_at });
+    // Bought another ticket after their first (for friends): if they're
+    // already inside, this one is all guests.
+    if (await admitted(env, eventId, t.user_id)) {
+      const n = t.quantity || 1;
+      if (t.status === "reserved") return json({ ok: false, owes: true, extra: true, ticket_id: t.id, user_id: t.user_id, display_name: t.display_name, entry_cents: t.price_cents * n, quantity: n, has_fix: true });
+      if (t.status !== "paid") return err(404, "That ticket was never paid for.");
+      await env.DB.prepare("UPDATE tickets SET checked_in_at = datetime('now') WHERE id = ?").bind(t.id).run();
+      const guests = await addGuests(env, { eventId, ticketId: t.id, buyer: t.display_name, n: n + 1, by: user.id, tickets: give });
+      return json({ ok: true, display_name: t.display_name, tier_name: "their friends", guests, tickets_given: give * guests, extra: true });
+    }
     // A saved spot: they pay at the door, through the "Let in" sheet.
     if (t.status === "reserved") {
       const fix = await hasFix(env, t.user_id);
@@ -3144,6 +3155,16 @@ async function doorRoutes(request, env, url, user) {
       }
     }
     const was = await admitted(env, eventId, target.id);
+    // Already inside, paying off a second saved ticket: let its guests in.
+    if (was && b.ticket_id) {
+      const t = await env.DB.prepare("SELECT id, quantity FROM tickets WHERE id = ? AND event_id = ? AND user_id = ? AND status = 'reserved'").bind(b.ticket_id, eventId, target.id).first();
+      if (!t) return err(400, "That saved spot is already settled.");
+      if (via === "door" && amount > 0 && !pay) return err(400, "Cash or card?");
+      await env.DB.prepare("UPDATE tickets SET status = 'paid', price_cents = ?, checked_in_at = datetime('now') WHERE id = ?").bind(via === "door" ? Math.round(amount / (t.quantity || 1)) : 0, t.id).run();
+      const give = via === "crew" ? 0 : ev.entry_tickets || 0;
+      const guests = await addGuests(env, { eventId, ticketId: t.id, buyer: target.display_name, n: (t.quantity || 1) + 1, by: user.id, tickets: give, amount: via === "door" ? amount : 0, method: pay });
+      return json({ ok: true, display_name: target.display_name, tier_name: "their friends", guests, tickets_given: give * guests, extra: true });
+    }
     if (was) return json({ ok: false, already: true, display_name: target.display_name, checked_in_at: was.created_at });
     const fixed = await hasFix(env, target.id);
     const regCents = Number(env.MEMBERSHIP_PRICE_CENTS || 500);

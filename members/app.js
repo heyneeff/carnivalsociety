@@ -8263,8 +8263,10 @@ async function renderCheckinView(mainView, eventId) {
     try {
       const r = await apiFetch(`/api/events/${eventId}/door/scan`, { method: 'POST', body: { code } });
       if (r.owes) {
-        flash(false, `<b>${escapeHtml(r.display_name)}</b> saved ${r.quantity > 1 ? `${r.quantity} spots (them + ${r.quantity - 1})` : 'a spot'}. Take their entry below.`);
-        openAdmit({ user_id: r.user_id, name: r.display_name, hasFix: r.has_fix, ticket_id: r.ticket_id, entry: r.entry_cents, party: r.quantity }, result);
+        flash(false, r.extra
+          ? `<b>${escapeHtml(r.display_name)}</b> is already in; this ticket saved ${r.quantity} more for their friends. Take their entry below.`
+          : `<b>${escapeHtml(r.display_name)}</b> saved ${r.quantity > 1 ? `${r.quantity} spots (them + ${r.quantity - 1})` : 'a spot'}. Take their entry below.`);
+        openAdmit({ user_id: r.user_id, name: r.display_name, hasFix: r.has_fix, ticket_id: r.ticket_id, entry: r.entry_cents, party: r.quantity, extra: r.extra }, result);
         return;
       }
       flash(r.ok, said(r)); refresh();
@@ -8318,7 +8320,7 @@ async function renderCheckinView(mainView, eventId) {
     sheet = document.createElement('form');
     sheet.className = 'door-admit';
     sheet.innerHTML = `
-      <div class="da-who">Letting in <b>${escapeHtml(who.name)}</b>${who.party > 1 ? ` + ${who.party - 1} guest${who.party > 2 ? 's' : ''}` : ''}${who.fresh ? ' <span class="door-first">new face</span>' : ''}</div>
+      <div class="da-who">${who.extra ? `Letting in <b>${who.party} friend${who.party > 1 ? 's' : ''}</b> on ${escapeHtml(who.name)}’s ticket` : `Letting in <b>${escapeHtml(who.name)}</b>`}${who.extra ? '' : ''}${!who.extra && who.party > 1 ? ` + ${who.party - 1} guest${who.party > 2 ? 's' : ''}` : ''}${who.fresh ? ' <span class="door-first">new face</span>' : ''}</div>
       <div class="da-seg" data-seg="via">
         <button type="button" data-v="door" aria-pressed="${!who.crew}">💵 Paying</button>
         <button type="button" data-v="comp" aria-pressed="false">🌟 Comp</button>
@@ -8646,7 +8648,16 @@ async function renderGetIn(idOrSlug, errorMsg = '') {
       const r = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay, quantity: qty, join_partner: !!f.join?.checked } });
       if (r.url) { window.location.href = r.url; return; }
       // An existing account's ticket goes to its inbox, never the screen.
-      if (!r.code) { renderTicketSent(f.email.value, r.already, ev.slug || idOrSlug); return; }
+      if (!r.code) {
+        // Already holding a ticket: offer one more spot for a friend.
+        const again = async () => {
+          try {
+            const m = await apiFetch(`/api/public/events/${ev.id}/get`, { method: 'POST', body: { name: f.name.value, email: f.email.value, pay: false, quantity: 1, more: true } });
+            if (m.code) location.hash = `#/ticket/${m.code}${m.claim ? '/' + m.claim : ''}`; else renderTicketSent(f.email.value, false, ev.slug || idOrSlug);
+          } catch (err) { renderGetIn(idOrSlug, err.message); }
+        };
+        renderTicketSent(f.email.value, r.already, ev.slug || idOrSlug, again); return;
+      }
       try { if (r.emailed) sessionStorage.setItem('cs-ticket-emailed', r.code); } catch (e) { /* fine */ }
       location.hash = `#/ticket/${r.code}${r.claim ? '/' + r.claim : ''}`;
     } catch (err) { renderGetIn(idOrSlug, err.message); }
@@ -8703,12 +8714,14 @@ async function renderHelpPage(slug, errorMsg = '') {
   });
 }
 // "Check your email": the ticket went to the inbox for that address.
-function renderTicketSent(email, already, slug) {
+function renderTicketSent(email, already, slug, more) {
   app.innerHTML = `<div class="getin"><div class="getin-card">${getinMarquee(already ? 'You’re already in!' : 'Spot saved!', slug)}<div class="gi-body">
     <h1>Check your email</h1>
     <p class="gi-desc gi-center">${already ? 'You already have a ticket for this one.' : 'Your ticket is on its way.'} We sent it to <b>${escapeHtml(email)}</b>. It has your QR code for the door.</p>
     <p class="gi-fine">Nothing there? Check spam, or just give your name at the door. We’ll find you.</p>
+    ${already && more ? `<button class="gi-btn gi-btn-2" type="button" data-more>Bringing a friend? Save 1 more spot</button>` : ''}
   </div></div></div>`;
+  app.querySelector('[data-more]')?.addEventListener('click', e => { e.target.disabled = true; e.target.textContent = 'Saving…'; more(); });
 }
 // The ticket, as the buyer's phone shows it at the door.
 async function renderTicketPage(code, claim, tries = 0) {
